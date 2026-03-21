@@ -1,7 +1,9 @@
 package de.bund.zrb.ui.mail;
 
 import de.bund.zrb.mail.infrastructure.FileSystemMailStore;
+import de.bund.zrb.mail.infrastructure.MailMetadataIndex;
 import de.bund.zrb.mail.infrastructure.PstMailboxReader;
+import de.bund.zrb.mail.infrastructure.PstStderrFilter;
 import de.bund.zrb.mail.model.*;
 import de.bund.zrb.mail.port.MailStore;
 import de.bund.zrb.mail.port.MailboxReader;
@@ -98,6 +100,10 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
     private final java.util.Map<String, MailFolderRef> displayToFolder = new java.util.LinkedHashMap<>();
     /** Maps display string → message header for click resolution. */
     private final java.util.Map<String, MailMessageHeader> displayToMessage = new java.util.LinkedHashMap<>();
+    /** Maps display string → metadata entry for click resolution (index-based mode). */
+    private final java.util.Map<String, MailMetadataIndex.MailMetadataEntry> displayToMetadata = new java.util.LinkedHashMap<>();
+    /** True when current view is driven by the Lucene metadata index (sorted mode). */
+    private boolean indexMode = false;
 
     private enum ViewMode {
         MAILBOX_LIST,    // list of OST/PST files
@@ -300,6 +306,11 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
                 if (displayToMessage.containsKey(selectedText)) {
                     MailMessageHeader msg = displayToMessage.get(selectedText);
                     openMailReadOnly(msg);
+                    return;
+                }
+                if (displayToMetadata.containsKey(selectedText)) {
+                    MailMetadataIndex.MailMetadataEntry metadata = displayToMetadata.get(selectedText);
+                    openMailFromMetadata(metadata);
                     return;
                 }
                 break;
@@ -507,7 +518,12 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         SwingWorker<List<MailFolderRef>, Void> worker = new SwingWorker<List<MailFolderRef>, Void>() {
             @Override
             protected List<MailFolderRef> doInBackground() throws Exception {
-                return listMailboxItemsUseCase.listFoldersByCategory(mailboxPath, category);
+                PstStderrFilter.Guard g = PstStderrFilter.install();
+                try {
+                    return listMailboxItemsUseCase.listFoldersByCategory(mailboxPath, category);
+                } finally {
+                    g.uninstall();
+                }
             }
 
             @Override
@@ -549,6 +565,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         this.currentMailboxPath = mailboxPath;
         this.currentFolderPath = folderPath;
         this.viewMode = ViewMode.MESSAGE_LIST;
+        this.indexMode = false;
         pathField.setText("mailbox: " + new java.io.File(mailboxPath).getName() + " \u25B8 " + folderPath);
         searchBar.setText("");
         statusLabel.setText("Lade\u2026");
@@ -563,6 +580,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
 
             @Override
             protected Void doInBackground() {
+                PstStderrFilter.Guard g = PstStderrFilter.install();
                 try {
                     folders = listMailboxItemsUseCase.listSubFolders(mailboxPath, folderPath);
                     msgCount = listMailboxItemsUseCase.getMessageCount(mailboxPath, folderPath);
@@ -570,6 +588,8 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
                 } catch (Exception e) {
                     LOG.log(Level.SEVERE, "Error loading folder contents", e);
                     error = extractErrorMessage(e);
+                } finally {
+                    g.uninstall();
                 }
                 return null;
             }
@@ -619,6 +639,11 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
      * Loads the next page of messages and appends to current list.
      */
     private void loadMoreMessages() {
+        // Delegate to index-based loader when in sorted mode
+        if (indexMode) {
+            loadMoreFromIndex();
+            return;
+        }
         if (!hasMoreMessages || currentMailboxPath == null || currentFolderPath == null) return;
 
         statusLabel.setText("Lade weitere Nachrichten…");
@@ -636,8 +661,13 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         SwingWorker<List<MailMessageHeader>, Void> worker = new SwingWorker<List<MailMessageHeader>, Void>() {
             @Override
             protected List<MailMessageHeader> doInBackground() throws Exception {
-                return listMailboxItemsUseCase.listMessages(currentMailboxPath, currentFolderPath,
-                        offset, PAGE_SIZE);
+                PstStderrFilter.Guard g = PstStderrFilter.install();
+                try {
+                    return listMailboxItemsUseCase.listMessages(currentMailboxPath, currentFolderPath,
+                            offset, PAGE_SIZE);
+                } finally {
+                    g.uninstall();
+                }
             }
 
             @Override
@@ -681,6 +711,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         currentDisplayNames = new ArrayList<>();
         displayToFolder.clear();
         displayToMessage.clear();
+        displayToMetadata.clear();
         listModel.clear();
     }
 
@@ -716,8 +747,13 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         SwingWorker<MailMessageContent, Void> worker = new SwingWorker<MailMessageContent, Void>() {
             @Override
             protected MailMessageContent doInBackground() throws Exception {
-                return openMailMessageUseCase.execute(
-                        currentMailboxPath, header.getFolderPath(), header.getDescriptorNodeId());
+                PstStderrFilter.Guard g = PstStderrFilter.install();
+                try {
+                    return openMailMessageUseCase.execute(
+                            currentMailboxPath, header.getFolderPath(), header.getDescriptorNodeId());
+                } finally {
+                    g.uninstall();
+                }
             }
 
             @Override
@@ -781,58 +817,251 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
 
     /**
      * Re-sort the current message list according to the selected sort order.
-     * Only applies when in MESSAGE_LIST mode with actual messages loaded.
+     * <p>
+     * "Originalreihenfolge" → reload directly from PST (page-by-page, unsorted).
+     * "Datum ↓/↑" → switch to index-based mode: query {@link MailMetadataIndex}
+     * for ALL mails in the folder, sorted by delivery time, with paging.
      */
     private void applySortOrder() {
-        if (viewMode != ViewMode.MESSAGE_LIST || currentMessages.isEmpty()) return;
+        if (viewMode != ViewMode.MESSAGE_LIST) return;
+        if (currentMailboxPath == null || currentFolderPath == null) return;
 
         String selected = (String) sortCombo.getSelectedItem();
 
-        // "Originalreihenfolge" → reload from store order (no client-side sort)
         if (SORT_ORIGINAL.equals(selected)) {
-            refresh();
+            // Switch back to PST-based unsorted view
+            indexMode = false;
+            loadFolderContents(currentMailboxPath, currentFolderPath);
             return;
         }
 
+        // Sorted mode → use Lucene metadata index
         boolean ascending = SORT_DATE_ASC.equals(selected);
+        loadFolderFromIndex(currentMailboxPath, currentFolderPath, ascending);
+    }
 
-        // Sort the messages list by date
-        List<MailMessageHeader> sorted = new ArrayList<>(currentMessages);
-        Collections.sort(sorted, new Comparator<MailMessageHeader>() {
+    // ─── Index-based sorted loading ───
+
+    /**
+     * Load folder contents from the {@link MailMetadataIndex} (sorted by date).
+     * Sub-folders are still loaded from PST (fast), but messages come from the index.
+     * Falls back to PST-based loading if the index has no data for this folder.
+     */
+    private void loadFolderFromIndex(final String mailboxPath, final String folderPath,
+                                     final boolean ascending) {
+        statusLabel.setText("Lade sortiert aus Index…");
+
+        new SwingWorker<Void, Void>() {
+            private List<MailFolderRef> folders = new ArrayList<>();
+            private List<MailMetadataIndex.MailMetadataEntry> metaEntries = new ArrayList<>();
+            private int indexCount = 0;
+            private String error = null;
+            private boolean fallback = false;
+
             @Override
-            public int compare(MailMessageHeader a, MailMessageHeader b) {
-                Date da = a.getDate();
-                Date db = b.getDate();
-                if (da == null && db == null) return 0;
-                if (da == null) return ascending ? -1 : 1;
-                if (db == null) return ascending ? 1 : -1;
-                return ascending ? da.compareTo(db) : db.compareTo(da);
+            protected Void doInBackground() {
+                try {
+                    // Sub-folders from PST (lightweight)
+                    PstStderrFilter.Guard g = PstStderrFilter.install();
+                    try {
+                        folders = listMailboxItemsUseCase.listSubFolders(mailboxPath, folderPath);
+                    } finally {
+                        g.uninstall();
+                    }
+
+                    // Messages from Lucene metadata index
+                    MailMetadataIndex idx = MailMetadataIndex.getInstance();
+                    indexCount = idx.countByFolder(mailboxPath, folderPath);
+
+                    if (indexCount == 0) {
+                        // Index has no data for this folder — fall back to PST
+                        fallback = true;
+                        return null;
+                    }
+
+                    metaEntries = idx.listByFolder(mailboxPath, folderPath,
+                            ascending, 0, PAGE_SIZE);
+                } catch (Exception e) {
+                    LOG.log(Level.WARNING, "Error loading from index", e);
+                    error = extractErrorMessage(e);
+                }
+                return null;
             }
-        });
 
-        // Rebuild display list: keep folders at top, then sorted messages
-        rebuildDisplayList();
-        for (MailFolderRef f : currentFolders) {
-            String display = f.toString();
-            currentDisplayNames.add(display);
-            displayToFolder.put(display, f);
-            listModel.addElement(display);
-        }
-        for (MailMessageHeader m : sorted) {
-            String display = m.toString();
-            currentDisplayNames.add(display);
-            displayToMessage.put(display, m);
-            listModel.addElement(display);
-        }
-        if (hasMoreMessages) {
-            String marker = LOAD_MORE_MARKER + " (" + currentOffset + "/" + totalMessageCount + ")";
-            currentDisplayNames.add(marker);
-            listModel.addElement(marker);
+            @Override
+            protected void done() {
+                if (error != null) {
+                    showError(error);
+                    statusLabel.setText("Fehler");
+                    return;
+                }
+
+                if (fallback) {
+                    // No index data → inform user and stay in PST mode
+                    indexMode = false;
+                    statusLabel.setText("⚠ Kein Index für diesen Ordner — Sync läuft noch? Zeige Originalreihenfolge.");
+                    sortCombo.setSelectedItem(SORT_ORIGINAL);
+                    return;
+                }
+
+                // Switch to index mode
+                indexMode = true;
+                currentFolders = folders;
+                currentMessages = Collections.emptyList(); // not used in index mode
+                currentMailboxes = Collections.emptyList();
+                totalMessageCount = indexCount;
+                currentOffset = metaEntries.size();
+                hasMoreMessages = currentOffset < totalMessageCount;
+                rebuildDisplayList();
+
+                // Sub-folders at top
+                for (MailFolderRef f : folders) {
+                    String display = f.toString();
+                    currentDisplayNames.add(display);
+                    displayToFolder.put(display, f);
+                    listModel.addElement(display);
+                }
+
+                // Sorted messages from index
+                for (MailMetadataIndex.MailMetadataEntry entry : metaEntries) {
+                    String display = entry.toDisplayString();
+                    currentDisplayNames.add(display);
+                    displayToMetadata.put(display, entry);
+                    listModel.addElement(display);
+                }
+
+                if (hasMoreMessages && !metaEntries.isEmpty()) {
+                    String marker = LOAD_MORE_MARKER + " (" + currentOffset + "/" + totalMessageCount + ")";
+                    currentDisplayNames.add(marker);
+                    listModel.addElement(marker);
+                }
+
+                updateIndexStatusText();
+                tabbedPaneManager.refreshStarForTab(MailConnectionTab.this);
+
+                // Re-apply filter if active
+                String filter = searchBar.getText().trim();
+                if (!filter.isEmpty()) applySearchFilter();
+            }
+        }.execute();
+    }
+
+    /**
+     * Load the next page of sorted messages from the metadata index.
+     */
+    private void loadMoreFromIndex() {
+        if (!hasMoreMessages || currentMailboxPath == null || currentFolderPath == null) return;
+
+        statusLabel.setText("Lade weitere sortierte Nachrichten…");
+
+        // Remove the "load more" marker
+        if (!currentDisplayNames.isEmpty()) {
+            String last = currentDisplayNames.get(currentDisplayNames.size() - 1);
+            if (last.startsWith(LOAD_MORE_MARKER)) {
+                currentDisplayNames.remove(currentDisplayNames.size() - 1);
+                listModel.removeElement(last);
+            }
         }
 
-        // Re-apply filter if active
-        String filter = searchBar.getText().trim();
-        if (!filter.isEmpty()) applySearchFilter();
+        final int offset = currentOffset;
+        final boolean ascending = SORT_DATE_ASC.equals(sortCombo.getSelectedItem());
+
+        new SwingWorker<List<MailMetadataIndex.MailMetadataEntry>, Void>() {
+            @Override
+            protected List<MailMetadataIndex.MailMetadataEntry> doInBackground() {
+                MailMetadataIndex idx = MailMetadataIndex.getInstance();
+                return idx.listByFolder(currentMailboxPath, currentFolderPath,
+                        ascending, offset, PAGE_SIZE);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<MailMetadataIndex.MailMetadataEntry> newEntries = get();
+                    currentOffset += newEntries.size();
+                    hasMoreMessages = currentOffset < totalMessageCount && !newEntries.isEmpty();
+
+                    for (MailMetadataIndex.MailMetadataEntry entry : newEntries) {
+                        String display = entry.toDisplayString();
+                        currentDisplayNames.add(display);
+                        displayToMetadata.put(display, entry);
+                        listModel.addElement(display);
+                    }
+
+                    if (hasMoreMessages && !newEntries.isEmpty()) {
+                        String marker = LOAD_MORE_MARKER + " (" + currentOffset + "/" + totalMessageCount + ")";
+                        currentDisplayNames.add(marker);
+                        listModel.addElement(marker);
+                    }
+
+                    updateIndexStatusText();
+                } catch (Exception e) {
+                    LOG.log(Level.SEVERE, "Error loading more from index", e);
+                    showError("Fehler beim Laden:\n" + extractErrorMessage(e));
+                }
+            }
+        }.execute();
+    }
+
+    private void updateIndexStatusText() {
+        List<String> parts = new ArrayList<>();
+        if (!currentFolders.isEmpty()) {
+            parts.add(currentFolders.size() + " Ordner");
+        }
+        if (totalMessageCount > 0) {
+            int shown = displayToMetadata.size();
+            parts.add(shown + " von " + totalMessageCount + " Nachrichten (Index-sortiert)");
+        }
+        if (parts.isEmpty()) {
+            statusLabel.setText("Leer");
+        } else {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < parts.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(parts.get(i));
+            }
+            statusLabel.setText(sb.toString());
+        }
+    }
+
+    /**
+     * Open a mail from a metadata index entry (used in index-sorted mode).
+     * Uses the same mailbox path, folder path, and descriptor node ID as the header-based version.
+     */
+    private void openMailFromMetadata(final MailMetadataIndex.MailMetadataEntry entry) {
+        statusLabel.setText("Lade Nachricht…");
+        mainPanel.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+
+        new SwingWorker<MailMessageContent, Void>() {
+            @Override
+            protected MailMessageContent doInBackground() throws Exception {
+                PstStderrFilter.Guard g = PstStderrFilter.install();
+                try {
+                    return openMailMessageUseCase.execute(
+                            entry.mailboxPath, entry.folderPath, entry.nodeId);
+                } finally {
+                    g.uninstall();
+                }
+            }
+
+            @Override
+            protected void done() {
+                mainPanel.setCursor(Cursor.getDefaultCursor());
+                try {
+                    MailMessageContent content = get();
+                    String title = content.getHeader().getSubject();
+                    if (title == null || title.isEmpty()) title = "(kein Betreff)";
+
+                    MailPreviewTab mailTab = new MailPreviewTab(content, entry.mailboxPath);
+                    tabbedPaneManager.addTab(mailTab);
+                    statusLabel.setText("Nachricht geöffnet: " + title);
+                } catch (Exception e) {
+                    LOG.log(Level.SEVERE, "Error opening mail from index", e);
+                    showError("Fehler beim Öffnen der Nachricht:\n" + extractErrorMessage(e));
+                    statusLabel.setText("Fehler beim Öffnen");
+                }
+            }
+        }.execute();
     }
 
     // ─── Mail Index Search (Lucene) ───

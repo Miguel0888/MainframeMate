@@ -1,13 +1,13 @@
 package de.bund.zrb.mail.service;
 
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.mail.infrastructure.MailMetadataIndex;
 import de.bund.zrb.mail.infrastructure.PstMailboxReader;
+import de.bund.zrb.mail.infrastructure.PstStderrFilter;
 import de.bund.zrb.mail.model.MailboxCategory;
 import de.bund.zrb.mail.port.MailboxReader;
 import de.bund.zrb.model.Settings;
 
-import java.io.OutputStream;
-import java.io.PrintStream;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
@@ -205,13 +205,7 @@ public class MailService {
         int totalNew = 0;
         int totalErrors = 0;
 
-        PrintStream filteredErr = null;
-        PrintStream originalErr = null;
-        if (isSuppressStderr()) {
-            originalErr = System.err;
-            filteredErr = createFilteredErrStream(originalErr);
-            System.setErr(filteredErr);
-        }
+        PstStderrFilter.Guard stderrGuard = isSuppressStderr() ? PstStderrFilter.install() : null;
 
         try {
             for (MailConnection conn : connections) {
@@ -239,9 +233,7 @@ public class MailService {
                 }
             }
         } finally {
-            if (originalErr != null) {
-                System.setErr(originalErr);
-            }
+            if (stderrGuard != null) stderrGuard.uninstall();
         }
 
         if (totalErrors > 0) {
@@ -265,13 +257,7 @@ public class MailService {
 
         Set<MailboxCategory> categories = loadSyncCategories();
 
-        PrintStream filteredErr = null;
-        PrintStream originalErr = null;
-        if (isSuppressStderr()) {
-            originalErr = System.err;
-            filteredErr = createFilteredErrStream(originalErr);
-            System.setErr(filteredErr);
-        }
+        PstStderrFilter.Guard stderrGuard = isSuppressStderr() ? PstStderrFilter.install() : null;
 
         try {
             MailDeltaDetector.DeltaResult result = deltaDetector.deltaSync(connection, categories);
@@ -304,9 +290,7 @@ public class MailService {
             lastError = e.getMessage();
             updateStatus(MailSyncStatus.ERROR);
         } finally {
-            if (originalErr != null) {
-                System.setErr(originalErr);
-            }
+            if (stderrGuard != null) stderrGuard.uninstall();
         }
     }
 
@@ -364,6 +348,11 @@ public class MailService {
         return Collections.unmodifiableList(connections);
     }
 
+    /** Get the dedicated mail metadata index (for sorted queries / folder listing). */
+    public MailMetadataIndex getMetadataIndex() {
+        return MailMetadataIndex.getInstance();
+    }
+
     public void addStatusListener(StatusListener listener) {
         statusListeners.add(listener);
     }
@@ -406,48 +395,6 @@ public class MailService {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  stderr filter
-    // ═══════════════════════════════════════════════════════════════
-
-    /**
-     * Creates a filtered stderr that suppresses java-libpst noise:
-     * - "Unknown message type: ..."
-     * - "Can't get children for folder ..."
-     * - "getNodeInfo: block doesn't exist! ..."
-     * - Standalone numbers, hex dumps, and "---" lines
-     */
-    private static PrintStream createFilteredErrStream(final PrintStream original) {
-        return new PrintStream(new OutputStream() {
-            private final StringBuilder line = new StringBuilder();
-
-            @Override
-            public void write(int b) {
-                if (b == '\n') {
-                    String msg = line.toString().trim();
-                    if (!shouldSuppress(msg)) {
-                        original.println(msg);
-                    }
-                    line.setLength(0);
-                } else {
-                    line.append((char) b);
-                }
-            }
-
-            private boolean shouldSuppress(String msg) {
-                if (msg.isEmpty()) return true;
-                if (msg.startsWith("Unknown message type:")) return true;
-                if (msg.startsWith("Can't get children for folder")) return true;
-                if (msg.startsWith("getNodeInfo:")) return true;
-                if (msg.equals("---")) return true;
-                // Suppress standalone numbers (e.g. "4", "1")
-                if (msg.matches("^\\d+$")) return true;
-                // Suppress hex dump lines (e.g. "f1f1 436a  ññCj")
-                if (msg.matches("^[0-9a-f]{4}\\s.*")) return true;
-                return false;
-            }
-        });
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Shutdown

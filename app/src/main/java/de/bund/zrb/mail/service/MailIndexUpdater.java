@@ -2,8 +2,10 @@ package de.bund.zrb.mail.service;
 
 import de.bund.zrb.ingestion.model.document.Document;
 import de.bund.zrb.ingestion.model.document.DocumentMetadata;
+import de.bund.zrb.mail.infrastructure.MailMetadataIndex;
 import de.bund.zrb.rag.service.RagService;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.logging.Level;
@@ -48,8 +50,13 @@ public class MailIndexUpdater {
         }
 
         RagService rag = RagService.getInstance();
+        MailMetadataIndex metaIndex = MailMetadataIndex.getInstance();
         int indexed = 0;
         int errors = 0;
+
+        // Collect metadata entries for batch indexing
+        List<MailMetadataIndex.MailMetadataEntry> metaBatch =
+                new ArrayList<MailMetadataIndex.MailMetadataEntry>();
 
         for (MailDeltaDetector.MailCandidate mc : candidates) {
             try {
@@ -57,6 +64,22 @@ public class MailIndexUpdater {
                 String documentId = mc.toItemPath();
                 String documentName = buildDocumentName(mc);
 
+                // ── 1. Metadata index (lightweight — always succeeds) ──
+                metaBatch.add(new MailMetadataIndex.MailMetadataEntry(
+                        documentId,
+                        mc.mailboxPath,
+                        mc.folderPath,
+                        mc.descriptorNodeId,
+                        mc.subject,
+                        mc.sender,
+                        mc.recipients,
+                        mc.deliveryTime != null ? mc.deliveryTime.getTime() : 0,
+                        mc.messageClass,
+                        mc.hasAttachments,
+                        mc.size
+                ));
+
+                // ── 2. Full-text RAG index (may fail for large/corrupt mails) ──
                 // Read full content via MailboxReader
                 String fullText = extractFullText(mc);
                 if (fullText == null || fullText.trim().isEmpty()) {
@@ -96,11 +119,18 @@ public class MailIndexUpdater {
             }
         }
 
-        // Flush index to persist
+        // Flush RAG index to persist
         try {
             rag.flushIndex();
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[MailIndex] Flush failed", e);
+        }
+
+        // Batch-flush metadata index
+        try {
+            metaIndex.indexBatch(metaBatch);
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[MailIndex] Metadata batch index failed", e);
         }
 
         LOG.info("[MailIndex] Indexed: " + indexed + ", errors: " + errors);
