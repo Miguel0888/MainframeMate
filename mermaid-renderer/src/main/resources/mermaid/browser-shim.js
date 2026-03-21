@@ -132,18 +132,109 @@ function createStyleObject() {
     return style;
 }
 
+// ── SVG namespace constants ──────────────────────────────────────────────────
+var SVG_NS = 'http://www.w3.org/2000/svg';
+var XHTML_NS = 'http://www.w3.org/1999/xhtml';
+var XLINK_NS = 'http://www.w3.org/1999/xlink';
+
+// ── XML attribute escaping ──────────────────────────────────────────────────
+function _escapeXmlAttr(val) {
+    if (val == null) return '';
+    return String(val).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function _escapeXmlText(val) {
+    if (val == null) return '';
+    return String(val).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Element serialization helper ────────────────────────────────────────────
+function _serializeNode(node, parentNs) {
+    if (!node) return '';
+    if (node.nodeType === 3) return _escapeXmlText(node.textContent || '');
+    if (node.nodeType !== 1) return '';
+
+    var tag = (node.tagName || 'div').toLowerCase();
+    var ns = node.namespaceURI || XHTML_NS;
+    var attrs = '';
+
+    // Emit xmlns only when namespace differs from parent
+    if (ns && ns !== parentNs) {
+        attrs += ' xmlns="' + ns + '"';
+    }
+
+    if (node._attrs) {
+        var keys = Object.keys(node._attrs);
+        for (var i = 0; i < keys.length; i++) {
+            var key = keys[i];
+            // Don't double-emit xmlns if we already added it above
+            if (key === 'xmlns' && node._attrs[key] === ns && ns !== parentNs) continue;
+            attrs += ' ' + key + '="' + _escapeXmlAttr(node._attrs[keys[i]]) + '"';
+        }
+    }
+
+    // Serialize style properties inline
+    if (node.style && node.style._props) {
+        var styleKeys = Object.keys(node.style._props);
+        if (styleKeys.length > 0) {
+            var styleStr = '';
+            for (var s = 0; s < styleKeys.length; s++) {
+                if (styleStr) styleStr += '; ';
+                styleStr += styleKeys[s] + ': ' + node.style._props[styleKeys[s]];
+            }
+            if (!node._attrs || !node._attrs['style']) {
+                attrs += ' style="' + _escapeXmlAttr(styleStr) + '"';
+            }
+        }
+    }
+
+    // Serialize children
+    var inner = '';
+    if (node.childNodes && node.childNodes.length > 0) {
+        for (var j = 0; j < node.childNodes.length; j++) {
+            inner += _serializeNode(node.childNodes[j], ns);
+        }
+    } else if (node._innerHTMLRaw) {
+        inner = node._innerHTMLRaw;
+    }
+
+    // Self-closing void SVG elements
+    var voidSvgTags = { 'path': 1, 'circle': 1, 'ellipse': 1, 'line': 1, 'polyline': 1,
+                        'polygon': 1, 'rect': 1, 'use': 1, 'image': 1, 'br': 1, 'hr': 1,
+                        'img': 1, 'input': 1, 'meta': 1, 'link': 1 };
+    if (!inner && voidSvgTags[tag]) {
+        return '<' + tag + attrs + '/>';
+    }
+
+    return '<' + tag + attrs + '>' + inner + '</' + tag + '>';
+}
+
+// ── Text width estimation (for layout without a real rendering engine) ──────
+function _estimateTextWidth(el) {
+    // Get text content from this element and immediate text-node children
+    var text = '';
+    if (el.childNodes && el.childNodes.length > 0) {
+        for (var i = 0; i < el.childNodes.length; i++) {
+            var child = el.childNodes[i];
+            if (child.nodeType === 3) text += child.textContent || '';
+        }
+    }
+    if (!text && el._textContent) text = el._textContent;
+    if (!text) return 0;
+    // Average character width ~8px at 16px font, add padding
+    return text.length * 8 + 16;
+}
+
 // ── DOM Element factory ─────────────────────────────────────────────────────
 function createDomElement(tagName, namespaceURI) {
     var el = EventTargetMixin({});
     el.nodeType = 1;
     el.tagName = tagName ? tagName.toUpperCase() : 'DIV';
     el.nodeName = el.tagName;
-    el.namespaceURI = namespaceURI || 'http://www.w3.org/1999/xhtml';
+    el.namespaceURI = namespaceURI || XHTML_NS;
     el.ownerDocument = null; // will be set to document after document is created
     el.className = '';
     el.id = '';
-    el.innerHTML = '';
-    el.textContent = '';
+    el._innerHTMLRaw = '';
     el.style = createStyleObject();
     el.childNodes = [];
     el.children = [];
@@ -154,6 +245,63 @@ function createDomElement(tagName, namespaceURI) {
     el.previousSibling = null;
     el.attributes = [];
     el._attrs = {};
+
+    // Make innerHTML a dynamic getter/setter so DOM-built children are serialized
+    Object.defineProperty(el, 'innerHTML', {
+        get: function() {
+            if (el.childNodes && el.childNodes.length > 0) {
+                var result = '';
+                for (var i = 0; i < el.childNodes.length; i++) {
+                    result += _serializeNode(el.childNodes[i], el.namespaceURI);
+                }
+                return result;
+            }
+            return el._innerHTMLRaw || '';
+        },
+        set: function(val) {
+            el._innerHTMLRaw = val;
+            el.childNodes = [];
+            el.children = [];
+            el.firstChild = null;
+            el.lastChild = null;
+        },
+        configurable: true,
+        enumerable: true
+    });
+
+    // outerHTML getter
+    Object.defineProperty(el, 'outerHTML', {
+        get: function() {
+            return _serializeNode(el, (el.parentNode ? el.parentNode.namespaceURI : null) || XHTML_NS);
+        },
+        configurable: true,
+        enumerable: true
+    });
+
+    // textContent: getter returns text from all descendants, setter clears children
+    Object.defineProperty(el, 'textContent', {
+        get: function() {
+            if (el.childNodes && el.childNodes.length > 0) {
+                var result = '';
+                for (var i = 0; i < el.childNodes.length; i++) {
+                    var child = el.childNodes[i];
+                    if (child.nodeType === 3) result += child.textContent || '';
+                    else if (child.textContent) result += child.textContent;
+                }
+                return result;
+            }
+            return el._textContent || '';
+        },
+        set: function(val) {
+            el._textContent = val;
+            el.childNodes = [];
+            el.children = [];
+            el.firstChild = null;
+            el.lastChild = null;
+        },
+        configurable: true,
+        enumerable: true
+    });
 
     el.setAttribute = function(key, value) {
         el._attrs[key] = String(value);
@@ -264,10 +412,49 @@ function createDomElement(tagName, namespaceURI) {
         return null;
     };
     el.getBoundingClientRect = function() {
-        return { x: 0, y: 0, width: 0, height: 0, top: 0, right: 0, bottom: 0, left: 0 };
+        // Estimate dimensions based on text content and children
+        var textLen = _estimateTextWidth(el);
+        var w = Math.max(textLen, 20);
+        var h = textLen > 0 ? 24 : 20;
+        // For SVG containers, aggregate children
+        if (el.childNodes && el.childNodes.length > 0 && textLen === 0) {
+            var maxW = 0, maxH = 0;
+            for (var i = 0; i < el.childNodes.length; i++) {
+                var child = el.childNodes[i];
+                if (child.getBoundingClientRect) {
+                    var cr = child.getBoundingClientRect();
+                    if (cr.width > maxW) maxW = cr.width;
+                    maxH += cr.height;
+                }
+            }
+            if (maxW > 0) w = maxW;
+            if (maxH > 0) h = maxH;
+        }
+        return { x: 0, y: 0, width: w, height: h, top: 0, right: w, bottom: h, left: 0 };
     };
-    el.getComputedTextLength = function() { return 0; };
-    el.getBBox = function() { return { x: 0, y: 0, width: 100, height: 100 }; };
+    el.getComputedTextLength = function() {
+        return _estimateTextWidth(el);
+    };
+    el.getBBox = function() {
+        var textLen = _estimateTextWidth(el);
+        var w = Math.max(textLen, 20);
+        var h = textLen > 0 ? 24 : 20;
+        // For group elements, aggregate child bboxes
+        if (el.childNodes && el.childNodes.length > 0 && textLen === 0) {
+            var maxW = 0, totalH = 0;
+            for (var i = 0; i < el.childNodes.length; i++) {
+                var child = el.childNodes[i];
+                if (child.getBBox) {
+                    var cb = child.getBBox();
+                    if (cb.width > maxW) maxW = cb.width;
+                    totalH += cb.height;
+                }
+            }
+            if (maxW > 0) w = maxW;
+            if (totalH > 0) h = totalH;
+        }
+        return { x: 0, y: 0, width: w, height: h };
+    };
     el.getTotalLength = function() { return 0; };
     el.getPointAtLength = function(len) { return { x: 0, y: 0 }; };
 
@@ -493,24 +680,10 @@ window.DOMParser = DOMParser;
 function XMLSerializer() {}
 XMLSerializer.prototype.serializeToString = function(node) {
     if (!node) return '';
-    // Minimal SVG serialization: reconstruct from innerHTML or build manually
-    var tag = (node.tagName || 'div').toLowerCase();
-    var attrs = '';
-    if (node._attrs) {
-        var keys = Object.keys(node._attrs);
-        for (var i = 0; i < keys.length; i++) {
-            attrs += ' ' + keys[i] + '="' + node._attrs[keys[i]] + '"';
-        }
-    }
-    var inner = node.innerHTML || '';
-    if (!inner && node.childNodes && node.childNodes.length > 0) {
-        var ser = new XMLSerializer();
-        for (var j = 0; j < node.childNodes.length; j++) {
-            inner += ser.serializeToString(node.childNodes[j]);
-        }
-    }
-    if (node.nodeType === 3) return node.textContent || '';
-    return '<' + tag + attrs + '>' + inner + '</' + tag + '>';
+    if (node.nodeType === 3) return _escapeXmlText(node.textContent || '');
+    // For SVG root, use null parent namespace so xmlns is always emitted
+    var parentNs = (node.tagName && node.tagName.toLowerCase() === 'svg') ? null : XHTML_NS;
+    return _serializeNode(node, parentNs);
 };
 window.XMLSerializer = XMLSerializer;
 
