@@ -20,14 +20,40 @@ Tests:
 
     gradlew :mermaid-renderer:test
 
+Visueller Test (im `app`-Modul):
+
+    gradlew :app:run -PmainClass=de.bund.zrb.mermaid.MermaidRenderTest
+
 ## Architektur
 
 | Klasse | Zweck |
 |--------|-------|
 | `MermaidRenderer` | Singleton-Fassade — `renderToSvg(diagramCode)` |
+| `MermaidSvgFixup` | Post-Processing: Batik-Kompatibilitäts-Fixes für SVG |
 | `GraalJsExecutor` | Interner GraalJS Polyglot-Context Wrapper |
 | `JsExecutionResult` | Immutables Ergebnisobjekt (success/failure) |
 | `MermaidRendererMain` | Standalone-Main zum manuellen Testen |
+
+### MermaidSvgFixup — Batik-Kompatibilität
+
+Mermaid erzeugt SVG, das in Browsern funktioniert, aber in Apache Batik
+(unserem Rasteriser) diverse Probleme hat. `MermaidSvgFixup.fixForBatik()`
+wendet folgende DOM-Level-Fixes an:
+
+| Fix | Problem | Lösung |
+|-----|---------|--------|
+| `moveMarkersToDefs` | Batik findet Marker nur in `<defs>` | Alle `<marker>` nach `<defs>` verschieben |
+| `fixMarkerFills` | Marker-Pfeile unsichtbar (fill:none Vererbung) | Explizites `fill="#333333"` + `style` setzen |
+| `fixMarkerViewBox` | viewBox 12×20 auf 12×12 Marker → Verzerrung | viewBox entfernen, marker-eigene Koordinaten nutzen |
+| `fixGroupZOrder` | **Nodes malen ÜBER Pfeile → Spitzen verdeckt** | Reihenfolge: nodes → edgePaths → edgeLabels |
+| `fixNodeZOrder` | Text hinter Shape | Shapes vor Labels sortieren |
+| `fixLabelCentering` | Text nicht zentriert (dominant-baseline) | `dy="0.35em"` + `text-anchor="middle"` |
+| `fixEdgeStrokes` | Linien unsichtbar (CSS-abhängig) | Explizite `stroke`/`stroke-width` Attribute |
+| `fixEdgeLabelBackground` | Label-Hintergrund fehlt | fill/opacity auf vorhandene rects |
+| `fixEdgeLabelRect` | Kein Rect hinter Label-Text | Background-Rect einfügen (opacity=1) |
+| `fixCssFillNone` | CSS `fill:none` überschreibt Marker-Fill | CSS-Override für `.arrowMarkerPath` |
+| `fixCssForBatik` | **`hsl()`, `rgba()`, `filter`, `position` → Batik crasht** | hsl→hex, rgba→hex, unsupported props strippen |
+| `fixViewBoxFromAttributes` | ViewBox zu klein (fehlende Element-Koordinaten) | Alle x/y/width/height/x1/y1/x2/y2 scannen |
 
 ### Ressourcen
 
@@ -42,3 +68,14 @@ Tests:
 
     MermaidRenderer renderer = MermaidRenderer.getInstance();
     String svg = renderer.renderToSvg("graph TD; A-->B;");
+    svg = MermaidSvgFixup.fixForBatik(svg); // Batik-kompatibel machen
+
+### Visueller Test (MermaidRenderTest)
+
+Das `app`-Modul enthält `MermaidRenderTest` — ein interaktives Swing-Tool:
+
+- **8 fokussierte Micro-Tests** (Pfeilspitze, Text-im-Kasten, Linie, Raute, Edge-Label, Subgraph, Sequenz, Stadium)
+- **Erwartungsbeschreibung** über jedem Bild
+- **Anmerkungsfeld** für Feedback (optional)
+- **Spezifische Ja/Nein/Teilweise-Fragen** pro Testcase
+- Ergebnis als JSON → `mermaid-test-result.json`

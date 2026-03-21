@@ -23,21 +23,8 @@ import java.util.logging.Logger;
  * Post-processes Mermaid-generated SVG so it renders correctly in
  * strict SVG rasterisers such as Apache Batik.
  * <p>
- * Mermaid emits SVG that relies on browser-specific CSS/z-index behaviour.
- * Batik honours the SVG paint order (later siblings drawn on top), which
- * causes several problems:
- * <ol>
- *   <li><b>Text behind shapes</b> — inside each {@code <g class="node">}
- *       the label ({@code <text>}) is emitted <em>before</em> the shape
- *       ({@code <rect>}, {@code <polygon>}, …), so the filled shape covers
- *       the text.</li>
- *   <li><b>Invisible arrowheads</b> — {@code <marker>} elements are placed
- *       inside a regular {@code <g>} instead of {@code <defs>}, and their
- *       child paths lack an explicit {@code fill}.</li>
- *   <li><b>Invisible sequence-diagram lines</b> — message lines have an
- *       inline {@code stroke="none"} that overrides CSS.</li>
- * </ol>
- * Call {@link #fixForBatik(String)} to obtain a corrected SVG string.
+ * Mermaid emits SVG that relies on browser-specific CSS/z-index behaviour
+ * which Batik does not replicate.  This class applies DOM-level fixes.
  */
 public final class MermaidSvgFixup {
 
@@ -62,9 +49,17 @@ public final class MermaidSvgFixup {
 
             moveMarkersToDefs(doc);
             fixMarkerFills(doc);
+            fixMarkerViewBox(doc);
+            fixGroupZOrder(doc);           // edges paint ON TOP of nodes
             fixNodeZOrder(doc);
+            fixLabelCentering(doc);
+            fixEdgeStrokes(doc);
             fixEdgeLabelBackground(doc);
+            fixEdgeLabelRect(doc);
             fixStrokeNoneOnLines(doc);
+            fixCssFillNone(doc);
+            fixCssForBatik(doc);           // hsl()→hex, strip unsupported CSS
+            fixViewBoxFromAttributes(doc);
 
             return serialise(doc);
         } catch (Exception e) {
@@ -126,8 +121,7 @@ public final class MermaidSvgFixup {
         NodeList markers = doc.getElementsByTagNameNS("*", "marker");
         for (int i = 0; i < markers.getLength(); i++) {
             Node m = markers.item(i);
-            if (!(m instanceof Element)) continue;
-            addFillToDescendants((Element) m, "#333333");
+            if (m instanceof Element) addFillToDescendants((Element) m, "#333333");
         }
     }
 
@@ -139,8 +133,13 @@ public final class MermaidSvgFixup {
             Element el = (Element) child;
             String tag = el.getLocalName();
             if ("path".equals(tag) || "circle".equals(tag) || "polygon".equals(tag)) {
-                if (!el.hasAttribute("fill")) {
-                    el.setAttribute("fill", fill);
+                // Set fill as both attribute AND in style for highest specificity
+                // This prevents fill:none inheritance from referencing elements
+                el.setAttribute("fill", fill);
+                String existingStyle = el.getAttribute("style");
+                if (existingStyle == null) existingStyle = "";
+                if (!existingStyle.contains("fill:") && !existingStyle.contains("fill :")) {
+                    el.setAttribute("style", "fill:" + fill + ";" + existingStyle);
                 }
             }
             addFillToDescendants(el, fill);
@@ -148,7 +147,62 @@ public final class MermaidSvgFixup {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Fix 3 — node z-order: move shape elements before labels
+    //  Fix — reorder top-level groups: nodes BEFORE edges
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Mermaid's SVG group order is {@code clusters → edgePaths → edgeLabels → nodes}.
+     * This means node rectangles paint ON TOP of edge arrows, hiding arrowheads.
+     * <p>
+     * We reorder to: {@code clusters → nodes → edgePaths → edgeLabels}
+     * so that edges (with their marker arrowheads) paint on top of nodes.
+     */
+    private static void fixGroupZOrder(Document doc) {
+        NodeList allGs = doc.getElementsByTagNameNS("*", "g");
+        for (int i = 0; i < allGs.getLength(); i++) {
+            Node n = allGs.item(i);
+            if (!(n instanceof Element)) continue;
+            Element g = (Element) n;
+            String cls = attr(g, "class");
+            if (!"root".equals(cls)) continue;
+
+            // Collect the known child groups
+            Element clusters = null, edgePaths = null, edgeLabels = null, nodes = null;
+            List<Node> otherChildren = new ArrayList<Node>();
+
+            Node child = g.getFirstChild();
+            while (child != null) {
+                Node next = child.getNextSibling();
+                if (child instanceof Element) {
+                    String childCls = attr((Element) child, "class");
+                    if ("clusters".equals(childCls)) clusters = (Element) child;
+                    else if ("edgePaths".equals(childCls)) edgePaths = (Element) child;
+                    else if ("edgeLabels".equals(childCls)) edgeLabels = (Element) child;
+                    else if ("nodes".equals(childCls)) nodes = (Element) child;
+                    else otherChildren.add(child);
+                } else {
+                    otherChildren.add(child);
+                }
+                child = next;
+            }
+
+            // Only reorder if we found the expected groups
+            if (edgePaths == null || nodes == null) continue;
+
+            // Remove all children
+            while (g.getFirstChild() != null) g.removeChild(g.getFirstChild());
+
+            // Re-add in correct order: clusters → nodes → edgePaths → edgeLabels → others
+            if (clusters != null) g.appendChild(clusters);
+            g.appendChild(nodes);
+            g.appendChild(edgePaths);
+            if (edgeLabels != null) g.appendChild(edgeLabels);
+            for (Node other : otherChildren) g.appendChild(other);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix 3 — node z-order: shape before label
     // ═══════════════════════════════════════════════════════════
 
     /**
@@ -162,8 +216,8 @@ public final class MermaidSvgFixup {
             Node n = allGs.item(i);
             if (!(n instanceof Element)) continue;
             Element g = (Element) n;
-            String cls = g.getAttribute("class");
-            if (cls == null || !cls.contains("node")) continue;
+            String cls = attr(g, "class");
+            if (!cls.contains("node")) continue;
 
             List<Node> shapes = new ArrayList<Node>();
             List<Node> others = new ArrayList<Node>();
@@ -171,36 +225,140 @@ public final class MermaidSvgFixup {
             Node child = g.getFirstChild();
             while (child != null) {
                 Node next = child.getNextSibling();
-                if (child instanceof Element) {
-                    String tag = child.getLocalName();
-                    if (isShapeElement(tag)) {
-                        shapes.add(child);
-                    } else {
-                        others.add(child);
-                    }
+                if (child instanceof Element && isShapeTag(child.getLocalName())) {
+                    shapes.add(child);
                 } else {
                     others.add(child);
                 }
                 g.removeChild(child);
                 child = next;
             }
-
-            // Re-append: shapes first (bottom), then labels on top
             for (Node s : shapes) g.appendChild(s);
             for (Node o : others) g.appendChild(o);
         }
     }
 
-    private static boolean isShapeElement(String localName) {
-        return "rect".equals(localName)
-                || "circle".equals(localName)
-                || "ellipse".equals(localName)
-                || "polygon".equals(localName)
-                || "path".equals(localName);
+    // ═══════════════════════════════════════════════════════════
+    //  Fix 4 — recenter labels inside nodes
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Mermaid positions label groups with a {@code translate()} that
+     * places text near the top-left of the text bounding box, relying on
+     * {@code dominant-baseline:central} + {@code text-anchor:middle} in
+     * browsers.  Batik does not replicate this, so we:
+     * <ol>
+     *   <li>Reset the label group's transform to {@code translate(0,0)}
+     *       (= node centre, matching the shape centre).</li>
+     *   <li>Replace {@code dominant-baseline="central"} on {@code <text>}
+     *       with {@code dy="0.35em"} which is the portable vertical-
+     *       centering trick for SVG text.</li>
+     * </ol>
+     */
+    private static void fixLabelCentering(Document doc) {
+        NodeList allGs = doc.getElementsByTagNameNS("*", "g");
+        for (int i = 0; i < allGs.getLength(); i++) {
+            Node n = allGs.item(i);
+            if (!(n instanceof Element)) continue;
+            Element g = (Element) n;
+            String cls = attr(g, "class");
+            if (!cls.contains("node")) continue;
+
+            // Find child <g class="label"> groups
+            NodeList children = g.getChildNodes();
+            for (int j = 0; j < children.getLength(); j++) {
+                Node child = children.item(j);
+                if (!(child instanceof Element)) continue;
+                Element childEl = (Element) child;
+                if (!"g".equals(childEl.getLocalName())) continue;
+                if (!attr(childEl, "class").contains("label")) continue;
+
+                // Reset label group transform to node centre
+                childEl.setAttribute("transform", "translate(0, 0)");
+
+                // Fix text elements inside
+                NodeList texts = childEl.getElementsByTagNameNS("*", "text");
+                for (int k = 0; k < texts.getLength(); k++) {
+                    Element text = (Element) texts.item(k);
+                    // Replace dominant-baseline with dy for Batik
+                    text.removeAttribute("dominant-baseline");
+                    text.setAttribute("dy", "0.35em");
+                    // Ensure middle anchor
+                    text.setAttribute("text-anchor", "middle");
+                }
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Fix 4 — edge label backgrounds
+    //  Fix 5 — explicit stroke on edge paths
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Edge paths ({@code <path class="flowchart-link ...">}) rely on CSS
+     * for their stroke colour/width.  Batik does not always resolve
+     * Mermaid's id-scoped CSS selectors.  Without a visible stroke the
+     * {@code marker-end} is also invisible.  We add explicit attributes.
+     */
+    private static void fixEdgeStrokes(Document doc) {
+        NodeList paths = doc.getElementsByTagNameNS("*", "path");
+        for (int i = 0; i < paths.getLength(); i++) {
+            Node n = paths.item(i);
+            if (!(n instanceof Element)) continue;
+            Element path = (Element) n;
+            String cls = attr(path, "class");
+            if (!cls.contains("flowchart-link") && !cls.contains("messageLine")) continue;
+
+            // Add explicit stroke so Batik renders line + markers
+            if (!path.hasAttribute("stroke")) {
+                path.setAttribute("stroke", "#333333");
+            }
+            if (!path.hasAttribute("stroke-width")) {
+                path.setAttribute("stroke-width", "2");
+            }
+            // Move fill:none from style to attribute to prevent
+            // style-level inheritance into marker content
+            String style = path.getAttribute("style");
+            if (style != null && style.contains("fill:none")) {
+                style = style.replace("fill:none;", "").replace("fill:none", "").trim();
+                if (style.isEmpty()) {
+                    path.removeAttribute("style");
+                } else {
+                    path.setAttribute("style", style);
+                }
+                path.setAttribute("fill", "none");
+            }
+        }
+
+        // Also handle <line> elements used in sequence diagrams
+        NodeList lines = doc.getElementsByTagNameNS("*", "line");
+        for (int i = 0; i < lines.getLength(); i++) {
+            Node n = lines.item(i);
+            if (!(n instanceof Element)) continue;
+            Element line = (Element) n;
+            String cls = attr(line, "class");
+            if (cls.contains("messageLine") || cls.contains("actor-line")) {
+                if (!line.hasAttribute("stroke") || "none".equals(line.getAttribute("stroke"))) {
+                    line.setAttribute("stroke", "#333");
+                }
+                if (!line.hasAttribute("stroke-width")) {
+                    line.setAttribute("stroke-width", "1.5");
+                }
+            }
+        }
+
+        // Ensure markers have overflow:visible
+        NodeList markers = doc.getElementsByTagNameNS("*", "marker");
+        for (int i = 0; i < markers.getLength(); i++) {
+            Node m = markers.item(i);
+            if (m instanceof Element) {
+                ((Element) m).setAttribute("overflow", "visible");
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix 6 — edge label backgrounds
     // ═══════════════════════════════════════════════════════════
 
     /**
@@ -214,8 +372,23 @@ public final class MermaidSvgFixup {
             Node n = allGs.item(i);
             if (!(n instanceof Element)) continue;
             Element g = (Element) n;
-            String cls = g.getAttribute("class");
-            if (cls == null || !cls.contains("edgeLabel")) continue;
+            if (!attr(g, "class").contains("edgeLabel")) continue;
+
+            // Also recenter the label text inside edgeLabels
+            NodeList labelGs = g.getElementsByTagNameNS("*", "g");
+            for (int j = 0; j < labelGs.getLength(); j++) {
+                Element lg = (Element) labelGs.item(j);
+                if (attr(lg, "class").contains("label")) {
+                    lg.setAttribute("transform", "translate(0, 0)");
+                }
+            }
+            NodeList texts = g.getElementsByTagNameNS("*", "text");
+            for (int j = 0; j < texts.getLength(); j++) {
+                Element text = (Element) texts.item(j);
+                text.removeAttribute("dominant-baseline");
+                text.setAttribute("dy", "0.35em");
+                text.setAttribute("text-anchor", "middle");
+            }
 
             NodeList rects = g.getElementsByTagNameNS("*", "rect");
             for (int j = 0; j < rects.getLength(); j++) {
@@ -229,27 +402,20 @@ public final class MermaidSvgFixup {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Fix 5 — stroke="none" on sequence-diagram lines
+    //  Fix 7 — stroke="none" on sequence-diagram lines
     // ═══════════════════════════════════════════════════════════
 
-    /**
-     * Mermaid sequence diagrams emit {@code <line stroke="none">} on
-     * message lines, relying on CSS to override.  Batik treats the
-     * attribute as authoritative.  Replace with the correct stroke.
-     */
     private static void fixStrokeNoneOnLines(Document doc) {
+        // Already handled in fixEdgeStrokes — this is kept for
+        // any remaining lines not caught there.
         NodeList lines = doc.getElementsByTagNameNS("*", "line");
         for (int i = 0; i < lines.getLength(); i++) {
             Node n = lines.item(i);
             if (!(n instanceof Element)) continue;
             Element line = (Element) n;
-
-            String cls = line.getAttribute("class");
-            String stroke = line.getAttribute("stroke");
-
-            if ("none".equals(stroke)) {
-                // messageLine0 = solid, messageLine1 = dashed
-                if (cls != null && (cls.contains("messageLine") || cls.contains("actor-line"))) {
+            if ("none".equals(line.getAttribute("stroke"))) {
+                String cls = attr(line, "class");
+                if (cls.contains("messageLine") || cls.contains("actor-line")) {
                     line.setAttribute("stroke", "#333");
                 }
             }
@@ -257,8 +423,414 @@ public final class MermaidSvgFixup {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Serialisation
+    //  Fix — remove viewBox from <marker> elements
     // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Batik has known issues rendering marker content when the marker's
+     * {@code viewBox} aspect ratio doesn't match {@code markerWidth/markerHeight}.
+     * Mermaid emits markers with {@code viewBox="0 0 12 20"} but actual arrow
+     * shapes that fit in a 10×10 box.  Removing the viewBox lets Batik render
+     * the marker content directly in the marker coordinate system.
+     */
+    private static void fixMarkerViewBox(Document doc) {
+        NodeList markers = doc.getElementsByTagNameNS("*", "marker");
+        for (int i = 0; i < markers.getLength(); i++) {
+            Node n = markers.item(i);
+            if (!(n instanceof Element)) continue;
+            Element marker = (Element) n;
+
+            // Remove viewBox — let marker content use markerWidth/Height directly
+            marker.removeAttribute("viewBox");
+
+            // Ensure marker is large enough
+            String mw = marker.getAttribute("markerWidth");
+            String mh = marker.getAttribute("markerHeight");
+            try {
+                double w = mw.isEmpty() ? 0 : Double.parseDouble(mw);
+                double h = mh.isEmpty() ? 0 : Double.parseDouble(mh);
+                if (w < 12) marker.setAttribute("markerWidth", "12");
+                if (h < 12) marker.setAttribute("markerHeight", "12");
+            } catch (NumberFormatException ignored) {}
+
+            // Ensure overflow is visible
+            marker.setAttribute("overflow", "visible");
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix — insert background rect behind edge labels
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * If an {@code <g class="edgeLabel">} has text but no {@code <rect>}
+     * background, insert one so the label has a visible background and
+     * the edge line doesn't draw through the text.
+     */
+    private static void fixEdgeLabelRect(Document doc) {
+        NodeList allGs = doc.getElementsByTagNameNS("*", "g");
+        for (int i = 0; i < allGs.getLength(); i++) {
+            Node n = allGs.item(i);
+            if (!(n instanceof Element)) continue;
+            Element g = (Element) n;
+            if (!attr(g, "class").contains("edgeLabel")) continue;
+
+            // Check if there's already a rect
+            NodeList rects = g.getElementsByTagNameNS("*", "rect");
+            if (rects.getLength() > 0) continue;
+
+            // Check if there's text content
+            NodeList texts = g.getElementsByTagNameNS("*", "text");
+            if (texts.getLength() == 0) continue;
+
+            // Estimate text size and insert a background rect
+            Element text = (Element) texts.item(0);
+            String textContent = text.getTextContent();
+            if (textContent == null || textContent.trim().isEmpty()) continue;
+
+            // Approximate: each char ~ 8px wide, height ~ 20px, with padding
+            int charCount = textContent.trim().length();
+            int width = charCount * 9 + 16;
+            int height = 24;
+
+            Element rect = doc.createElementNS(SVG_NS, "rect");
+            rect.setAttribute("x", String.valueOf(-width / 2));
+            rect.setAttribute("y", String.valueOf(-height / 2));
+            rect.setAttribute("width", String.valueOf(width));
+            rect.setAttribute("height", String.valueOf(height));
+            rect.setAttribute("fill", "#e8e8e8");
+            rect.setAttribute("rx", "3");
+            rect.setAttribute("ry", "3");
+
+            // Insert rect as first child (behind text)
+            g.insertBefore(rect, g.getFirstChild());
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix — patch CSS fill:none to prevent marker inheritance
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Mermaid's embedded {@code <style>} block contains rules like
+     * {@code .flowchart-link{fill:none}} which in Batik can cascade
+     * into marker content via property inheritance.  This fix adds an
+     * explicit CSS rule for marker child elements.
+     */
+    private static void fixCssFillNone(Document doc) {
+        NodeList styles = doc.getElementsByTagNameNS("*", "style");
+        for (int i = 0; i < styles.getLength(); i++) {
+            Node styleNode = styles.item(i);
+            String css = styleNode.getTextContent();
+            if (css == null || css.isEmpty()) continue;
+
+            // Add marker content override — ensures arrow fills are not overridden
+            if (!css.contains(".arrowMarkerPath")) {
+                css = css + "\n.arrowMarkerPath{fill:#333333 !important;}\n"
+                        + "marker path, marker circle, marker polygon{fill:#333333 !important;}\n";
+                styleNode.setTextContent(css);
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix — clean CSS for Batik compatibility
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Batik's CSS parser does not support:
+     * <ul>
+     *   <li>{@code hsl()} colour functions → convert to hex</li>
+     *   <li>{@code position}, {@code box-shadow}, {@code filter},
+     *       {@code z-index}, {@code pointer-events}, {@code cursor}
+     *       → strip them</li>
+     *   <li>{@code rgba()} colour functions → convert to hex (drop alpha)</li>
+     * </ul>
+     * Without this fix, sequence diagrams fail to rasterise entirely.
+     */
+    private static void fixCssForBatik(Document doc) {
+        NodeList styles = doc.getElementsByTagNameNS("*", "style");
+        for (int i = 0; i < styles.getLength(); i++) {
+            Node styleNode = styles.item(i);
+            String css = styleNode.getTextContent();
+            if (css == null || css.isEmpty()) continue;
+
+            // 1) Convert hsl(...) → hex
+            css = replaceHslValues(css);
+
+            // 2) Convert rgba(...) → hex (drop alpha)
+            css = replaceRgbaValues(css);
+
+            // 3) Remove unsupported CSS properties
+            // Strip entire property declarations: "property-name: value;"
+            css = css.replaceAll("position\\s*:\\s*[^;\"]+;?", "");
+            css = css.replaceAll("box-shadow\\s*:\\s*[^;\"]+;?", "");
+            css = css.replaceAll("filter\\s*:\\s*[^;\"]+;?", "");
+            css = css.replaceAll("z-index\\s*:\\s*[^;\"]+;?", "");
+            css = css.replaceAll("pointer-events\\s*:\\s*[^;\"]+;?", "");
+            css = css.replaceAll("cursor\\s*:\\s*[^;\"]+;?", "");
+            css = css.replaceAll("text-align\\s*:\\s*[^;\"]+;?", "");
+            css = css.replaceAll("background-color\\s*:\\s*[^;\"]+;?", "");
+
+            styleNode.setTextContent(css);
+        }
+
+        // Also fix hsl/rgba in inline style attributes throughout the document
+        NodeList all = doc.getElementsByTagNameNS("*", "*");
+        for (int i = 0; i < all.getLength(); i++) {
+            Node n = all.item(i);
+            if (!(n instanceof Element)) continue;
+            Element el = (Element) n;
+            String style = el.getAttribute("style");
+            if (style != null && !style.isEmpty()) {
+                String fixed = replaceHslValues(style);
+                fixed = replaceRgbaValues(fixed);
+                if (!fixed.equals(style)) {
+                    el.setAttribute("style", fixed);
+                }
+            }
+        }
+    }
+
+    /**
+     * Replace all {@code hsl(h, s%, l%)} occurrences with hex colour values.
+     */
+    private static String replaceHslValues(String css) {
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                "hsl\\(\\s*([\\d.]+)\\s*,\\s*([\\d.]+)%\\s*,\\s*([\\d.]+)%\\s*\\)");
+        java.util.regex.Matcher m = p.matcher(css);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            try {
+                double h = Double.parseDouble(m.group(1));
+                double s = Double.parseDouble(m.group(2)) / 100.0;
+                double l = Double.parseDouble(m.group(3)) / 100.0;
+                String hex = hslToHex(h, s, l);
+                m.appendReplacement(sb, hex);
+            } catch (NumberFormatException e) {
+                m.appendReplacement(sb, "#888888");
+            }
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    /**
+     * Replace all {@code rgba(r, g, b, a)} and {@code rgb(r g b / a)} occurrences with hex.
+     */
+    private static String replaceRgbaValues(String css) {
+        // rgba(r, g, b, a)
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                "rgba?\\(\\s*([\\d.]+)\\s*[,\\s]\\s*([\\d.]+)\\s*[,\\s]\\s*([\\d.]+)\\s*[,/]\\s*([\\d.]+)\\s*\\)");
+        java.util.regex.Matcher m = p.matcher(css);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            try {
+                int r = (int) Double.parseDouble(m.group(1));
+                int g = (int) Double.parseDouble(m.group(2));
+                int b = (int) Double.parseDouble(m.group(3));
+                String hex = String.format("#%02x%02x%02x", clamp(r), clamp(g), clamp(b));
+                m.appendReplacement(sb, hex);
+            } catch (NumberFormatException e) {
+                m.appendReplacement(sb, "#888888");
+            }
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    private static String hslToHex(double h, double s, double l) {
+        h = ((h % 360) + 360) % 360;
+        double c = (1 - Math.abs(2 * l - 1)) * s;
+        double x = c * (1 - Math.abs((h / 60) % 2 - 1));
+        double m = l - c / 2;
+        double r, g, b;
+        if (h < 60)      { r = c; g = x; b = 0; }
+        else if (h < 120) { r = x; g = c; b = 0; }
+        else if (h < 180) { r = 0; g = c; b = x; }
+        else if (h < 240) { r = 0; g = x; b = c; }
+        else if (h < 300) { r = x; g = 0; b = c; }
+        else               { r = c; g = 0; b = x; }
+        int ri = clamp((int) Math.round((r + m) * 255));
+        int gi = clamp((int) Math.round((g + m) * 255));
+        int bi = clamp((int) Math.round((b + m) * 255));
+        return String.format("#%02x%02x%02x", ri, gi, bi);
+    }
+
+    private static int clamp(int v) {
+        return v < 0 ? 0 : (v > 255 ? 255 : v);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix — recalculate viewBox from element attributes
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Scans all SVG elements for positional attributes (x, y, width, height,
+     * x1, y1, x2, y2, cx, cy, r, rx, ry) and recalculates the root SVG
+     * viewBox to encompass all content.  This fixes sequence diagrams where
+     * the original viewBox is too small because fixViewBox in MermaidRenderer
+     * only scans translate() and path data.
+     */
+    private static void fixViewBoxFromAttributes(Document doc) {
+        Element svgRoot = doc.getDocumentElement();
+        if (svgRoot == null) return;
+
+        // Initialise bounds accumulators
+        _minX = Double.MAX_VALUE;  _minY = Double.MAX_VALUE;
+        _maxX = -Double.MAX_VALUE; _maxY = -Double.MAX_VALUE;
+        boolean found = false;
+
+        // Scan all elements
+        NodeList all = doc.getElementsByTagNameNS("*", "*");
+        for (int i = 0; i < all.getLength(); i++) {
+            Node n = all.item(i);
+            if (!(n instanceof Element)) continue;
+            Element el = (Element) n;
+            String tag = el.getLocalName();
+
+            // Skip markers and defs children — their coords are local
+            if ("marker".equals(tag) || "defs".equals(tag) || "symbol".equals(tag)) continue;
+            if (isInsideTag(el, "marker") || isInsideTag(el, "defs")) continue;
+
+            // rect: x, y, width, height
+            if ("rect".equals(tag)) {
+                double x = parseDouble(el, "x", 0);
+                double y = parseDouble(el, "y", 0);
+                double w = parseDouble(el, "width", 0);
+                double h = parseDouble(el, "height", 0);
+                if (w > 0 || h > 0) {
+                    double[] abs = resolveAbsolutePosition(el, x, y);
+                    updateBounds(abs[0], abs[1], abs[0] + w, abs[1] + h);
+                    found = true;
+                }
+            }
+            // line: x1, y1, x2, y2
+            else if ("line".equals(tag)) {
+                double x1 = parseDouble(el, "x1", 0);
+                double y1 = parseDouble(el, "y1", 0);
+                double x2 = parseDouble(el, "x2", 0);
+                double y2 = parseDouble(el, "y2", 0);
+                updateBounds(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2));
+                found = true;
+            }
+            // circle: cx, cy, r
+            else if ("circle".equals(tag)) {
+                double cx = parseDouble(el, "cx", 0);
+                double cy = parseDouble(el, "cy", 0);
+                double r = parseDouble(el, "r", 0);
+                if (r > 0) {
+                    updateBounds(cx - r, cy - r, cx + r, cy + r);
+                    found = true;
+                }
+            }
+            // text: x, y
+            else if ("text".equals(tag)) {
+                double x = parseDouble(el, "x", 0);
+                double y = parseDouble(el, "y", 0);
+                // Estimate text extent
+                String content = el.getTextContent();
+                int len = (content != null) ? content.trim().length() : 0;
+                double tw = len * 8;
+                updateBounds(x - tw / 2, y - 10, x + tw / 2, y + 10);
+                found = true;
+            }
+        }
+
+        if (!found || _maxX <= _minX || _maxY <= _minY) return;
+
+        // Check if current viewBox already encompasses content
+        String currentVb = svgRoot.getAttribute("viewBox");
+        if (currentVb != null && !currentVb.isEmpty()) {
+            String[] parts = currentVb.trim().split("\\s+");
+            if (parts.length == 4) {
+                try {
+                    double cvbX = Double.parseDouble(parts[0]);
+                    double cvbY = Double.parseDouble(parts[1]);
+                    double cvbW = Double.parseDouble(parts[2]);
+                    double cvbH = Double.parseDouble(parts[3]);
+                    // Only fix if content extends beyond current viewBox
+                    if (cvbX <= _minX && cvbY <= _minY
+                            && cvbX + cvbW >= _maxX && cvbY + cvbH >= _maxY) {
+                        return; // current viewBox is fine
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+
+        double pad = 30;
+        int vbX = (int) (_minX - pad);
+        int vbY = (int) (_minY - pad);
+        int vbW = (int) (_maxX - _minX + 2 * pad);
+        int vbH = (int) (_maxY - _minY + 2 * pad);
+        svgRoot.setAttribute("viewBox", vbX + " " + vbY + " " + vbW + " " + vbH);
+    }
+
+    // Thread-local bounds accumulators (avoid passing state through every call)
+    private static double _minX, _minY, _maxX, _maxY;
+
+    private static void updateBounds(double x1, double y1, double x2, double y2) {
+        if (x1 < _minX) _minX = x1;
+        if (y1 < _minY) _minY = y1;
+        if (x2 > _maxX) _maxX = x2;
+        if (y2 > _maxY) _maxY = y2;
+    }
+
+    private static double parseDouble(Element el, String attrName, double defaultVal) {
+        String v = el.getAttribute(attrName);
+        if (v == null || v.isEmpty()) return defaultVal;
+        try { return Double.parseDouble(v); }
+        catch (NumberFormatException e) { return defaultVal; }
+    }
+
+    /**
+     * Resolve an element's (x,y) to absolute coordinates by walking up
+     * the parent chain and accumulating translate transforms.
+     */
+    private static double[] resolveAbsolutePosition(Element el, double x, double y) {
+        Node parent = el.getParentNode();
+        while (parent instanceof Element) {
+            Element pe = (Element) parent;
+            String transform = pe.getAttribute("transform");
+            if (transform != null && transform.contains("translate")) {
+                java.util.regex.Matcher m = java.util.regex.Pattern
+                        .compile("translate\\(\\s*(-?[\\d.]+)\\s*[,\\s]\\s*(-?[\\d.]+)\\s*\\)")
+                        .matcher(transform);
+                if (m.find()) {
+                    try {
+                        x += Double.parseDouble(m.group(1));
+                        y += Double.parseDouble(m.group(2));
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+            parent = pe.getParentNode();
+        }
+        return new double[]{x, y};
+    }
+
+    private static boolean isInsideTag(Element el, String tagName) {
+        Node parent = el.getParentNode();
+        while (parent instanceof Element) {
+            if (tagName.equals(((Element) parent).getLocalName())) return true;
+            parent = parent.getParentNode();
+        }
+        return false;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Helpers
+    // ═══════════════════════════════════════════════════════════
+
+    private static boolean isShapeTag(String localName) {
+        return "rect".equals(localName) || "circle".equals(localName)
+                || "ellipse".equals(localName) || "polygon".equals(localName)
+                || "path".equals(localName);
+    }
+
+    private static String attr(Element el, String name) {
+        String v = el.getAttribute(name);
+        return v != null ? v : "";
+    }
 
     private static String serialise(Document doc) throws Exception {
         TransformerFactory tf = TransformerFactory.newInstance();
@@ -270,4 +842,3 @@ public final class MermaidSvgFixup {
         return sw.toString();
     }
 }
-
