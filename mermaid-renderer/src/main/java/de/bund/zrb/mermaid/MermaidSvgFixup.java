@@ -745,27 +745,68 @@ public final class MermaidSvgFixup {
             }
         }
 
-        if (!found || _maxX <= _minX || _maxY <= _minY) return;
+        if (!found || _maxX <= _minX || _maxY <= _minY) {
+            // Element scanning failed — still set proportional width from existing viewBox
+            setProportionalWidth(svgRoot);
+            return;
+        }
 
-        // Always set a tight viewBox with minimal padding
+        // Compute tight bounds + minimal padding
         double pad = 10;
-        int vbX = (int) Math.floor(_minX - pad);
-        int vbY = (int) Math.floor(_minY - pad);
-        int vbW = (int) Math.ceil(_maxX - _minX + 2 * pad);
-        int vbH = (int) Math.ceil(_maxY - _minY + 2 * pad);
+        double tightX = _minX - pad;
+        double tightY = _minY - pad;
+        double tightW = _maxX - _minX + 2 * pad;
+        double tightH = _maxY - _minY + 2 * pad;
 
-        // Ensure minimum viewBox dimensions
-        if (vbW < 50) vbW = 50;
-        if (vbH < 50) vbH = 50;
+        // Parse Mermaid's original viewBox
+        String currentVb = svgRoot.getAttribute("viewBox");
+        double cvbX = tightX, cvbY = tightY, cvbW = tightW, cvbH = tightH;
+        if (currentVb != null && !currentVb.isEmpty()) {
+            String[] parts = currentVb.trim().split("\\s+");
+            if (parts.length == 4) {
+                try {
+                    cvbX = Double.parseDouble(parts[0]);
+                    cvbY = Double.parseDouble(parts[1]);
+                    cvbW = Double.parseDouble(parts[2]);
+                    cvbH = Double.parseDouble(parts[3]);
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+
+        // UNION of Mermaid's viewBox and our tight bounds
+        // (ensures we never clip content Mermaid placed outside our scan range)
+        double unionX = Math.min(cvbX, tightX);
+        double unionY = Math.min(cvbY, tightY);
+        double unionR = Math.max(cvbX + cvbW, tightX + tightW);
+        double unionB = Math.max(cvbY + cvbH, tightY + tightH);
+        double unionW = unionR - unionX;
+        double unionH = unionB - unionY;
+
+        // Ensure minimum dimensions
+        if (unionW < 50) unionW = 50;
+        if (unionH < 50) unionH = 50;
+
+        int vbX = (int) Math.floor(unionX);
+        int vbY = (int) Math.floor(unionY);
+        int vbW = (int) Math.ceil(unionW);
+        int vbH = (int) Math.ceil(unionH);
 
         svgRoot.setAttribute("viewBox", vbX + " " + vbY + " " + vbW + " " + vbH);
+        setProportionalWidth(svgRoot);
+    }
 
-        // Set width proportional to viewBox — no fixed 800px
-        // Use a base DPI of ~2px per viewBox-unit for crisp rendering
-        int pixelWidth = Math.max(vbW * 2, 200);
-        svgRoot.setAttribute("width", String.valueOf(pixelWidth));
-        // Remove any fixed height so aspect ratio is preserved from viewBox
-        svgRoot.removeAttribute("height");
+    /** Set SVG width proportional to viewBox (2px per unit, min 200px). */
+    private static void setProportionalWidth(Element svgRoot) {
+        String vb = svgRoot.getAttribute("viewBox");
+        if (vb == null || vb.isEmpty()) return;
+        String[] parts = vb.trim().split("\\s+");
+        if (parts.length < 3) return;
+        try {
+            int vbW = (int) Math.ceil(Double.parseDouble(parts[2]));
+            int pixelWidth = Math.max(vbW * 2, 200);
+            svgRoot.setAttribute("width", String.valueOf(pixelWidth));
+            svgRoot.removeAttribute("height");
+        } catch (NumberFormatException ignored) {}
     }
 
     // Thread-local bounds accumulators (avoid passing state through every call)

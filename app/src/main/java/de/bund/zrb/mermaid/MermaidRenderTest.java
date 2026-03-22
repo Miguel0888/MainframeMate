@@ -45,6 +45,62 @@ public final class MermaidRenderTest {
 
     private MermaidRenderTest() {}
 
+    /**
+     * Trim transparent / white pixels from the edges of an image.
+     * Returns a cropped copy, or the original if no trimming is needed.
+     */
+    private static BufferedImage autoCrop(BufferedImage src) {
+        if (src == null) return null;
+        int w = src.getWidth(), h = src.getHeight();
+        int top = 0, bottom = h - 1, left = 0, right = w - 1;
+
+        // Scan top
+        outer_top:
+        for (; top < h; top++)
+            for (int x = 0; x < w; x++)
+                if (isContentPixel(src.getRGB(x, top))) break outer_top;
+
+        // Scan bottom
+        outer_bottom:
+        for (; bottom > top; bottom--)
+            for (int x = 0; x < w; x++)
+                if (isContentPixel(src.getRGB(x, bottom))) break outer_bottom;
+
+        // Scan left
+        outer_left:
+        for (; left < w; left++)
+            for (int y = top; y <= bottom; y++)
+                if (isContentPixel(src.getRGB(left, y))) break outer_left;
+
+        // Scan right
+        outer_right:
+        for (; right > left; right--)
+            for (int y = top; y <= bottom; y++)
+                if (isContentPixel(src.getRGB(right, y))) break outer_right;
+
+        // Add small margin (8px)
+        int margin = 8;
+        top = Math.max(0, top - margin);
+        bottom = Math.min(h - 1, bottom + margin);
+        left = Math.max(0, left - margin);
+        right = Math.min(w - 1, right + margin);
+
+        int cw = right - left + 1;
+        int ch = bottom - top + 1;
+        if (cw >= w - 2 && ch >= h - 2) return src; // no significant crop
+
+        return src.getSubimage(left, top, cw, ch);
+    }
+
+    /** Returns true if the pixel is NOT fully transparent and NOT white/near-white. */
+    private static boolean isContentPixel(int argb) {
+        int a = (argb >>> 24) & 0xFF;
+        if (a < 10) return false; // fully transparent
+        int r = (argb >> 16) & 0xFF;
+        int g = (argb >> 8) & 0xFF;
+        int b = argb & 0xFF;
+        return r < 250 || g < 250 || b < 250; // not near-white
+    }
 
     // ═══════════════════════════════════════════════════════════
     //  Data model — serialised to JSON
@@ -368,6 +424,8 @@ public final class MermaidRenderTest {
                 renderW = Math.max(svgW, RENDER_WIDTH);
             }
             BufferedImage img = SvgRenderer.renderToBufferedImageForced(svgBytes, renderW);
+            // Auto-crop whitespace so "fit to panel" shows content, not padding
+            img = autoCrop(img);
             rendered.add(new RenderedCase(spec, img, svg, false, img == null));
         }
 
