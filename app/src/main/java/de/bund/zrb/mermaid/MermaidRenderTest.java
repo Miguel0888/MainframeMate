@@ -470,7 +470,7 @@ public final class MermaidRenderTest {
                 rendered.add(new RenderedCase(spec, null, null, true, false));
                 continue;
             }
-            svg = MermaidSvgFixup.fixForBatik(svg);
+            svg = MermaidSvgFixup.fixForBatik(svg, spec.mermaidCode);
 
             // Save for manual inspection
             File svgFile = new File(System.getProperty("user.dir"),

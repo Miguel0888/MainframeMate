@@ -84,6 +84,8 @@ public final class SvgRenderer {
     public static BufferedImage renderToBufferedImage(byte[] svgData, float maxWidth, float maxHeight) {
         if (svgData == null || svgData.length == 0) return null;
         try {
+            // Safety net: strip CSS properties that crash Batik's CSSEngine
+            svgData = sanitizeForBatik(svgData);
             BufferedImageTranscoder transcoder = new BufferedImageTranscoder();
             if (maxWidth > 0) {
                 transcoder.addTranscodingHint(ImageTranscoder.KEY_MAX_WIDTH, maxWidth);
@@ -117,6 +119,7 @@ public final class SvgRenderer {
     public static BufferedImage renderToBufferedImageForced(byte[] svgData, float width) {
         if (svgData == null || svgData.length == 0) return null;
         try {
+            svgData = sanitizeForBatik(svgData);
             BufferedImageTranscoder transcoder = new BufferedImageTranscoder();
             transcoder.addTranscodingHint(ImageTranscoder.KEY_WIDTH, width);
             TranscoderInput input = new TranscoderInput(new ByteArrayInputStream(svgData));
@@ -132,6 +135,44 @@ public final class SvgRenderer {
     // ═══════════════════════════════════════════════════════════
     //  Internal Batik transcoder that captures the BufferedImage
     // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Last-resort sanitisation of SVG bytes before handing them to Batik.
+     * Strips CSS properties that crash Batik's CSSEngine (e.g.
+     * {@code alignment-baseline: central}, {@code dominant-baseline}).
+     */
+    private static byte[] sanitizeForBatik(byte[] data) {
+        try {
+            String svg = new String(data, "UTF-8");
+            boolean changed = false;
+
+            // Remove alignment-baseline attributes
+            if (svg.contains("alignment-baseline")) {
+                svg = svg.replaceAll("\\s+alignment-baseline\\s*=\\s*\"[^\"]*\"", "");
+                svg = svg.replaceAll("\\s+alignment-baseline\\s*=\\s*'[^']*'", "");
+                svg = svg.replaceAll("alignment-baseline\\s*:\\s*[^;\"'}<]+[;]?", "");
+                changed = true;
+            }
+
+            // Remove dominant-baseline attributes and CSS
+            if (svg.contains("dominant-baseline")) {
+                svg = svg.replaceAll("\\s+dominant-baseline\\s*=\\s*\"[^\"]*\"", "");
+                svg = svg.replaceAll("\\s+dominant-baseline\\s*=\\s*'[^']*'", "");
+                svg = svg.replaceAll("dominant-baseline\\s*:\\s*[^;\"'}<]+[;]?", "");
+                changed = true;
+            }
+
+            // Remove empty style attributes left behind
+            if (changed) {
+                svg = svg.replaceAll("\\s+style\\s*=\\s*\"[;\\s]*\"", "");
+                svg = svg.replaceAll("\\s+style\\s*=\\s*'[;\\s]*'", "");
+                return svg.getBytes("UTF-8");
+            }
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[SvgRenderer] sanitizeForBatik: " + e.getMessage());
+        }
+        return data;
+    }
 
     private static final class BufferedImageTranscoder extends ImageTranscoder {
         private BufferedImage image;

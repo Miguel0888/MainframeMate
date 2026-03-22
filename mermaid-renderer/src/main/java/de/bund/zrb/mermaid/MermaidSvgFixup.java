@@ -59,6 +59,21 @@ public final class MermaidSvgFixup {
      * @return fixed SVG string, or the original string unchanged on error
      */
     public static String fixForBatik(String svg) {
+        return fixForBatik(svg, null);
+    }
+
+    /**
+     * Apply all Batik-compatibility fixes to a Mermaid SVG string.
+     * When the original Mermaid source code is provided, additional
+     * fixes can be applied such as injecting missing sequence diagram
+     * overlays (loop/alt/note/activation boxes) that GraalJS may not
+     * generate.
+     *
+     * @param svg           raw SVG produced by {@link MermaidRenderer#renderToSvg(String)}
+     * @param mermaidSource original Mermaid diagram source (optional, may be null)
+     * @return fixed SVG string, or the original string unchanged on error
+     */
+    public static String fixForBatik(String svg, String mermaidSource) {
         if (svg == null || svg.isEmpty()) return svg;
 
         // Pre-process: apply critical regex fixes that must work regardless
@@ -89,6 +104,9 @@ public final class MermaidSvgFixup {
             fixAlignmentBaseline(doc);     // remove alignment-baseline AND dominant-baseline attrs
             fixSequenceText(doc);          // fix text positioning in seq diagrams
             fixSequenceLifelines(doc);     // extend lifelines to bottom actor boxes
+            if (mermaidSource != null) {
+                injectSequenceOverlays(doc, mermaidSource); // add missing loop/alt/note/activation boxes
+            }
             fixViewBoxFromAttributes(doc);
 
             String result = serialise(doc);
@@ -2016,6 +2034,492 @@ public final class MermaidSvgFixup {
                 }
             } catch (NumberFormatException ignored) {}
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix — inject missing sequence diagram overlays
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * GraalJS's headless Mermaid rendering may not produce structural overlay
+     * elements for sequence diagrams: loop boxes, alt/else blocks, notes, and
+     * activation boxes.  This method parses the original Mermaid source to
+     * identify these constructs and injects the appropriate SVG elements
+     * (rect + text) at the correct positions derived from the existing
+     * message line coordinates.
+     *
+     * @param doc           the SVG DOM
+     * @param mermaidSource the original Mermaid diagram source
+     */
+    private static void injectSequenceOverlays(Document doc, String mermaidSource) {
+        if (mermaidSource == null || mermaidSource.isEmpty()) return;
+
+        // Only apply to sequence diagrams
+        String trimmed = mermaidSource.trim();
+        if (!trimmed.startsWith("sequenceDiagram")) return;
+
+        // Check if overlays already exist (Mermaid generated them)
+        NodeList allElements = doc.getElementsByTagNameNS("*", "*");
+        for (int i = 0; i < allElements.getLength(); i++) {
+            Element el = (Element) allElements.item(i);
+            String cls = attr(el, "class");
+            if (cls.contains("loopLine") || cls.contains("loopText")
+                    || cls.contains("labelBox") || cls.contains("note ")) {
+                return; // Overlays already present — don't double-inject
+            }
+        }
+
+        // Collect message line elements in document order
+        // Each message is a <line class="messageLine0|messageLine1"> element
+        NodeList lines = doc.getElementsByTagNameNS("*", "line");
+        List<Element> messageLines = new ArrayList<Element>();
+        for (int i = 0; i < lines.getLength(); i++) {
+            Element line = (Element) lines.item(i);
+            String cls = attr(line, "class");
+            if (cls.contains("messageLine")) {
+                messageLines.add(line);
+            }
+        }
+        if (messageLines.isEmpty()) return;
+
+        // Collect actor lifeline positions (x-coordinates per actor name)
+        // From <rect class="actor" name="ActorName">
+        java.util.Map<String, Double> actorX = new java.util.LinkedHashMap<String, Double>();
+        NodeList rects = doc.getElementsByTagNameNS("*", "rect");
+        for (int i = 0; i < rects.getLength(); i++) {
+            Element rect = (Element) rects.item(i);
+            String cls = attr(rect, "class");
+            if (!cls.contains("actor")) continue;
+            String name = attr(rect, "name");
+            if (name.isEmpty()) continue;
+            if (actorX.containsKey(name)) continue; // keep first occurrence
+            double x = parseDouble(rect, "x", 0);
+            double w = parseDouble(rect, "width", 150);
+            actorX.put(name, x + w / 2.0); // center of actor box
+        }
+
+        // Determine leftmost and rightmost actor positions
+        double leftMostX = Double.MAX_VALUE, rightMostX = -Double.MAX_VALUE;
+        for (double ax : actorX.values()) {
+            if (ax < leftMostX) leftMostX = ax;
+            if (ax > rightMostX) rightMostX = ax;
+        }
+        // Fallback if no actors found
+        if (leftMostX == Double.MAX_VALUE) {
+            leftMostX = 50;
+            rightMostX = 500;
+        }
+
+        // Parse the Mermaid source to find overlay constructs and map them
+        // to message indices
+        String[] srcLines = mermaidSource.split("\\n");
+        int messageIdx = 0;
+
+        // Find the SVG root to append overlay elements
+        Element svgRoot = doc.getDocumentElement();
+
+        // Overlay style constants
+        String overlayStroke = "#dacef3";
+        String overlayFill = "#dacef3";
+        String noteFill = "#fff5ad";
+        String noteStroke = "#aaaa33";
+        String activationFill = "#f4f4f4";
+        String activationStroke = "#666";
+        String textFill = "black";
+        String fontStyle = "font-family: 'trebuchet ms', verdana, arial, sans-serif; font-size: 12px;";
+
+        // Track overlay block nesting (loop, alt, else, opt, par, critical, break, rect)
+        List<int[]> overlayBlocks = new ArrayList<int[]>(); // {startMsgIdx, endMsgIdx, type}
+        // type: 0=loop, 1=alt, 2=opt/par/critical/break/rect
+        List<String> overlayLabels = new ArrayList<String>();
+        List<int[]> elsePositions = new ArrayList<int[]>(); // {blockIndex, messageIdx}
+        List<String> elseLabels = new ArrayList<String>();
+        List<Object[]> notes = new ArrayList<Object[]>(); // {messageIdx, side, actorName, text}
+        List<Object[]> activations = new ArrayList<Object[]>(); // {startMsgIdx, endMsgIdx, actorName}
+
+        // Stack for tracking nested blocks: {startMsgIdx, type, label}
+        List<Object[]> blockStack = new ArrayList<Object[]>();
+
+        // Track activations
+        java.util.Map<String, Integer> activeActors = new java.util.LinkedHashMap<String, Integer>(); // actor→startMsgIdx
+
+        for (String srcLine : srcLines) {
+            String trimLine = srcLine.trim();
+
+            // Skip empty lines and participant declarations
+            if (trimLine.isEmpty() || trimLine.startsWith("sequenceDiagram")
+                    || trimLine.startsWith("participant") || trimLine.startsWith("actor")
+                    || trimLine.startsWith("autonumber") || trimLine.startsWith("%%")) {
+                continue;
+            }
+
+            // Loop/Alt/Opt/Par/Critical/Break/Rect blocks
+            if (trimLine.matches("(?i)loop\\s+.*")) {
+                String label = trimLine.substring(4).trim();
+                blockStack.add(new Object[]{messageIdx, 0, label});
+                continue;
+            }
+            if (trimLine.matches("(?i)alt\\s+.*")) {
+                String label = trimLine.substring(3).trim();
+                blockStack.add(new Object[]{messageIdx, 1, label});
+                continue;
+            }
+            if (trimLine.matches("(?i)(?:opt|par|critical|break|rect)\\s+.*")) {
+                int spaceIdx = trimLine.indexOf(' ');
+                String label = trimLine.substring(spaceIdx + 1).trim();
+                blockStack.add(new Object[]{messageIdx, 2, label});
+                continue;
+            }
+            if (trimLine.matches("(?i)else\\s*.*")) {
+                // Record else position within the current alt block
+                if (!blockStack.isEmpty()) {
+                    int blockIdx = overlayBlocks.size() + blockStack.size() - 1;
+                    elsePositions.add(new int[]{blockIdx, messageIdx});
+                    String elseLabel = trimLine.length() > 4 ? trimLine.substring(4).trim() : "";
+                    elseLabels.add(elseLabel);
+                }
+                continue;
+            }
+            if (trimLine.equalsIgnoreCase("end")) {
+                if (!blockStack.isEmpty()) {
+                    Object[] block = blockStack.remove(blockStack.size() - 1);
+                    int startIdx = (Integer) block[0];
+                    int type = (Integer) block[1];
+                    String label = (String) block[2];
+                    overlayBlocks.add(new int[]{startIdx, messageIdx - 1, type});
+                    overlayLabels.add(label);
+                }
+                continue;
+            }
+
+            // Note
+            if (trimLine.matches("(?i)Note\\s+(?:right|left)\\s+of\\s+.*")) {
+                java.util.regex.Matcher nm = java.util.regex.Pattern
+                        .compile("(?i)Note\\s+(right|left)\\s+of\\s+(\\w+)\\s*:\\s*(.*)")
+                        .matcher(trimLine);
+                if (nm.find()) {
+                    String side = nm.group(1).toLowerCase();
+                    String actorName = nm.group(2);
+                    String noteText = nm.group(3).trim();
+                    notes.add(new Object[]{messageIdx, side, actorName, noteText});
+                }
+                continue;
+            }
+            if (trimLine.matches("(?i)Note\\s+over\\s+.*")) {
+                // Note over Actor1, Actor2: text
+                java.util.regex.Matcher nm = java.util.regex.Pattern
+                        .compile("(?i)Note\\s+over\\s+([^:]+):\\s*(.*)")
+                        .matcher(trimLine);
+                if (nm.find()) {
+                    String actors = nm.group(1).trim();
+                    String noteText = nm.group(2).trim();
+                    String firstActor = actors.contains(",") ? actors.split(",")[0].trim() : actors;
+                    notes.add(new Object[]{messageIdx, "over", firstActor, noteText});
+                }
+                continue;
+            }
+
+            // Message lines (arrows): detect activation markers (+/-)
+            if (trimLine.contains("->>") || trimLine.contains("-->>")
+                    || trimLine.contains("-x") || trimLine.contains("-)")) {
+                // Check for activation: ->>+Actor or -->>-Actor
+                if (trimLine.contains("->>+") || trimLine.contains("-->>+")) {
+                    // Find target actor (after : or after the arrow)
+                    String target = extractTargetActor(trimLine);
+                    if (target != null && !activeActors.containsKey(target)) {
+                        activeActors.put(target, messageIdx);
+                    }
+                }
+                if (trimLine.contains("->>-") || trimLine.contains("-->>-")) {
+                    String target = extractTargetActor(trimLine);
+                    if (target != null && activeActors.containsKey(target)) {
+                        int startIdx = activeActors.remove(target);
+                        activations.add(new Object[]{startIdx, messageIdx, target});
+                    }
+                }
+
+                // Count this as a message
+                if (messageIdx < messageLines.size()) {
+                    messageIdx++;
+                }
+            }
+        }
+
+        // Now inject the overlay elements
+
+        // Helper: get Y position of a message line (use y1 attribute)
+        // If msgIdx is out of bounds, extrapolate from last known position
+        double lastLineY = 0;
+        for (int i = 0; i < messageLines.size(); i++) {
+            double y = parseDouble(messageLines.get(i), "y1", 0);
+            if (y > lastLineY) lastLineY = y;
+        }
+
+        // 1) Inject loop/alt/opt blocks
+        for (int b = 0; b < overlayBlocks.size(); b++) {
+            int[] block = overlayBlocks.get(b);
+            int startMsgIdx = block[0];
+            int endMsgIdx = block[1];
+            int type = block[2];
+            String label = overlayLabels.get(b);
+
+            // Determine Y coordinates from message lines
+            double topY;
+            if (startMsgIdx > 0 && startMsgIdx - 1 < messageLines.size()) {
+                topY = parseDouble(messageLines.get(startMsgIdx - 1), "y1", 0) + 10;
+            } else if (startMsgIdx < messageLines.size()) {
+                topY = parseDouble(messageLines.get(startMsgIdx), "y1", 0) - 30;
+            } else {
+                topY = 100;
+            }
+            double bottomY;
+            if (endMsgIdx >= 0 && endMsgIdx < messageLines.size()) {
+                bottomY = parseDouble(messageLines.get(endMsgIdx), "y1", 0) + 20;
+            } else {
+                bottomY = lastLineY + 20;
+            }
+
+            // Determine X coordinates: span from leftmost to rightmost actor
+            double boxLeft = leftMostX - 80;
+            double boxRight = rightMostX + 80;
+            double boxWidth = boxRight - boxLeft;
+            double boxHeight = bottomY - topY;
+            if (boxHeight < 30) boxHeight = 30;
+
+            // Create the overlay rectangle
+            Element overlayRect = doc.createElementNS(SVG_NS, "rect");
+            overlayRect.setAttribute("x", String.valueOf(Math.round(boxLeft)));
+            overlayRect.setAttribute("y", String.valueOf(Math.round(topY)));
+            overlayRect.setAttribute("width", String.valueOf(Math.round(boxWidth)));
+            overlayRect.setAttribute("height", String.valueOf(Math.round(boxHeight)));
+            overlayRect.setAttribute("fill", overlayFill);
+            overlayRect.setAttribute("fill-opacity", "0.15");
+            overlayRect.setAttribute("stroke", overlayStroke);
+            overlayRect.setAttribute("stroke-width", "2");
+            overlayRect.setAttribute("stroke-dasharray", "2,2");
+
+            // Insert before the first message text (so it's behind messages)
+            Element firstChild = null;
+            NodeList svgChildren = svgRoot.getChildNodes();
+            for (int i = 0; i < svgChildren.getLength(); i++) {
+                if (svgChildren.item(i) instanceof Element) {
+                    Element ce = (Element) svgChildren.item(i);
+                    if ("text".equals(ce.getLocalName()) && attr(ce, "class").contains("messageText")) {
+                        firstChild = ce;
+                        break;
+                    }
+                }
+            }
+            if (firstChild != null) {
+                svgRoot.insertBefore(overlayRect, firstChild);
+            } else {
+                svgRoot.appendChild(overlayRect);
+            }
+
+            // Create label text (type name + label) at top-left of box
+            String typeLabel;
+            if (type == 0) typeLabel = "loop";
+            else if (type == 1) typeLabel = "alt";
+            else typeLabel = "opt";
+            String fullLabel = typeLabel + " [" + label + "]";
+
+            // Label background rect
+            int labelWidth = fullLabel.length() * 8 + 12;
+            int labelHeight = 20;
+            Element labelBg = doc.createElementNS(SVG_NS, "rect");
+            labelBg.setAttribute("x", String.valueOf(Math.round(boxLeft)));
+            labelBg.setAttribute("y", String.valueOf(Math.round(topY)));
+            labelBg.setAttribute("width", String.valueOf(labelWidth));
+            labelBg.setAttribute("height", String.valueOf(labelHeight));
+            labelBg.setAttribute("fill", overlayStroke);
+            labelBg.setAttribute("rx", "3");
+            labelBg.setAttribute("ry", "3");
+            svgRoot.appendChild(labelBg);
+
+            // Label text
+            Element labelText = doc.createElementNS(SVG_NS, "text");
+            labelText.setAttribute("x", String.valueOf(Math.round(boxLeft + 6)));
+            labelText.setAttribute("y", String.valueOf(Math.round(topY + labelHeight / 2.0)));
+            labelText.setAttribute("dy", "0.35em");
+            labelText.setAttribute("fill", textFill);
+            labelText.setAttribute("style", fontStyle + " font-weight: bold;");
+            labelText.setTextContent(fullLabel);
+            svgRoot.appendChild(labelText);
+
+            // Inject else dividers for alt blocks
+            for (int e = 0; e < elsePositions.size(); e++) {
+                int[] elsePosn = elsePositions.get(e);
+                // The blockIdx in elsePositions might not directly map after
+                // blocks are fully closed; use a heuristic: if this else
+                // position is between the block's start and end messages
+                int elseMsgIdx = elsePosn[1];
+                if (elseMsgIdx >= block[0] && elseMsgIdx <= block[1] + 1) {
+                    double elseY;
+                    if (elseMsgIdx > 0 && elseMsgIdx - 1 < messageLines.size()) {
+                        elseY = parseDouble(messageLines.get(elseMsgIdx - 1), "y1", 0) + 15;
+                    } else if (elseMsgIdx < messageLines.size()) {
+                        elseY = parseDouble(messageLines.get(elseMsgIdx), "y1", 0) - 15;
+                    } else {
+                        continue;
+                    }
+
+                    // Dashed line across the box
+                    Element elseLine = doc.createElementNS(SVG_NS, "line");
+                    elseLine.setAttribute("x1", String.valueOf(Math.round(boxLeft)));
+                    elseLine.setAttribute("y1", String.valueOf(Math.round(elseY)));
+                    elseLine.setAttribute("x2", String.valueOf(Math.round(boxRight)));
+                    elseLine.setAttribute("y2", String.valueOf(Math.round(elseY)));
+                    elseLine.setAttribute("stroke", overlayStroke);
+                    elseLine.setAttribute("stroke-width", "1.5");
+                    elseLine.setAttribute("stroke-dasharray", "3,3");
+                    svgRoot.appendChild(elseLine);
+
+                    // Else label
+                    if (e < elseLabels.size() && !elseLabels.get(e).isEmpty()) {
+                        Element elseText = doc.createElementNS(SVG_NS, "text");
+                        elseText.setAttribute("x", String.valueOf(Math.round(boxLeft + 6)));
+                        elseText.setAttribute("y", String.valueOf(Math.round(elseY + 14)));
+                        elseText.setAttribute("fill", textFill);
+                        elseText.setAttribute("style", fontStyle + " font-style: italic;");
+                        elseText.setTextContent("[" + elseLabels.get(e) + "]");
+                        svgRoot.appendChild(elseText);
+                    }
+                }
+            }
+        }
+
+        // 2) Inject notes
+        for (Object[] note : notes) {
+            int msgIdx = (Integer) note[0];
+            String side = (String) note[1];
+            String actorName = (String) note[2];
+            String noteText = (String) note[3];
+
+            Double actX = actorX.get(actorName);
+            if (actX == null) actX = rightMostX;
+
+            // Y position: after the previous message
+            double noteY;
+            if (msgIdx > 0 && msgIdx - 1 < messageLines.size()) {
+                noteY = parseDouble(messageLines.get(msgIdx - 1), "y1", 0) + 15;
+            } else if (msgIdx < messageLines.size()) {
+                noteY = parseDouble(messageLines.get(msgIdx), "y1", 0) - 25;
+            } else {
+                noteY = lastLineY + 15;
+            }
+
+            // X position based on side
+            double noteX;
+            double noteWidth = noteText.length() * 8 + 20;
+            if (noteWidth < 80) noteWidth = 80;
+            double noteHeight = 30;
+
+            if ("right".equals(side)) {
+                noteX = actX + 15;
+            } else if ("left".equals(side)) {
+                noteX = actX - noteWidth - 15;
+            } else {
+                noteX = actX - noteWidth / 2;
+            }
+
+            // Note background
+            Element noteRect = doc.createElementNS(SVG_NS, "rect");
+            noteRect.setAttribute("x", String.valueOf(Math.round(noteX)));
+            noteRect.setAttribute("y", String.valueOf(Math.round(noteY)));
+            noteRect.setAttribute("width", String.valueOf(Math.round(noteWidth)));
+            noteRect.setAttribute("height", String.valueOf(Math.round(noteHeight)));
+            noteRect.setAttribute("fill", noteFill);
+            noteRect.setAttribute("stroke", noteStroke);
+            noteRect.setAttribute("stroke-width", "1");
+            svgRoot.appendChild(noteRect);
+
+            // Note text
+            Element noteTextEl = doc.createElementNS(SVG_NS, "text");
+            noteTextEl.setAttribute("x", String.valueOf(Math.round(noteX + noteWidth / 2)));
+            noteTextEl.setAttribute("y", String.valueOf(Math.round(noteY + noteHeight / 2)));
+            noteTextEl.setAttribute("dy", "0.35em");
+            noteTextEl.setAttribute("text-anchor", "middle");
+            noteTextEl.setAttribute("fill", textFill);
+            noteTextEl.setAttribute("style", fontStyle);
+            noteTextEl.setTextContent(noteText);
+            svgRoot.appendChild(noteTextEl);
+        }
+
+        // 3) Inject activation boxes
+        for (Object[] activation : activations) {
+            int startIdx = (Integer) activation[0];
+            int endIdx = (Integer) activation[1];
+            String actorName = (String) activation[2];
+
+            Double actX = actorX.get(actorName);
+            if (actX == null) continue;
+
+            double startY;
+            if (startIdx < messageLines.size()) {
+                startY = parseDouble(messageLines.get(startIdx), "y1", 0) - 5;
+            } else {
+                continue;
+            }
+            double endY;
+            if (endIdx < messageLines.size()) {
+                endY = parseDouble(messageLines.get(endIdx), "y1", 0) + 5;
+            } else {
+                endY = lastLineY + 5;
+            }
+
+            double actWidth = 12;
+            double actHeight = endY - startY;
+            if (actHeight < 10) actHeight = 10;
+
+            // Activation rectangle on the lifeline
+            Element actRect = doc.createElementNS(SVG_NS, "rect");
+            actRect.setAttribute("x", String.valueOf(Math.round(actX - actWidth / 2)));
+            actRect.setAttribute("y", String.valueOf(Math.round(startY)));
+            actRect.setAttribute("width", String.valueOf(Math.round(actWidth)));
+            actRect.setAttribute("height", String.valueOf(Math.round(actHeight)));
+            actRect.setAttribute("fill", activationFill);
+            actRect.setAttribute("stroke", activationStroke);
+            actRect.setAttribute("stroke-width", "1");
+
+            // Insert activation rect before message texts (so messages render on top)
+            Element firstMsgText = null;
+            NodeList children = svgRoot.getChildNodes();
+            for (int i = 0; i < children.getLength(); i++) {
+                if (children.item(i) instanceof Element) {
+                    Element ce = (Element) children.item(i);
+                    if ("text".equals(ce.getLocalName()) && attr(ce, "class").contains("messageText")) {
+                        firstMsgText = ce;
+                        break;
+                    }
+                }
+            }
+            if (firstMsgText != null) {
+                svgRoot.insertBefore(actRect, firstMsgText);
+            } else {
+                svgRoot.appendChild(actRect);
+            }
+        }
+
+        LOG.info("[MermaidSvgFixup] Injected " + overlayBlocks.size() + " overlay block(s), "
+                + notes.size() + " note(s), " + activations.size() + " activation(s) into sequence diagram");
+    }
+
+    /**
+     * Extract the target actor name from a Mermaid sequence diagram message line.
+     * Handles patterns like: {@code Alice->>+Server: text} → "Server"
+     */
+    private static String extractTargetActor(String line) {
+        // Remove activation markers from arrow
+        String normalized = line.replace("->>+", "->>").replace("->>-", "->>")
+                .replace("-->>+", "-->>").replace("-->>-", "-->>");
+        // Pattern: Source->>Target: text  or  Source-->>Target: text
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\\w+\\s*-+>+\\s*(\\w+)")
+                .matcher(normalized);
+        if (m.find()) {
+            return m.group(1);
+        }
+        return null;
     }
 
     // ═══════════════════════════════════════════════════════════
