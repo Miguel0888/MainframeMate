@@ -709,6 +709,307 @@ function _parseTranslate(el) {
     return [0, 0];
 }
 
+// ── Minimal HTML/SVG parser for innerHTML ───────────────────────────────────
+// DOMPurify sets innerHTML on a document's body and then walks the DOM tree
+// with createNodeIterator. We need to parse the HTML string into actual DOM nodes.
+// This is intentionally simple and handles basic well-formed markup.
+function _parseHTML(html, ownerDoc, parentNs) {
+    if (!html || typeof html !== 'string') return [];
+    var nodes = [];
+    var pos = 0;
+    var len = html.length;
+
+    while (pos < len) {
+        var lt = html.indexOf('<', pos);
+        if (lt < 0) {
+            // remaining text
+            var rest = html.substring(pos);
+            if (rest) {
+                var tn = { nodeType: 3, nodeName: '#text', textContent: rest, ownerDocument: ownerDoc,
+                           cloneNode: function() { return { nodeType: 3, nodeName: '#text', textContent: this.textContent, ownerDocument: ownerDoc }; } };
+                nodes.push(tn);
+            }
+            break;
+        }
+        // text before <
+        if (lt > pos) {
+            var txt = html.substring(pos, lt);
+            if (txt) {
+                var tNode = { nodeType: 3, nodeName: '#text', textContent: txt, ownerDocument: ownerDoc,
+                              cloneNode: function() { return { nodeType: 3, nodeName: '#text', textContent: this.textContent, ownerDocument: ownerDoc }; } };
+                nodes.push(tNode);
+            }
+        }
+        // comment?
+        if (html.substring(lt, lt + 4) === '<!--') {
+            var commentEnd = html.indexOf('-->', lt + 4);
+            if (commentEnd < 0) commentEnd = len;
+            var commentData = html.substring(lt + 4, commentEnd);
+            nodes.push({ nodeType: 8, nodeName: '#comment', textContent: commentData, ownerDocument: ownerDoc });
+            pos = commentEnd + 3;
+            continue;
+        }
+        // closing tag? skip
+        if (html.charAt(lt + 1) === '/') {
+            var closEnd = html.indexOf('>', lt + 2);
+            if (closEnd < 0) closEnd = len - 1;
+            pos = closEnd + 1;
+            // return collected nodes (they are children up to this closing tag)
+            break;
+        }
+        // DOCTYPE / processing instructions — skip
+        if (html.charAt(lt + 1) === '!' || html.charAt(lt + 1) === '?') {
+            var piEnd = html.indexOf('>', lt + 2);
+            if (piEnd < 0) piEnd = len - 1;
+            pos = piEnd + 1;
+            continue;
+        }
+        // opening tag
+        var gt = html.indexOf('>', lt + 1);
+        if (gt < 0) { pos = len; break; }
+        var tagContent = html.substring(lt + 1, gt);
+        var selfClosing = tagContent.charAt(tagContent.length - 1) === '/';
+        if (selfClosing) tagContent = tagContent.substring(0, tagContent.length - 1).trim();
+        // Extract tag name
+        var spaceIdx = tagContent.search(/[\s\/]/);
+        var tagName = spaceIdx > 0 ? tagContent.substring(0, spaceIdx) : tagContent;
+        tagName = tagName.trim();
+        if (!tagName) { pos = gt + 1; continue; }
+        // Determine namespace
+        var ns = parentNs || XHTML_NS;
+        if (tagName.toLowerCase() === 'svg') ns = SVG_NS;
+        else if (parentNs === SVG_NS) ns = SVG_NS;
+        // Create element (createDomElement is defined below, but we need it here)
+        // Use a lightweight node instead to avoid circular dependency
+        var child = _createParseNode(tagName, ns, ownerDoc);
+        // Parse attributes
+        var attrStr = spaceIdx > 0 ? tagContent.substring(spaceIdx) : '';
+        var attrRe = /([a-zA-Z_:][a-zA-Z0-9_.:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))/g;
+        var am;
+        while ((am = attrRe.exec(attrStr)) !== null) {
+            var aName = am[1];
+            var aVal = am[2] !== undefined ? am[2] : (am[3] !== undefined ? am[3] : am[4]);
+            if (child._attrs) child._attrs[aName] = aVal;
+            if (aName === 'id') child.id = aVal;
+            if (aName === 'class') child.className = aVal;
+        }
+        // Void / self-closing elements
+        var VOID_ELEMENTS = { area:1, base:1, br:1, col:1, embed:1, hr:1, img:1, input:1,
+            link:1, meta:1, param:1, source:1, track:1, wbr:1 };
+        if (selfClosing || VOID_ELEMENTS[tagName.toLowerCase()]) {
+            nodes.push(child);
+            pos = gt + 1;
+            continue;
+        }
+        // Find matching close tag and parse children
+        pos = gt + 1;
+        // Recursively parse children until we find </tagName>
+        var closeTag = '</' + tagName;
+        var closeTagLower = '</' + tagName.toLowerCase();
+        var depth = 1;
+        var searchPos = pos;
+        var contentEnd = -1;
+        // Simple approach: find the matching close tag
+        while (searchPos < len) {
+            var nextLt = html.indexOf('<', searchPos);
+            if (nextLt < 0) { contentEnd = len; break; }
+            var peek = html.substring(nextLt, nextLt + closeTag.length + 1).toLowerCase();
+            if (peek === closeTagLower.toLowerCase() + '>' || peek.indexOf(closeTagLower.toLowerCase()) === 0) {
+                var afterClose = html.indexOf('>', nextLt + closeTag.length);
+                if (afterClose < 0) afterClose = len - 1;
+                contentEnd = nextLt;
+                pos = afterClose + 1;
+                break;
+            }
+            searchPos = nextLt + 1;
+        }
+        if (contentEnd < 0) contentEnd = len;
+        // Parse inner content as children
+        var innerHtml = html.substring(gt + 1, contentEnd);
+        if (innerHtml) {
+            var childNodes = _parseHTML(innerHtml, ownerDoc, ns);
+            for (var ci = 0; ci < childNodes.length; ci++) {
+                var cn = childNodes[ci];
+                cn.parentNode = child;
+                child.childNodes.push(cn);
+                if (cn.nodeType === 1) child.children.push(cn);
+            }
+            if (child.childNodes.length > 0) {
+                child.firstChild = child.childNodes[0];
+                child.lastChild = child.childNodes[child.childNodes.length - 1];
+            }
+        }
+        nodes.push(child);
+    }
+    return nodes;
+}
+
+// Lightweight DOM node for innerHTML parsing (used before full createDomElement is available)
+function _createParseNode(tagName, ns, ownerDoc) {
+    var el = {};
+    el.nodeType = 1;
+    if (ns === SVG_NS) {
+        var upper = tagName ? tagName.toUpperCase() : 'SVG';
+        el.tagName = SVG_CAMEL_CASE_TAGS[upper] || (tagName || 'svg');
+    } else {
+        el.tagName = tagName ? tagName.toUpperCase() : 'DIV';
+    }
+    el.nodeName = el.tagName;
+    el.namespaceURI = ns || XHTML_NS;
+    el.ownerDocument = ownerDoc;
+    el.className = '';
+    el.id = '';
+    el.childNodes = [];
+    el.children = [];
+    el.parentNode = null;
+    el.firstChild = null;
+    el.lastChild = null;
+    el.nextSibling = null;
+    el.previousSibling = null;
+    el._attrs = {};
+    el.attributes = [];
+    el.textContent = '';
+    el.nodeValue = null;
+    el.hasChildNodes = function() { return el.childNodes && el.childNodes.length > 0; };
+    el.removeChild = function(child) {
+        var idx = el.childNodes.indexOf(child);
+        if (idx >= 0) el.childNodes.splice(idx, 1);
+        return child;
+    };
+    el.appendChild = function(child) {
+        el.childNodes.push(child);
+        if (child.nodeType === 1) el.children.push(child);
+        child.parentNode = el;
+        el.firstChild = el.childNodes[0];
+        el.lastChild = el.childNodes[el.childNodes.length - 1];
+        return child;
+    };
+    el.insertBefore = function(newNode, refNode) {
+        if (!refNode) return el.appendChild(newNode);
+        var idx = el.childNodes.indexOf(refNode);
+        if (idx >= 0) {
+            el.childNodes.splice(idx, 0, newNode);
+            if (newNode.nodeType === 1) {
+                var eIdx = el.children.indexOf(refNode);
+                if (eIdx >= 0) el.children.splice(eIdx, 0, newNode);
+                else el.children.push(newNode);
+            }
+        } else {
+            el.childNodes.push(newNode);
+            if (newNode.nodeType === 1) el.children.push(newNode);
+        }
+        newNode.parentNode = el;
+        el.firstChild = el.childNodes[0];
+        el.lastChild = el.childNodes[el.childNodes.length - 1];
+        return newNode;
+    };
+    el.removeAttribute = function(name) { if (el._attrs) delete el._attrs[name]; };
+    el.getAttribute = function(name) { return el._attrs ? (el._attrs[name] !== undefined ? el._attrs[name] : null) : null; };
+    el.setAttribute = function(name, val) { if (el._attrs) el._attrs[name] = String(val); if (name === 'id') el.id = String(val); if (name === 'class') el.className = String(val); };
+    el.hasAttribute = function(name) { return el._attrs && el._attrs[name] !== undefined; };
+    el.setAttributeNS = function(nsUri, name, val) { el.setAttribute(name, val); };
+    el.getAttributeNS = function(nsUri, name) { return el.getAttribute(name); };
+    el.removeAttributeNS = function(nsUri, name) { el.removeAttribute(name); };
+    el.getBoundingClientRect = function() { return {x:0,y:0,width:0,height:0,top:0,right:0,bottom:0,left:0}; };
+    el.getBBox = function() { return {x:0,y:0,width:80,height:80}; };
+    el.normalize = function() {};
+    el.contains = function(other) { return false; };
+    el.matches = function(sel) { return false; };
+    el.closest = function(sel) { return null; };
+    el.addEventListener = function() {};
+    el.removeEventListener = function() {};
+    el.dispatchEvent = function() {};
+    el.style = createStyleObject();
+    el.cloneNode = function(deep) {
+        var clone = _createParseNode(tagName, ns, ownerDoc);
+        if (el._attrs) {
+            var keys = Object.keys(el._attrs);
+            for (var k = 0; k < keys.length; k++) clone._attrs[keys[k]] = el._attrs[keys[k]];
+        }
+        clone.id = el.id;
+        clone.className = el.className;
+        if (deep && el.childNodes) {
+            for (var c = 0; c < el.childNodes.length; c++) {
+                var childClone = el.childNodes[c].cloneNode ? el.childNodes[c].cloneNode(deep) : el.childNodes[c];
+                clone.appendChild(childClone);
+            }
+        }
+        return clone;
+    };
+    el.getElementsByTagName = function(name) {
+        var results = [];
+        function walk(node) {
+            var ch = node.childNodes || [];
+            for (var i = 0; i < ch.length; i++) {
+                if (ch[i].nodeType === 1 && (name === '*' || (ch[i].tagName || '').toLowerCase() === name.toLowerCase())) {
+                    results.push(ch[i]);
+                }
+                if (ch[i].childNodes) walk(ch[i]);
+            }
+        }
+        walk(el);
+        return results;
+    };
+    el.querySelector = function(sel) { return _querySelector(el, sel); };
+    el.querySelectorAll = function(sel) { return _querySelectorAll(el, sel); };
+    // firstElementChild getter
+    Object.defineProperty(el, 'firstElementChild', {
+        get: function() {
+            for (var i = 0; i < el.children.length; i++) {
+                if (el.children[i].nodeType === 1) return el.children[i];
+            }
+            return null;
+        }, configurable: true
+    });
+    // innerHTML getter/setter
+    Object.defineProperty(el, 'innerHTML', {
+        get: function() {
+            if (el.childNodes && el.childNodes.length > 0) {
+                var result = '';
+                for (var i = 0; i < el.childNodes.length; i++) {
+                    var cn = el.childNodes[i];
+                    if (cn.nodeType === 3) result += cn.textContent || '';
+                    else if (cn.nodeType === 1) result += (cn.outerHTML || '');
+                }
+                return result;
+            }
+            return '';
+        },
+        set: function(val) {
+            el.childNodes = [];
+            el.children = [];
+            el.firstChild = null;
+            el.lastChild = null;
+            if (val) {
+                var parsed = _parseHTML(val, ownerDoc, el.namespaceURI);
+                for (var i = 0; i < parsed.length; i++) {
+                    el.appendChild(parsed[i]);
+                }
+            }
+        },
+        configurable: true
+    });
+    // outerHTML getter
+    Object.defineProperty(el, 'outerHTML', {
+        get: function() {
+            var tag = (el.namespaceURI === SVG_NS) ? _svgTagName(el.tagName) : (el.tagName || 'div').toLowerCase();
+            var s = '<' + tag;
+            if (el._attrs) {
+                var keys = Object.keys(el._attrs);
+                for (var i = 0; i < keys.length; i++) {
+                    s += ' ' + keys[i] + '="' + _escapeXmlAttr(el._attrs[keys[i]]) + '"';
+                }
+            }
+            var inner = el.innerHTML;
+            if (inner) { s += '>' + inner + '</' + tag + '>'; }
+            else { s += '/>'; }
+            return s;
+        },
+        configurable: true
+    });
+    return el;
+}
+
 // ── DOM Element factory ─────────────────────────────────────────────────────
 function createDomElement(tagName, namespaceURI) {
     var el = EventTargetMixin({});
@@ -814,10 +1115,29 @@ function createDomElement(tagName, namespaceURI) {
         },
         set: function(val) {
             el._innerHTMLRaw = val;
+            // Clear existing children
             el.childNodes = [];
             el.children = [];
             el.firstChild = null;
             el.lastChild = null;
+            // Parse HTML into DOM nodes so DOMPurify can iterate them
+            if (val && typeof val === 'string' && val.indexOf('<') >= 0) {
+                try {
+                    var parsed = _parseHTML(val, el.ownerDocument || document, el.namespaceURI);
+                    for (var pi = 0; pi < parsed.length; pi++) {
+                        var pn = parsed[pi];
+                        pn.parentNode = el;
+                        el.childNodes.push(pn);
+                        if (pn.nodeType === 1) el.children.push(pn);
+                    }
+                    if (el.childNodes.length > 0) {
+                        el.firstChild = el.childNodes[0];
+                        el.lastChild = el.childNodes[el.childNodes.length - 1];
+                    }
+                } catch(e) {
+                    // Parsing failed, keep raw string as fallback
+                }
+            }
         },
         configurable: true,
         enumerable: true
@@ -1269,7 +1589,7 @@ Element.prototype = {
     replaceChild: function(n, o) { return o; },
     cloneNode: function(deep) { return createDomElement('div'); },
     contains: function(other) { return false; },
-    hasChildNodes: function() { return false; },
+    hasChildNodes: function() { return this.childNodes && this.childNodes.length > 0; },
     normalize: function() {},
     querySelector: function(sel) { return null; },
     querySelectorAll: function(sel) { return []; },
@@ -1281,23 +1601,35 @@ Element.prototype = {
     removeEventListener: function() {},
     dispatchEvent: function() {},
     getBoundingClientRect: function() { return {x:0,y:0,width:0,height:0,top:0,right:0,bottom:0,left:0}; },
-    childNodes: [],
-    children: [],
-    parentNode: null,
-    firstChild: null,
-    lastChild: null,
-    nextSibling: null,
-    previousSibling: null,
-    textContent: '',
-    innerHTML: '',
-    outerHTML: '',
     style: {},
     className: '',
     id: '',
-    tagName: 'DIV',
-    nodeName: 'DIV',
     namespaceURI: 'http://www.w3.org/1999/xhtml'
 };
+// DOMPurify's V2() uses Object.getOwnPropertyDescriptor to find getters on Element.prototype.
+// It uses these safe references to access DOM node properties.
+// We must define childNodes, parentNode, nextSibling, nodeName, textContent etc. as GETTERS
+// so V2 can find and call them on actual nodes.
+Object.defineProperties(Element.prototype, {
+    childNodes: { get: function() { return this._childNodes || []; }, configurable: true, enumerable: true },
+    children: { get: function() { return this._children || []; }, configurable: true, enumerable: true },
+    parentNode: { get: function() { return this._parentNode || null; }, configurable: true, enumerable: true },
+    firstChild: { get: function() { var cn = this._childNodes || this.childNodes || []; return cn.length > 0 ? cn[0] : null; }, configurable: true, enumerable: true },
+    lastChild: { get: function() { var cn = this._childNodes || this.childNodes || []; return cn.length > 0 ? cn[cn.length - 1] : null; }, configurable: true, enumerable: true },
+    nextSibling: { get: function() { return this._nextSibling || null; }, configurable: true, enumerable: true },
+    previousSibling: { get: function() { return this._previousSibling || null; }, configurable: true, enumerable: true },
+    textContent: { get: function() { return this._textContent || ''; }, set: function(v) { this._textContent = v; }, configurable: true, enumerable: true },
+    innerHTML: { get: function() { return this._innerHTML || ''; }, set: function(v) { this._innerHTML = v; }, configurable: true, enumerable: true },
+    outerHTML: { get: function() { return this._outerHTML || ''; }, configurable: true, enumerable: true },
+    nodeName: { get: function() { return this._nodeName || this.tagName || 'DIV'; }, configurable: true, enumerable: true },
+    tagName: { get: function() { return this._tagName || 'DIV'; }, configurable: true, enumerable: true },
+    firstElementChild: { get: function() {
+        var ch = this._children || this.children || [];
+        for (var i = 0; i < ch.length; i++) { if (ch[i] && ch[i].nodeType === 1) return ch[i]; }
+        return null;
+    }, configurable: true, enumerable: true },
+    attributes: { get: function() { return this._attributes || []; }, configurable: true, enumerable: true }
+});
 
 function Node() {}
 Node.prototype = Element.prototype;
@@ -1324,10 +1656,12 @@ function SVGElement() {}
 SVGElement.prototype = Element.prototype;
 
 function Text() {}
-Text.prototype = { nodeType: 3, textContent: '', cloneNode: function() { return { nodeType: 3, textContent: this.textContent }; } };
+Text.prototype = { nodeType: 3, nodeName: '#text', cloneNode: function() { return { nodeType: 3, nodeName: '#text', textContent: this.textContent }; } };
+Object.defineProperty(Text.prototype, 'textContent', { get: function() { return this._textContent || ''; }, set: function(v) { this._textContent = v; }, configurable: true });
 
 function Comment() {}
-Comment.prototype = { nodeType: 8, textContent: '' };
+Comment.prototype = { nodeType: 8, nodeName: '#comment' };
+Object.defineProperty(Comment.prototype, 'textContent', { get: function() { return this._textContent || ''; }, set: function(v) { this._textContent = v; }, configurable: true });
 
 function NodeFilter() {}
 NodeFilter.SHOW_ALL = 0xFFFFFFFF;
@@ -1574,7 +1908,7 @@ DOMParser.prototype.parseFromString = function(str, type) {
         getElementById: function(id) { return null; },
         createElementNS: function(ns, name) { return createDomElement(name, ns); },
         createElement: function(name) { return createDomElement(name); },
-        createTextNode: function(text) { return { nodeType: 3, textContent: text }; }
+        createTextNode: function(text) { return { nodeType: 3, nodeName: '#text', textContent: text }; }
     };
     return doc;
 };
@@ -1621,12 +1955,13 @@ document.createElementNS = function(ns, name) {
     return el;
 };
 document.createTextNode = function(text) {
-    return { nodeType: 3, textContent: text, ownerDocument: document, cloneNode: function() { return document.createTextNode(text); } };
+    return { nodeType: 3, nodeName: '#text', textContent: text, ownerDocument: document, cloneNode: function() { return document.createTextNode(text); } };
 };
-document.createComment = function(data) { return { nodeType: 8, textContent: data, ownerDocument: document }; };
+document.createComment = function(data) { return { nodeType: 8, nodeName: '#comment', textContent: data, ownerDocument: document }; };
 document.createDocumentFragment = function() {
     var frag = createDomElement('#fragment');
     frag.nodeType = 11;
+    frag.nodeName = '#document-fragment';
     frag.ownerDocument = document;
     return frag;
 };
@@ -2006,9 +2341,9 @@ if (!document.implementation) {
                 head: createDomElement('head'),
                 createElement: function(name) { var e = createDomElement(name); e.ownerDocument = doc; return e; },
                 createElementNS: function(ns, name) { var e = createDomElement(name, ns); e.ownerDocument = doc; return e; },
-                createTextNode: function(text) { return { nodeType: 3, textContent: text, ownerDocument: doc }; },
-                createComment: function(data) { return { nodeType: 8, textContent: data, ownerDocument: doc }; },
-                createDocumentFragment: function() { var f = createDomElement('#fragment'); f.nodeType = 11; f.ownerDocument = doc; return f; },
+                createTextNode: function(text) { return { nodeType: 3, nodeName: '#text', textContent: text, ownerDocument: doc }; },
+                createComment: function(data) { return { nodeType: 8, nodeName: '#comment', textContent: data, ownerDocument: doc }; },
+                createDocumentFragment: function() { var f = createDomElement('#fragment'); f.nodeType = 11; f.nodeName = '#document-fragment'; f.ownerDocument = doc; return f; },
                 createNodeIterator: document.createNodeIterator,
                 querySelector: function(sel) { return _querySelector(doc.documentElement, sel); },
                 querySelectorAll: function(sel) { return _querySelectorAll(doc.documentElement, sel); },

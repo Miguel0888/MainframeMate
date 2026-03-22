@@ -169,7 +169,7 @@ public final class MermaidRenderer {
                 + "    __result.then(function(res) {\n"
                 + "      __svgResult = (res && res.svg) ? res.svg : (typeof res === 'string' ? res : '');\n"
                 + "    })['catch'](function(err) {\n"
-                + "      __renderError = '' + err;\n"
+                + "      __renderError = '' + err + (err && err.stack ? '\\nSTACK: ' + err.stack : '');\n"
                 + "    });\n"
                 + "  } else if (__result && __result.svg) {\n"
                 + "    __svgResult = __result.svg;\n"
@@ -177,7 +177,7 @@ public final class MermaidRenderer {
                 + "    __svgResult = __result;\n"
                 + "  }\n"
                 + "} catch(renderErr) {\n"
-                + "  __renderError = '' + renderErr;\n"
+                + "  __renderError = '' + renderErr + (renderErr && renderErr.stack ? '\\nSTACK: ' + renderErr.stack : '');\n"
                 + "}\n";
 
         return executor.executeAsync(script,
@@ -1166,6 +1166,14 @@ public final class MermaidRenderer {
                     String shim = loadResource(BROWSER_SHIM_RESOURCE);
                     String mermaidBundle = loadResource(MERMAID_BUNDLE_RESOURCE);
                     if (shim != null && mermaidBundle != null && mermaidBundle.length() > 1000) {
+                        // DOMPurify (embedded in Mermaid) requires a full DOM implementation
+                        // (Element.prototype with proper getters, createNodeIterator, etc.)
+                        // that our headless browser shim cannot provide.  Replace the DOMPurify
+                        // instance with a pass-through sanitizer.  This is safe because we
+                        // control the diagram input — there is no user-supplied untrusted HTML.
+                        mermaidBundle = mermaidBundle.replace(
+                                "tl=nW()",
+                                "tl={sanitize:function(t){return typeof t==='string'?t:''},isSupported:true,removed:[],version:'3.3.3'}");
                         cachedPreamble = shim + "\n" +
                                 "var module = undefined; var exports = undefined; var define = undefined;\n" +
                                 mermaidBundle;
