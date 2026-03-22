@@ -272,6 +272,12 @@ public final class MermaidRenderer {
         //      Keep only <g class="node"> that have a transform with real coordinates.
         svg = deduplicateNodeGroups(svg);
 
+        // 12c) Fix child order within node groups: shape elements must come before labels.
+        //      Mermaid's stadium, pill, and rough shapes may place the label <g> before
+        //      the shape <g> (containing filled paths), causing the filled shape to cover
+        //      the text in SVG's painter's model.  Swap them so shapes paint first.
+        svg = fixNodeShapeLabelOrder(svg);
+
         // 12c) Fix <rect> elements without width/height — Batik requires these attributes.
         //      Mermaid with htmlLabels:false emits <rect class="background" style="stroke: none"/>
         //      which are decorative background rects with no dimensions.
@@ -616,6 +622,131 @@ public final class MermaidRenderer {
             i = j;
         }
         return sb.toString();
+    }
+
+    /**
+     * Fix the child order within node groups: shape elements must come before labels.
+     * <p>
+     * Mermaid's stadium/pill shapes (and others using "outer-path" groups) may
+     * render the label {@code <g>} before the shape {@code <g>} when the
+     * browser shim's {@code :first-child} selector doesn't work correctly.
+     * Since SVG uses a painter's model (later elements cover earlier ones),
+     * having the filled shape after the label text makes the text invisible.
+     * <p>
+     * This method detects node groups where a {@code <g class="label"...>}
+     * precedes a {@code <g class="...outer-path"...>} and swaps them.
+     */
+    private static String fixNodeShapeLabelOrder(String svg) {
+        StringBuilder result = new StringBuilder(svg.length());
+        int pos = 0;
+
+        while (pos < svg.length()) {
+            int nodeStart = svg.indexOf("<g class=\"node ", pos);
+            if (nodeStart < 0) {
+                result.append(svg, pos, svg.length());
+                break;
+            }
+            result.append(svg, pos, nodeStart);
+
+            // Find end of the node's opening tag
+            int nodeTagEnd = svg.indexOf('>', nodeStart);
+            if (nodeTagEnd < 0) { result.append(svg, nodeStart, svg.length()); break; }
+
+            // Find the matching </g> for this node group
+            int nodeCloseStart = findMatchingGClose(svg, nodeTagEnd + 1);
+            if (nodeCloseStart < 0) { result.append(svg, nodeStart, svg.length()); break; }
+
+            String nodeOpenTag = svg.substring(nodeStart, nodeTagEnd + 1);
+            String nodeInner = svg.substring(nodeTagEnd + 1, nodeCloseStart);
+
+            // Check if this node has a label group followed by an outer-path group
+            if (nodeInner.contains("outer-path")) {
+                int labelStart = nodeInner.indexOf("<g class=\"label\"");
+                if (labelStart < 0) labelStart = nodeInner.indexOf("<g class=\"label ");
+                int outerIdx = nodeInner.indexOf("outer-path");
+                int outerGStart = outerIdx >= 0 ? nodeInner.lastIndexOf("<g ", outerIdx) : -1;
+
+                if (labelStart >= 0 && outerGStart >= 0 && labelStart < outerGStart) {
+                    // Label comes before outer-path — need to swap
+                    String labelGroup = extractGGroup(nodeInner, labelStart);
+                    String outerGroup = extractGGroup(nodeInner, outerGStart);
+
+                    if (labelGroup != null && outerGroup != null) {
+                        String before = nodeInner.substring(0, labelStart);
+                        int labelEnd = labelStart + labelGroup.length();
+                        String between = nodeInner.substring(labelEnd, outerGStart);
+                        int outerEnd = outerGStart + outerGroup.length();
+                        String after = nodeInner.substring(outerEnd);
+
+                        // Reassemble: outer-path first, then label (so text paints on top)
+                        nodeInner = before + outerGroup + between + labelGroup + after;
+                    }
+                }
+            }
+
+            result.append(nodeOpenTag);
+            result.append(nodeInner);
+            result.append("</g>");
+
+            pos = nodeCloseStart + 4; // skip past </g>
+        }
+
+        return result.toString();
+    }
+
+    /**
+     * Find the position of the matching {@code </g>} closing tag, properly
+     * tracking nested {@code <g>} elements.  Starts scanning from {@code startPos}
+     * (which should be right after the opening tag's {@code >}).
+     *
+     * @return index of the {@code <} in {@code </g>}, or -1 if not found
+     */
+    private static int findMatchingGClose(String svg, int startPos) {
+        int depth = 1;
+        int scan = startPos;
+        int len = svg.length();
+        while (scan < len && depth > 0) {
+            if (svg.charAt(scan) == '<') {
+                if (scan + 3 < len && svg.charAt(scan + 1) == '/' && svg.charAt(scan + 2) == 'g'
+                        && (svg.charAt(scan + 3) == '>' || svg.charAt(scan + 3) == ' ')) {
+                    depth--;
+                    if (depth == 0) return scan;
+                    scan += 4;
+                    continue;
+                }
+                if (scan + 2 < len && svg.charAt(scan + 1) == 'g'
+                        && (svg.charAt(scan + 2) == ' ' || svg.charAt(scan + 2) == '>'
+                        || svg.charAt(scan + 2) == '\t' || svg.charAt(scan + 2) == '\n')) {
+                    int gEnd = svg.indexOf('>', scan);
+                    if (gEnd >= 0 && gEnd > scan && svg.charAt(gEnd - 1) != '/') {
+                        depth++;
+                    }
+                    scan = gEnd >= 0 ? gEnd + 1 : scan + 1;
+                    continue;
+                }
+            }
+            scan++;
+        }
+        return -1;
+    }
+
+    /**
+     * Extract a complete {@code <g ...>...</g>} group starting at the given
+     * position within a string.  Properly tracks nested {@code <g>} elements.
+     *
+     * @return the full group string including opening and closing tags, or null
+     */
+    private static String extractGGroup(String s, int start) {
+        int tagEnd = s.indexOf('>', start);
+        if (tagEnd < 0) return null;
+        // Self-closing <g ... />
+        if (s.charAt(tagEnd - 1) == '/') return s.substring(start, tagEnd + 1);
+
+        int closePos = findMatchingGClose(s, tagEnd + 1);
+        if (closePos < 0) return null;
+        // Include the </g>
+        int closeEnd = s.indexOf('>', closePos);
+        return closeEnd >= 0 ? s.substring(start, closeEnd + 1) : null;
     }
 
     /**

@@ -45,6 +45,23 @@ function _matchesSelector(el, sel) {
     var last = segments[segments.length - 1];
     // Simple selectors
     if (last === '*') return true;
+    // :first-child pseudo-selector — used by D3's insert(tag, ":first-child")
+    // to insert shape elements BEFORE labels in node groups
+    if (last === ':first-child') {
+        if (!el.parentNode || !el.parentNode.childNodes) return false;
+        for (var fc = 0; fc < el.parentNode.childNodes.length; fc++) {
+            if (el.parentNode.childNodes[fc].nodeType === 1) return el.parentNode.childNodes[fc] === el;
+        }
+        return false;
+    }
+    // :last-child pseudo-selector
+    if (last === ':last-child') {
+        if (!el.parentNode || !el.parentNode.childNodes) return false;
+        for (var lc = el.parentNode.childNodes.length - 1; lc >= 0; lc--) {
+            if (el.parentNode.childNodes[lc].nodeType === 1) return el.parentNode.childNodes[lc] === el;
+        }
+        return false;
+    }
     if (last.charAt(0) === '#') return el.id === last.substring(1);
     if (last.charAt(0) === '.') return (' ' + (el.className || '') + ' ').indexOf(' ' + last.substring(1) + ' ') >= 0;
     // [attr="value"] selector
@@ -585,6 +602,17 @@ function createDomElement(tagName, namespaceURI) {
     el.setAttributeNS = function(ns, key, value) { el.setAttribute(key, value); };
     el.removeAttributeNS = function(ns, key) { el.removeAttribute(key); };
 
+    // Helper: maintain previousSibling / nextSibling for all childNodes
+    function _updateSiblings(parent) {
+        var cn = parent.childNodes;
+        for (var si = 0; si < cn.length; si++) {
+            cn[si].previousSibling = si > 0 ? cn[si - 1] : null;
+            cn[si].nextSibling = si < cn.length - 1 ? cn[si + 1] : null;
+        }
+        parent.firstChild = cn.length > 0 ? cn[0] : null;
+        parent.lastChild = cn.length > 0 ? cn[cn.length - 1] : null;
+    }
+
     el.appendChild = function(child) {
         if (child.parentNode && child.parentNode.removeChild) {
             child.parentNode.removeChild(child);
@@ -592,8 +620,7 @@ function createDomElement(tagName, namespaceURI) {
         el.childNodes.push(child);
         if (child.nodeType === 1) el.children.push(child);
         child.parentNode = el;
-        el.firstChild = el.childNodes[0];
-        el.lastChild = el.childNodes[el.childNodes.length - 1];
+        _updateSiblings(el);
         return child;
     };
     el.removeChild = function(child) {
@@ -602,12 +629,16 @@ function createDomElement(tagName, namespaceURI) {
         var cidx = el.children.indexOf(child);
         if (cidx >= 0) el.children.splice(cidx, 1);
         child.parentNode = null;
-        el.firstChild = el.childNodes[0] || null;
-        el.lastChild = el.childNodes[el.childNodes.length - 1] || null;
+        child.previousSibling = null;
+        child.nextSibling = null;
+        _updateSiblings(el);
         return child;
     };
     el.insertBefore = function(newNode, refNode) {
         if (!refNode) return el.appendChild(newNode);
+        if (newNode.parentNode && newNode.parentNode.removeChild) {
+            newNode.parentNode.removeChild(newNode);
+        }
         var idx = el.childNodes.indexOf(refNode);
         if (idx >= 0) {
             el.childNodes.splice(idx, 0, newNode);
@@ -621,8 +652,7 @@ function createDomElement(tagName, namespaceURI) {
             if (newNode.nodeType === 1) el.children.push(newNode);
         }
         newNode.parentNode = el;
-        el.firstChild = el.childNodes[0];
-        el.lastChild = el.childNodes[el.childNodes.length - 1];
+        _updateSiblings(el);
         return newNode;
     };
     el.replaceChild = function(newChild, oldChild) {
