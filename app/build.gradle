@@ -150,6 +150,7 @@ task testMermaid(type: JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'de.bund.zrb.mermaid.MermaidRenderTest'
     jvmArgs '-Djava.awt.headless=false'
+    maxHeapSize = '2g'
     standardInput = System.in
     standardOutput = System.out
     errorOutput = System.err

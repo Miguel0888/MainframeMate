@@ -634,6 +634,37 @@ function createDomElement(tagName, namespaceURI) {
     el.click = function() {};
     el.hasChildNodes = function() { return el.childNodes && el.childNodes.length > 0; };
     el.normalize = function() {};
+    el.remove = function() {
+        if (el.parentNode && el.parentNode.removeChild) {
+            el.parentNode.removeChild(el);
+        }
+    };
+
+    // Layout dimension properties (used by Gantt charts and other diagram types)
+    Object.defineProperty(el, 'offsetWidth', {
+        get: function() { return _computeElementDims(el).w; },
+        configurable: true
+    });
+    Object.defineProperty(el, 'offsetHeight', {
+        get: function() { return _computeElementDims(el).h; },
+        configurable: true
+    });
+    Object.defineProperty(el, 'clientWidth', {
+        get: function() { return _computeElementDims(el).w; },
+        configurable: true
+    });
+    Object.defineProperty(el, 'clientHeight', {
+        get: function() { return _computeElementDims(el).h; },
+        configurable: true
+    });
+    Object.defineProperty(el, 'scrollWidth', {
+        get: function() { return _computeElementDims(el).w; },
+        configurable: true
+    });
+    Object.defineProperty(el, 'scrollHeight', {
+        get: function() { return _computeElementDims(el).h; },
+        configurable: true
+    });
 
     // Canvas 2D context stub (used by Mermaid mindmap for text measurement)
     el.getContext = function(type) {
@@ -1142,8 +1173,38 @@ window.Uint8Array = typeof Uint8Array !== 'undefined' ? Uint8Array : function() 
 window.Int32Array = typeof Int32Array !== 'undefined' ? Int32Array : function() {};
 window.Float64Array = typeof Float64Array !== 'undefined' ? Float64Array : function() {};
 window.DataView = typeof DataView !== 'undefined' ? DataView : function() {};
-window.TextEncoder = typeof TextEncoder !== 'undefined' ? TextEncoder : function() { this.encode = function(s) { return []; }; };
-window.TextDecoder = typeof TextDecoder !== 'undefined' ? TextDecoder : function() { this.decode = function(b) { return ''; }; };
+// TextEncoder/TextDecoder — must also be declared as top-level vars because
+// Mermaid code references them directly, not via window.
+if (typeof TextEncoder === 'undefined') {
+    var TextEncoder = function TextEncoder() {
+        this.encoding = 'utf-8';
+        this.encode = function(str) {
+            if (typeof str !== 'string') str = String(str);
+            var arr = [];
+            for (var i = 0; i < str.length; i++) {
+                var c = str.charCodeAt(i);
+                if (c < 0x80) { arr.push(c); }
+                else if (c < 0x800) { arr.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f)); }
+                else { arr.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f)); }
+            }
+            return new Uint8Array(arr);
+        };
+    };
+}
+window.TextEncoder = TextEncoder;
+
+if (typeof TextDecoder === 'undefined') {
+    var TextDecoder = function TextDecoder() {
+        this.encoding = 'utf-8';
+        this.decode = function(buf) {
+            if (!buf || !buf.length) return '';
+            var s = '';
+            for (var i = 0; i < buf.length; i++) s += String.fromCharCode(buf[i]);
+            return s;
+        };
+    };
+}
+window.TextDecoder = TextDecoder;
 window.parseInt = parseInt;
 window.parseFloat = parseFloat;
 window.isNaN = isNaN;

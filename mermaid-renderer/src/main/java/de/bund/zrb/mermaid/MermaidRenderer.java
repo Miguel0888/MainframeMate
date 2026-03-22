@@ -73,6 +73,13 @@ public final class MermaidRenderer {
                 + "var __renderError = '';\n"
                 + "__mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });\n"
                 + "\n"
+                + "// Pre-create a container element in the DOM so diagram renderers\n"
+                + "// (especially Gantt) can find it and measure offsetWidth/Height.\n"
+                + "var __container = document.createElement('div');\n"
+                + "__container.id = 'd' + '" + diagramId + "';\n"
+                + "__container.setAttribute('id', 'd' + '" + diagramId + "');\n"
+                + "document.body.appendChild(__container);\n"
+                + "\n"
                 + "try {\n"
                 + "  var __result = __mermaid.render('" + diagramId + "', '" + escapedDiagram + "');\n"
                 + "  if (__result && typeof __result.then === 'function') {\n"
@@ -140,6 +147,10 @@ public final class MermaidRenderer {
                 + "var __svgResult = '';\n"
                 + "var __renderError = '';\n"
                 + "__mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });\n"
+                + "var __container = document.createElement('div');\n"
+                + "__container.id = 'd' + '" + diagramId + "';\n"
+                + "__container.setAttribute('id', 'd' + '" + diagramId + "');\n"
+                + "document.body.appendChild(__container);\n"
                 + "try {\n"
                 + "  var __result = __mermaid.render('" + diagramId + "', '" + escapedDiagram + "');\n"
                 + "  if (__result && typeof __result.then === 'function') {\n"
@@ -221,7 +232,12 @@ public final class MermaidRenderer {
         svg = svg.replaceAll("#mmd-\\d+\\s*:root\\s*\\{[^}]*\\}", "");
 
         // 10) Remove alignment-baseline attributes (Batik chokes on value "central")
-        svg = svg.replaceAll("\\s*alignment-baseline\\s*=\\s*\"[^\"]*\"", "");
+        //     Handle both double and single quoted attribute values
+        svg = svg.replaceAll("\\s+alignment-baseline\\s*=\\s*\"[^\"]*\"", "");
+        svg = svg.replaceAll("\\s+alignment-baseline\\s*=\\s*'[^']*'", "");
+
+        // 10a) Remove alignment-baseline from CSS in <style> blocks AND inline styles
+        svg = svg.replaceAll("alignment-baseline\\s*:\\s*[^;\"'}<]+[;]?", "");
 
         // 10b) Clean up style attributes containing serialized JavaScript functions
         //      (polyfill methods like Array.prototype.at may leak into attr values)
@@ -232,6 +248,15 @@ public final class MermaidRenderer {
 
         // 12) Wrap <style> content in CDATA so CSS selectors with > don't break XML
         svg = wrapStylesInCdata(svg);
+
+        // 13) Final safety: re-extract <svg>...</svg> to ensure no trailing content,
+        //     then re-balance <g> tags one more time
+        int finalSvgStart = svg.indexOf("<svg");
+        int finalSvgEnd = svg.lastIndexOf("</svg>");
+        if (finalSvgStart >= 0 && finalSvgEnd > finalSvgStart) {
+            svg = svg.substring(finalSvgStart, finalSvgEnd + 6);
+        }
+        svg = balanceGTags(svg);
 
         return svg;
     }
@@ -313,6 +338,9 @@ public final class MermaidRenderer {
      * with a depth counter.  Every {@code <g ...>} increments depth,
      * every {@code </g>} decrements it.  If depth would go negative,
      * the {@code </g>} is an orphan and is skipped.
+     * <p>
+     * Also handles self-closing {@code <g ... />} (depth stays unchanged)
+     * and appends missing closing tags at the end.
      */
     private static String balanceGTags(String svg) {
         StringBuilder result = new StringBuilder(svg.length());
@@ -320,29 +348,45 @@ public final class MermaidRenderer {
         int i = 0;
         int len = svg.length();
         while (i < len) {
-            // Check for <g> or <g ...>
+            // Check for <g> or <g ...> (whitespace: space, tab, newline, CR)
             if (i + 2 < len && svg.charAt(i) == '<' && svg.charAt(i + 1) == 'g'
-                    && (i + 2 == len || svg.charAt(i + 2) == ' ' || svg.charAt(i + 2) == '>' || svg.charAt(i + 2) == '\t')) {
-                depth++;
+                    && (svg.charAt(i + 2) == ' ' || svg.charAt(i + 2) == '>'
+                    || svg.charAt(i + 2) == '\t' || svg.charAt(i + 2) == '\n'
+                    || svg.charAt(i + 2) == '\r')) {
                 int tagEnd = svg.indexOf('>', i);
                 if (tagEnd < 0) tagEnd = len - 1;
+                // Check if self-closing <g ... />
+                boolean selfClosing = (tagEnd > 0 && svg.charAt(tagEnd - 1) == '/');
+                if (!selfClosing) {
+                    depth++;
+                }
                 result.append(svg, i, tagEnd + 1);
                 i = tagEnd + 1;
             }
-            // Check for </g>
+            // Check for </g> (possibly with whitespace: </g > or </g\n>)
             else if (i + 3 < len && svg.charAt(i) == '<' && svg.charAt(i + 1) == '/'
-                    && svg.charAt(i + 2) == 'g' && svg.charAt(i + 3) == '>') {
+                    && svg.charAt(i + 2) == 'g') {
+                // Find the closing >
+                int closeEnd = i + 3;
+                while (closeEnd < len && svg.charAt(closeEnd) != '>') closeEnd++;
+                if (closeEnd < len) closeEnd++; // include the '>'
+
                 if (depth > 0) {
                     depth--;
-                    result.append("</g>");
+                    result.append(svg, i, closeEnd);
                 }
                 // else: orphaned closing tag — silently skip it
-                i += 4;
+                i = closeEnd;
             }
             else {
                 result.append(svg.charAt(i));
                 i++;
             }
+        }
+        // Append missing closing tags
+        while (depth > 0) {
+            result.append("</g>");
+            depth--;
         }
         return result.toString();
     }

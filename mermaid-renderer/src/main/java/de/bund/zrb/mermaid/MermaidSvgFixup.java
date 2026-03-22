@@ -41,6 +41,11 @@ public final class MermaidSvgFixup {
      */
     public static String fixForBatik(String svg) {
         if (svg == null || svg.isEmpty()) return svg;
+
+        // Pre-process: apply critical regex fixes that must work regardless
+        // of whether DOM parsing succeeds (alignment-baseline, hsl, rgba).
+        svg = regexSanitize(svg);
+
         try {
             DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
             dbf.setNamespaceAware(true);
@@ -63,11 +68,75 @@ public final class MermaidSvgFixup {
             fixSequenceLifelines(doc);     // extend lifelines to bottom actor boxes
             fixViewBoxFromAttributes(doc);
 
-            return serialise(doc);
+            String result = serialise(doc);
+            // Final safety pass: catch anything that leaked through DOM serialisation
+            result = regexSanitize(result);
+            return result;
         } catch (Exception e) {
-            LOG.log(Level.WARNING, "[MermaidSvgFixup] DOM processing failed, returning original SVG", e);
-            return svg;
+            LOG.log(Level.WARNING, "[MermaidSvgFixup] DOM processing failed, applying regex fallback", e);
+            return regexFallbackFix(svg);
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Regex-based Batik sanitisation (fallback + safety net)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Apply essential Batik-compatibility fixes using regex only.
+     * This is used as:
+     * <ul>
+     *   <li><b>Pre-processing</b> before DOM parsing (to help the parser succeed)</li>
+     *   <li><b>Post-processing</b> after DOM serialisation (safety net)</li>
+     *   <li><b>Fallback</b> when DOM parsing fails entirely</li>
+     * </ul>
+     */
+    static String regexSanitize(String svg) {
+        if (svg == null || svg.isEmpty()) return svg;
+
+        // Remove alignment-baseline XML attributes (double or single quotes)
+        svg = svg.replaceAll("\\s+alignment-baseline\\s*=\\s*\"[^\"]*\"", "");
+        svg = svg.replaceAll("\\s+alignment-baseline\\s*=\\s*'[^']*'", "");
+
+        // Remove alignment-baseline from CSS (in <style> blocks and inline styles)
+        svg = svg.replaceAll("alignment-baseline\\s*:\\s*[^;\"'}<]+[;]?", "");
+
+        return svg;
+    }
+
+    /**
+     * Comprehensive regex-based fallback when DOM parsing fails.
+     * Applies all critical Batik fixes that would normally be done via DOM.
+     */
+    private static String regexFallbackFix(String svg) {
+        if (svg == null || svg.isEmpty()) return svg;
+
+        // alignment-baseline (already done by regexSanitize, but be safe)
+        svg = regexSanitize(svg);
+
+        // Convert hsl() → hex in all contexts
+        svg = replaceHslValues(svg);
+
+        // Convert rgba() → hex
+        svg = replaceRgbaValues(svg);
+
+        // Strip unsupported CSS properties
+        svg = svg.replaceAll("position\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("box-shadow\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("filter\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("z-index\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("pointer-events\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("cursor\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("text-align\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("background-color\\s*:\\s*[^;\"]+;?", "");
+
+        // Replace fill="currentColor" with concrete color
+        svg = svg.replace("fill=\"currentColor\"", "fill=\"#333333\"");
+
+        // Strip CSS :root rules with custom properties
+        svg = svg.replaceAll("#mmd-\\d+\\s*:root\\s*\\{[^}]*\\}", "");
+
+        return svg;
     }
 
     // ═══════════════════════════════════════════════════════════
