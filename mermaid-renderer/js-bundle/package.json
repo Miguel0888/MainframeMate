@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "description": "Build-time bundler: converts ESM-only Mermaid 11+ into a single IIFE file for GraalJS",
+  "scripts": {
+    "bundle": "node bundle.mjs"
+  },
+  "dependencies": {
+    "mermaid": "^11.4.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
+

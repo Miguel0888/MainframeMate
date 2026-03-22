@@ -2,7 +2,7 @@
  * browser-shim.js — Minimal browser-like environment for running Mermaid inside GraalJS.
  *
  * This shim provides enough of the window/document/navigator API surface
- * so that mermaid.min.js (UMD build, v9.x) can load and initialize.
+ * so that mermaid.min.js (IIFE build, v11.x) can load and initialize.
  * It is NOT a general-purpose browser polyfill.
  */
 
@@ -545,6 +545,22 @@ function createDomElement(tagName, namespaceURI) {
         return false;
     };
 
+    // getRootNode — walk up to the topmost parent (needed by Mermaid mindmap)
+    el.getRootNode = function(opts) {
+        var current = el;
+        while (current.parentNode) current = current.parentNode;
+        return current;
+    };
+
+    // isConnected — check if element is in a document tree
+    Object.defineProperty(el, 'isConnected', {
+        get: function() {
+            var root = el.getRootNode();
+            return root === document || root === document.documentElement || (root.nodeType === 9);
+        },
+        configurable: true
+    });
+
     el.cloneNode = function(deep) {
         var clone = createDomElement(tagName, namespaceURI);
         clone.innerHTML = el.innerHTML;
@@ -600,6 +616,56 @@ function createDomElement(tagName, namespaceURI) {
     el.focus = function() {};
     el.blur = function() {};
     el.click = function() {};
+    el.hasChildNodes = function() { return el.childNodes && el.childNodes.length > 0; };
+    el.normalize = function() {};
+
+    // Canvas 2D context stub (used by Mermaid mindmap for text measurement)
+    el.getContext = function(type) {
+        if (type === '2d') {
+            return {
+                measureText: function(text) {
+                    // Approximate text measurement: ~7px per character at default font
+                    var w = (text ? text.length : 0) * 7;
+                    return {
+                        width: w,
+                        actualBoundingBoxAscent: 10,
+                        actualBoundingBoxDescent: 3,
+                        fontBoundingBoxAscent: 12,
+                        fontBoundingBoxDescent: 4
+                    };
+                },
+                font: '16px sans-serif',
+                fillStyle: '#000',
+                strokeStyle: '#000',
+                lineWidth: 1,
+                fillRect: function() {},
+                clearRect: function() {},
+                strokeRect: function() {},
+                beginPath: function() {},
+                closePath: function() {},
+                moveTo: function() {},
+                lineTo: function() {},
+                arc: function() {},
+                fill: function() {},
+                stroke: function() {},
+                fillText: function() {},
+                strokeText: function() {},
+                save: function() {},
+                restore: function() {},
+                translate: function() {},
+                rotate: function() {},
+                scale: function() {},
+                setTransform: function() {},
+                getTransform: function() { return { a:1,b:0,c:0,d:1,e:0,f:0 }; },
+                createLinearGradient: function() { return { addColorStop: function() {} }; },
+                createRadialGradient: function() { return { addColorStop: function() {} }; },
+                drawImage: function() {},
+                getImageData: function() { return { data: [] }; },
+                putImageData: function() {}
+            };
+        }
+        return null;
+    };
 
     return el;
 }
@@ -621,6 +687,8 @@ Element.prototype = {
     replaceChild: function(n, o) { return o; },
     cloneNode: function(deep) { return createDomElement('div'); },
     contains: function(other) { return false; },
+    hasChildNodes: function() { return false; },
+    normalize: function() {},
     querySelector: function(sel) { return null; },
     querySelectorAll: function(sel) { return []; },
     getElementsByTagName: function(name) { return []; },
@@ -747,13 +815,35 @@ window.scrollX = 0;
 window.scrollY = 0;
 
 window.getComputedStyle = function(el) {
+    var defaults = {
+        display: 'block', visibility: 'visible', opacity: '1',
+        fontSize: '16px', fontFamily: 'sans-serif', fontWeight: '400', fontStyle: 'normal',
+        lineHeight: '1.2', color: 'rgb(0, 0, 0)', backgroundColor: 'rgba(0, 0, 0, 0)',
+        fill: 'rgb(0, 0, 0)', stroke: 'none', strokeWidth: '1',
+        width: '100px', height: '20px', margin: '0px', padding: '0px',
+        border: '0px none rgb(0, 0, 0)', borderWidth: '0px',
+        position: 'static', overflow: 'visible',
+        whiteSpace: 'normal', textAlign: 'start', textDecoration: 'none',
+        transform: 'none', transition: 'none',
+        boxSizing: 'content-box'
+    };
     return {
-        getPropertyValue: function(prop) { return ''; },
-        display: 'block',
-        visibility: 'visible',
-        opacity: '1',
-        fontSize: '16px',
-        fontFamily: 'sans-serif'
+        getPropertyValue: function(prop) {
+            // Check element's own style first
+            if (el && el.style && el.style._props && el.style._props[prop]) {
+                return el.style._props[prop];
+            }
+            // Convert camelCase prop to kebab-case for lookup
+            var kebab = prop.replace(/([A-Z])/g, '-$1').toLowerCase();
+            return defaults[prop] || defaults[kebab] || '';
+        },
+        display: defaults.display,
+        visibility: defaults.visibility,
+        opacity: defaults.opacity,
+        fontSize: defaults.fontSize,
+        fontFamily: defaults.fontFamily,
+        color: defaults.color,
+        backgroundColor: defaults.backgroundColor
     };
 };
 
@@ -783,8 +873,39 @@ window.setTimeout = function(fn, delay) { if (typeof fn === 'function') fn(); re
 window.clearTimeout = function(id) {};
 window.setInterval = function(fn, delay) { return 0; };
 window.clearInterval = function(id) {};
-window.atob = function(str) { return ''; };
-window.btoa = function(str) { return ''; };
+
+// btoa / atob — real Base64 encoding/decoding (Mermaid 11 uses btoa as global)
+var _b64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+var btoa = function(str) {
+    str = String(str);
+    var out = '';
+    for (var i = 0; i < str.length; i += 3) {
+        var b1 = str.charCodeAt(i) & 0xFF;
+        var b2 = i + 1 < str.length ? str.charCodeAt(i + 1) & 0xFF : 0;
+        var b3 = i + 2 < str.length ? str.charCodeAt(i + 2) & 0xFF : 0;
+        out += _b64chars.charAt(b1 >> 2);
+        out += _b64chars.charAt(((b1 & 3) << 4) | (b2 >> 4));
+        out += i + 1 < str.length ? _b64chars.charAt(((b2 & 15) << 2) | (b3 >> 6)) : '=';
+        out += i + 2 < str.length ? _b64chars.charAt(b3 & 63) : '=';
+    }
+    return out;
+};
+var atob = function(str) {
+    str = String(str).replace(/=+$/, '');
+    var out = '';
+    for (var i = 0; i < str.length; i += 4) {
+        var b1 = _b64chars.indexOf(str.charAt(i));
+        var b2 = _b64chars.indexOf(str.charAt(i + 1));
+        var b3 = _b64chars.indexOf(str.charAt(i + 2));
+        var b4 = _b64chars.indexOf(str.charAt(i + 3));
+        out += String.fromCharCode((b1 << 2) | (b2 >> 4));
+        if (b3 >= 0) out += String.fromCharCode(((b2 & 15) << 4) | (b3 >> 2));
+        if (b4 >= 0) out += String.fromCharCode(((b3 & 3) << 6) | b4);
+    }
+    return out;
+};
+window.btoa = btoa;
+window.atob = atob;
 
 // Make timing functions available globally
 var setTimeout = window.setTimeout;
@@ -1015,6 +1136,185 @@ window.encodeURIComponent = encodeURIComponent;
 window.decodeURIComponent = decodeURIComponent;
 window.encodeURI = encodeURI;
 window.decodeURI = decodeURI;
+
+// ── APIs required by Mermaid 11+ ─────────────────────────────────────────────
+
+// Object.hasOwn — ES2022 polyfill (not available in GraalJS / Java 8)
+if (!Object.hasOwn) {
+    Object.hasOwn = function(obj, prop) {
+        return Object.prototype.hasOwnProperty.call(obj, prop);
+    };
+}
+
+// Array.prototype.at — ES2022 polyfill
+if (!Array.prototype.at) {
+    Array.prototype.at = function(index) {
+        index = Math.trunc(index) || 0;
+        if (index < 0) index += this.length;
+        if (index < 0 || index >= this.length) return undefined;
+        return this[index];
+    };
+}
+
+// String.prototype.at — ES2022 polyfill
+if (!String.prototype.at) {
+    String.prototype.at = function(index) {
+        index = Math.trunc(index) || 0;
+        if (index < 0) index += this.length;
+        if (index < 0 || index >= this.length) return undefined;
+        return this[index];
+    };
+}
+
+// String.prototype.replaceAll — ES2021 polyfill
+if (!String.prototype.replaceAll) {
+    String.prototype.replaceAll = function(search, replacement) {
+        if (search instanceof RegExp) {
+            if (!search.global) throw new TypeError('String.prototype.replaceAll called with a non-global RegExp');
+            return this.replace(search, replacement);
+        }
+        return this.split(search).join(replacement);
+    };
+}
+
+// structuredClone — deep-copy via JSON round-trip (sufficient for plain objects)
+if (typeof structuredClone === 'undefined') {
+    var structuredClone = function(obj) {
+        if (obj === undefined || obj === null) return obj;
+        return JSON.parse(JSON.stringify(obj));
+    };
+    window.structuredClone = structuredClone;
+}
+
+// queueMicrotask — execute immediately in our synchronous environment
+if (typeof queueMicrotask === 'undefined') {
+    var queueMicrotask = function(fn) { fn(); };
+    window.queueMicrotask = queueMicrotask;
+}
+
+// crypto.randomUUID / crypto.getRandomValues
+if (typeof crypto === 'undefined') {
+    var crypto = {
+        getRandomValues: function(arr) {
+            for (var i = 0; i < arr.length; i++) {
+                arr[i] = Math.floor(Math.random() * 256);
+            }
+            return arr;
+        },
+        randomUUID: function() {
+            // v4 UUID
+            var bytes = new Uint8Array(16);
+            crypto.getRandomValues(bytes);
+            bytes[6] = (bytes[6] & 0x0f) | 0x40;
+            bytes[8] = (bytes[8] & 0x3f) | 0x80;
+            var hex = [];
+            for (var i = 0; i < 16; i++) {
+                var h = bytes[i].toString(16);
+                hex.push(h.length < 2 ? '0' + h : h);
+            }
+            return hex[0]+hex[1]+hex[2]+hex[3]+'-'+hex[4]+hex[5]+'-'+hex[6]+hex[7]+'-'+hex[8]+hex[9]+'-'+hex[10]+hex[11]+hex[12]+hex[13]+hex[14]+hex[15];
+        }
+    };
+    window.crypto = crypto;
+}
+
+// AbortController / AbortSignal stubs
+function AbortController() {
+    this.signal = { aborted: false, addEventListener: function() {}, removeEventListener: function() {} };
+}
+AbortController.prototype.abort = function() { this.signal.aborted = true; };
+window.AbortController = AbortController;
+
+// WeakRef stub (used by some Mermaid internals)
+if (typeof WeakRef === 'undefined') {
+    var WeakRef = function(target) { this._target = target; };
+    WeakRef.prototype.deref = function() { return this._target; };
+    window.WeakRef = WeakRef;
+}
+
+// FinalizationRegistry stub
+if (typeof FinalizationRegistry === 'undefined') {
+    var FinalizationRegistry = function(callback) {};
+    FinalizationRegistry.prototype.register = function() {};
+    FinalizationRegistry.prototype.unregister = function() {};
+    window.FinalizationRegistry = FinalizationRegistry;
+}
+
+// document.createNodeIterator (used by DOMPurify in Mermaid 11)
+if (!document.createNodeIterator) {
+    document.createNodeIterator = function(root, whatToShow, filter) {
+        var nodes = [];
+        var idx = -1;
+        function collect(node) {
+            if (!node) return;
+            var dominated = false;
+            if (whatToShow) {
+                if ((whatToShow & 1) && node.nodeType === 1) dominated = true;
+                if ((whatToShow & 4) && node.nodeType === 3) dominated = true;
+                if ((whatToShow & 128) && node.nodeType === 8) dominated = true;
+                if ((whatToShow & 64) && node.nodeType === 7) dominated = true;
+                if ((whatToShow & 8) && node.nodeType === 4) dominated = true;
+            } else {
+                dominated = true;
+            }
+            if (dominated) nodes.push(node);
+            var children = node.childNodes || [];
+            for (var i = 0; i < children.length; i++) {
+                collect(children[i]);
+            }
+        }
+        collect(root);
+        return {
+            nextNode: function() {
+                idx++;
+                return idx < nodes.length ? nodes[idx] : null;
+            },
+            previousNode: function() {
+                idx--;
+                return idx >= 0 ? nodes[idx] : null;
+            }
+        };
+    };
+}
+
+// document.implementation (used by DOMPurify)
+if (!document.implementation) {
+    document.implementation = {
+        createHTMLDocument: function(title) {
+            var doc = {
+                nodeType: 9,
+                documentElement: createDomElement('html'),
+                body: createDomElement('body'),
+                head: createDomElement('head'),
+                createElement: function(name) { var e = createDomElement(name); e.ownerDocument = doc; return e; },
+                createElementNS: function(ns, name) { var e = createDomElement(name, ns); e.ownerDocument = doc; return e; },
+                createTextNode: function(text) { return { nodeType: 3, textContent: text, ownerDocument: doc }; },
+                createComment: function(data) { return { nodeType: 8, textContent: data, ownerDocument: doc }; },
+                createDocumentFragment: function() { var f = createDomElement('#fragment'); f.nodeType = 11; f.ownerDocument = doc; return f; },
+                createNodeIterator: document.createNodeIterator,
+                querySelector: function(sel) { return _querySelector(doc.documentElement, sel); },
+                querySelectorAll: function(sel) { return _querySelectorAll(doc.documentElement, sel); },
+                getElementById: function(id) { return _querySelector(doc.documentElement, '#' + id); },
+                getElementsByTagName: function(name) { return _querySelectorAll(doc.documentElement, name); },
+                importNode: function(node, deep) { return node.cloneNode ? node.cloneNode(deep) : node; }
+            };
+            doc.documentElement.appendChild(doc.head);
+            doc.documentElement.appendChild(doc.body);
+            doc.documentElement.ownerDocument = doc;
+            doc.body.ownerDocument = doc;
+            doc.head.ownerDocument = doc;
+            if (title) { var t = doc.createElement('title'); t.textContent = title; doc.head.appendChild(t); }
+            return doc;
+        }
+    };
+}
+
+// document.importNode
+if (!document.importNode) {
+    document.importNode = function(node, deep) {
+        return node.cloneNode ? node.cloneNode(deep) : node;
+    };
+}
 
 // Signal that the shim loaded successfully
 'browser-shim.js loaded';

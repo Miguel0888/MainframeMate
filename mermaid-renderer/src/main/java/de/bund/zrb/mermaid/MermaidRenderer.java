@@ -63,30 +63,102 @@ public final class MermaidRenderer {
                 .replace("\n", "\\n")
                 .replace("\r", "");
 
-        String script = preamble + "\n" +
-                "var __mermaid = window.mermaid;\n" +
-                "var __svgResult = '';\n" +
-                "__mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });\n" +
-                "__mermaid.render('" + diagramId + "', '" + escapedDiagram + "', function(svgCode, bindFn) {\n" +
-                "  __svgResult = svgCode;\n" +
-                "});\n" +
-                "if (!__svgResult) {\n" +
-                "  var __container = document.querySelector('[id=\"d" + diagramId + "\"]');\n" +
-                "  if (__container) {\n" +
-                "    var __svgEl = __container.querySelector('svg') || (__container.childNodes.length > 0 ? __container.childNodes[0] : null);\n" +
-                "    if (__svgEl) {\n" +
-                "      var ser = new XMLSerializer();\n" +
-                "      __svgResult = ser.serializeToString(__svgEl);\n" +
-                "    }\n" +
-                "  }\n" +
-                "}\n" +
-                "__svgResult;\n";
+        // Mermaid 11 API: render() returns a Promise that resolves to { svg: string }.
+        // GraalJS resolves microtasks synchronously within a single context.eval(),
+        // so the .then() callback fires before the script finishes.
+        // Fallback: try the legacy v9 callback API first (for old bundles).
+        String script = preamble + "\n"
+                + "var __mermaid = window.mermaid;\n"
+                + "var __svgResult = '';\n"
+                + "var __renderError = '';\n"
+                + "__mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });\n"
+                + "\n"
+                + "try {\n"
+                + "  var __result = __mermaid.render('" + diagramId + "', '" + escapedDiagram + "');\n"
+                + "  if (__result && typeof __result.then === 'function') {\n"
+                + "    // Mermaid 11+: Promise<{svg: string}>\n"
+                + "    __result.then(function(res) {\n"
+                + "      __svgResult = (res && res.svg) ? res.svg : (typeof res === 'string' ? res : '');\n"
+                + "    })['catch'](function(err) {\n"
+                + "      __renderError = '' + err;\n"
+                + "    });\n"
+                + "  } else if (__result && __result.svg) {\n"
+                + "    // Direct result object\n"
+                + "    __svgResult = __result.svg;\n"
+                + "  } else if (typeof __result === 'string') {\n"
+                + "    // Legacy Mermaid 9.x sync return\n"
+                + "    __svgResult = __result;\n"
+                + "  }\n"
+                + "} catch(renderErr) {\n"
+                + "  __renderError = '' + renderErr;\n"
+                + "}\n";
 
-        JsExecutionResult result = executor.execute(script);
+        // Use executeAsync: the setup script chains .then() on the Promise,
+        // and the result expression is evaluated after microtask flush.
+        String resultExpr = "__svgResult || (__renderError ? 'ERROR:' + __renderError : '')";
+
+        JsExecutionResult result = executor.executeAsync(script, resultExpr);
         if (result.isSuccessful() && result.getOutput() != null && !result.getOutput().isEmpty()) {
-            return postProcessSvg(result.getOutput());
+            String output = result.getOutput();
+            // Detect error sentinel from async fallback path
+            if (output.startsWith("ERROR:")) {
+                System.err.println("[MermaidRenderer] Render failed: " + output);
+                return null;
+            }
+            return postProcessSvg(output);
         }
+        System.err.println("[MermaidRenderer] Render failed for: "
+                + diagramCode.substring(0, Math.min(80, diagramCode.length()))
+                + (result.isSuccessful() ? " (empty output)" : " ERROR: " + result.getErrorMessage()));
         return null;
+    }
+
+    /**
+     * Like {@link #renderToSvg(String)} but returns the full
+     * {@link JsExecutionResult} so callers can inspect error details.
+     */
+    public JsExecutionResult renderToSvgDetailed(String diagramCode) {
+        if (diagramCode == null || diagramCode.trim().isEmpty()) {
+            return JsExecutionResult.failure("Empty diagram code");
+        }
+
+        String preamble = getPreamble();
+        if (preamble == null) {
+            return JsExecutionResult.failure("Mermaid bundle not available");
+        }
+
+        String diagramId = "mmd-" + diagramCounter.incrementAndGet();
+        String escapedDiagram = diagramCode
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\n", "\\n")
+                .replace("\r", "");
+
+        // Same async-capable script as renderToSvg (Mermaid 11 API)
+        String script = preamble + "\n"
+                + "var __mermaid = window.mermaid;\n"
+                + "var __svgResult = '';\n"
+                + "var __renderError = '';\n"
+                + "__mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });\n"
+                + "try {\n"
+                + "  var __result = __mermaid.render('" + diagramId + "', '" + escapedDiagram + "');\n"
+                + "  if (__result && typeof __result.then === 'function') {\n"
+                + "    __result.then(function(res) {\n"
+                + "      __svgResult = (res && res.svg) ? res.svg : (typeof res === 'string' ? res : '');\n"
+                + "    })['catch'](function(err) {\n"
+                + "      __renderError = '' + err;\n"
+                + "    });\n"
+                + "  } else if (__result && __result.svg) {\n"
+                + "    __svgResult = __result.svg;\n"
+                + "  } else if (typeof __result === 'string') {\n"
+                + "    __svgResult = __result;\n"
+                + "  }\n"
+                + "} catch(renderErr) {\n"
+                + "  __renderError = '' + renderErr;\n"
+                + "}\n";
+
+        return executor.executeAsync(script,
+                "__svgResult || (__renderError ? 'ERROR:' + __renderError : '')");
     }
 
     /**

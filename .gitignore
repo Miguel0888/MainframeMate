@@ -44,3 +44,7 @@ lib/
 /doom2/
 /dukeNukem3d/
 /tmp/
+
+# Mermaid IIFE bundler (build-time only)
+js-bundle/node_modules/
+js-bundle/package-lock.json
