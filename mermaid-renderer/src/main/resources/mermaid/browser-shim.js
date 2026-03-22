@@ -413,6 +413,19 @@ function _computeElementDims(el) {
         }
     }
 
+    // 4b) path — parse d attribute for bounding box
+    if (tag === 'path') {
+        var pd = attrs['d'];
+        if (pd) {
+            var pathBox = _parsePathBBox(pd);
+            if (pathBox) {
+                var ptOff = _parseTranslate(el);
+                return { x: pathBox.minX + ptOff[0], y: pathBox.minY + ptOff[1],
+                         w: pathBox.maxX - pathBox.minX, h: pathBox.maxY - pathBox.minY };
+            }
+        }
+    }
+
     // 5) line — x1,y1,x2,y2
     if (tag === 'line') {
         var x1 = num('x1'), y1 = num('y1'), x2 = num('x2'), y2 = num('y2');
@@ -486,6 +499,135 @@ function _computeElementDims(el) {
     return { x: 0, y: 0, w: w, h: h };
 }
 
+/**
+ * Parse an SVG path "d" attribute and compute its bounding box.
+ * Handles absolute and relative M, L, H, V, C, S, Q, T, A, Z commands.
+ * For bezier curves, control points are included (conservative bbox).
+ * Returns {minX, minY, maxX, maxY} or null if parsing fails.
+ */
+function _parsePathBBox(d) {
+    if (!d) return null;
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    var found = false;
+    var curX = 0, curY = 0;
+    var startX = 0, startY = 0;
+
+    function update(x, y) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+        found = true;
+    }
+
+    // Tokenize: split by command letters, keeping the command
+    var tokens = d.match(/[MmLlHhVvCcSsQqTtAaZz][^MmLlHhVvCcSsQqTtAaZz]*/g);
+    if (!tokens) return null;
+
+    for (var i = 0; i < tokens.length; i++) {
+        var token = tokens[i].trim();
+        var cmd = token.charAt(0);
+        var args = token.substring(1).trim();
+        var nums = args.match(/-?[\d]+(?:\.[\d]*)?(?:[eE][+-]?[\d]+)?/g);
+        var values = [];
+        if (nums) {
+            for (var j = 0; j < nums.length; j++) {
+                values.push(parseFloat(nums[j]));
+            }
+        }
+
+        var isRel = cmd === cmd.toLowerCase();
+        var CMD = cmd.toUpperCase();
+
+        switch (CMD) {
+            case 'M':
+                for (var k = 0; k + 1 < values.length; k += 2) {
+                    var mx = isRel ? curX + values[k] : values[k];
+                    var my = isRel ? curY + values[k + 1] : values[k + 1];
+                    update(mx, my);
+                    curX = mx; curY = my;
+                    if (k === 0) { startX = mx; startY = my; }
+                    // After first pair, implicit L commands
+                }
+                break;
+            case 'L':
+            case 'T':
+                for (var k = 0; k + 1 < values.length; k += 2) {
+                    var lx = isRel ? curX + values[k] : values[k];
+                    var ly = isRel ? curY + values[k + 1] : values[k + 1];
+                    update(lx, ly);
+                    curX = lx; curY = ly;
+                }
+                break;
+            case 'H':
+                for (var k = 0; k < values.length; k++) {
+                    var hx = isRel ? curX + values[k] : values[k];
+                    update(hx, curY);
+                    curX = hx;
+                }
+                break;
+            case 'V':
+                for (var k = 0; k < values.length; k++) {
+                    var vy = isRel ? curY + values[k] : values[k];
+                    update(curX, vy);
+                    curY = vy;
+                }
+                break;
+            case 'C':
+                for (var k = 0; k + 5 < values.length; k += 6) {
+                    for (var p = 0; p < 3; p++) {
+                        var cx = isRel ? curX + values[k + p * 2] : values[k + p * 2];
+                        var cy = isRel ? curY + values[k + p * 2 + 1] : values[k + p * 2 + 1];
+                        update(cx, cy);
+                    }
+                    curX = isRel ? curX + values[k + 4] : values[k + 4];
+                    curY = isRel ? curY + values[k + 5] : values[k + 5];
+                }
+                break;
+            case 'S':
+                for (var k = 0; k + 3 < values.length; k += 4) {
+                    for (var p = 0; p < 2; p++) {
+                        var sx = isRel ? curX + values[k + p * 2] : values[k + p * 2];
+                        var sy = isRel ? curY + values[k + p * 2 + 1] : values[k + p * 2 + 1];
+                        update(sx, sy);
+                    }
+                    curX = isRel ? curX + values[k + 2] : values[k + 2];
+                    curY = isRel ? curY + values[k + 3] : values[k + 3];
+                }
+                break;
+            case 'Q':
+                for (var k = 0; k + 3 < values.length; k += 4) {
+                    for (var p = 0; p < 2; p++) {
+                        var qx = isRel ? curX + values[k + p * 2] : values[k + p * 2];
+                        var qy = isRel ? curY + values[k + p * 2 + 1] : values[k + p * 2 + 1];
+                        update(qx, qy);
+                    }
+                    curX = isRel ? curX + values[k + 2] : values[k + 2];
+                    curY = isRel ? curY + values[k + 3] : values[k + 3];
+                }
+                break;
+            case 'A':
+                for (var k = 0; k + 6 < values.length; k += 7) {
+                    var ax = isRel ? curX + values[k + 5] : values[k + 5];
+                    var ay = isRel ? curY + values[k + 6] : values[k + 6];
+                    update(ax, ay);
+                    // Conservative: include arc radius extent
+                    var arx = values[k], ary = values[k + 1];
+                    update(ax - arx, ay - ary);
+                    update(ax + arx, ay + ary);
+                    curX = ax; curY = ay;
+                }
+                break;
+            case 'Z':
+                curX = startX; curY = startY;
+                break;
+        }
+    }
+
+    if (!found || minX >= Infinity) return null;
+    return { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+}
+
 // Parse translate(x, y) from an element's transform attribute
 function _parseTranslate(el) {
     var t = el._attrs && el._attrs['transform'];
@@ -516,6 +658,59 @@ function createDomElement(tagName, namespaceURI) {
     el.nextSibling = null;
     el.previousSibling = null;
     el.attributes = [];
+
+    // classList API — required by Mermaid's sequence diagram renderer
+    // for loop/alt/note/activation box rendering
+    el.classList = {
+        _el: el,
+        add: function() {
+            var classes = (el.className || '').split(/\s+/).filter(function(c) { return c; });
+            for (var i = 0; i < arguments.length; i++) {
+                var cls = arguments[i];
+                if (cls && classes.indexOf(cls) < 0) classes.push(cls);
+            }
+            el.className = classes.join(' ');
+            if (el._attrs) el._attrs['class'] = el.className;
+        },
+        remove: function() {
+            var classes = (el.className || '').split(/\s+/).filter(function(c) { return c; });
+            for (var i = 0; i < arguments.length; i++) {
+                var cls = arguments[i];
+                var idx = classes.indexOf(cls);
+                if (idx >= 0) classes.splice(idx, 1);
+            }
+            el.className = classes.join(' ');
+            if (el._attrs) el._attrs['class'] = el.className;
+        },
+        contains: function(cls) {
+            return (' ' + (el.className || '') + ' ').indexOf(' ' + cls + ' ') >= 0;
+        },
+        toggle: function(cls, force) {
+            if (force !== undefined) {
+                if (force) { el.classList.add(cls); return true; }
+                else { el.classList.remove(cls); return false; }
+            }
+            if (el.classList.contains(cls)) { el.classList.remove(cls); return false; }
+            el.classList.add(cls); return true;
+        },
+        replace: function(oldCls, newCls) {
+            if (!el.classList.contains(oldCls)) return false;
+            el.classList.remove(oldCls);
+            el.classList.add(newCls);
+            return true;
+        },
+        item: function(index) {
+            var classes = (el.className || '').split(/\s+/).filter(function(c) { return c; });
+            return index < classes.length ? classes[index] : null;
+        },
+        toString: function() { return el.className || ''; }
+    };
+    Object.defineProperty(el.classList, 'length', {
+        get: function() {
+            return (el.className || '').split(/\s+/).filter(function(c) { return c; }).length;
+        },
+        configurable: true
+    });
     el._attrs = {};
 
     // Make innerHTML a dynamic getter/setter so DOM-built children are serialized
@@ -587,6 +782,11 @@ function createDomElement(tagName, namespaceURI) {
         el._attrs[key] = String(value);
         if (key === 'class') el.className = String(value);
         if (key === 'id') el.id = String(value);
+        // Sync data-* attributes to dataset
+        if (key.indexOf('data-') === 0) {
+            var camel = key.substring(5).replace(/-([a-z])/g, function(m, c) { return c.toUpperCase(); });
+            el.dataset[camel] = String(value);
+        }
     };
     el.getAttribute = function(key) {
         if (key === 'class') return el.className || null;
@@ -669,6 +869,51 @@ function createDomElement(tagName, namespaceURI) {
             if (el.childNodes[i].contains && el.childNodes[i].contains(other)) return true;
         }
         return false;
+    };
+
+    // insertAdjacentElement — used by Mermaid for sequence diagram elements
+    el.insertAdjacentElement = function(position, newElement) {
+        switch ((position || '').toLowerCase()) {
+            case 'beforebegin':
+                if (el.parentNode) el.parentNode.insertBefore(newElement, el);
+                break;
+            case 'afterbegin':
+                el.insertBefore(newElement, el.firstChild);
+                break;
+            case 'beforeend':
+                el.appendChild(newElement);
+                break;
+            case 'afterend':
+                if (el.parentNode) {
+                    if (el.nextSibling) el.parentNode.insertBefore(newElement, el.nextSibling);
+                    else el.parentNode.appendChild(newElement);
+                }
+                break;
+        }
+        return newElement;
+    };
+
+    // insertAdjacentHTML — stub that creates a text node
+    el.insertAdjacentHTML = function(position, html) {
+        // Simple stub: create element from HTML text (limited support)
+        var temp = createDomElement('span');
+        temp._innerHTMLRaw = html;
+        el.insertAdjacentElement(position, temp);
+    };
+
+    // dataset — simple object that maps to data-* attributes
+    // Cannot use Proxy (may not be available), so provide basic get/set helpers
+    el.dataset = {};
+    el._syncDataset = function() {
+        // Sync data-* attrs to dataset object
+        if (!el._attrs) return;
+        var keys = Object.keys(el._attrs);
+        for (var di = 0; di < keys.length; di++) {
+            if (keys[di].indexOf('data-') === 0) {
+                var camel = keys[di].substring(5).replace(/-([a-z])/g, function(m, c) { return c.toUpperCase(); });
+                el.dataset[camel] = el._attrs[keys[di]];
+            }
+        }
     };
 
     // getRootNode — walk up to the topmost parent (needed by Mermaid mindmap)
