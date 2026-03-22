@@ -59,6 +59,7 @@ public final class MermaidSvgFixup {
             fixStrokeNoneOnLines(doc);
             fixCssFillNone(doc);
             fixCssForBatik(doc);           // hsl()→hex, strip unsupported CSS
+            fixAlignmentBaseline(doc);     // remove alignment-baseline attrs
             fixSequenceLifelines(doc);     // extend lifelines to bottom actor boxes
             fixViewBoxFromAttributes(doc);
 
@@ -579,6 +580,7 @@ public final class MermaidSvgFixup {
             css = css.replaceAll("cursor\\s*:\\s*[^;\"]+;?", "");
             css = css.replaceAll("text-align\\s*:\\s*[^;\"]+;?", "");
             css = css.replaceAll("background-color\\s*:\\s*[^;\"]+;?", "");
+            css = css.replaceAll("alignment-baseline\\s*:\\s*[^;\"]+;?", "");
 
             styleNode.setTextContent(css);
         }
@@ -961,6 +963,42 @@ public final class MermaidSvgFixup {
     }
 
     // ═══════════════════════════════════════════════════════════
+    //  Fix — remove alignment-baseline (Batik incompatible)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Mermaid 11 uses {@code alignment-baseline="central"} on text elements.
+     * Batik's CSS engine rejects "central" as an invalid value for this
+     * property.  Remove the attribute entirely (Batik handles text
+     * centering via {@code dy} and {@code dominant-baseline} which we set
+     * in other fix methods).
+     * <p>
+     * Also strips {@code alignment-baseline} from inline {@code style} attributes.
+     */
+    private static void fixAlignmentBaseline(Document doc) {
+        NodeList all = doc.getElementsByTagNameNS("*", "*");
+        for (int i = 0; i < all.getLength(); i++) {
+            Node n = all.item(i);
+            if (!(n instanceof Element)) continue;
+            Element el = (Element) n;
+            // Remove alignment-baseline XML attribute
+            if (el.hasAttribute("alignment-baseline")) {
+                el.removeAttribute("alignment-baseline");
+            }
+            // Remove from inline style
+            String style = el.getAttribute("style");
+            if (style != null && style.contains("alignment-baseline")) {
+                style = style.replaceAll("alignment-baseline\\s*:\\s*[^;]+;?\\s*", "");
+                if (style.trim().isEmpty()) {
+                    el.removeAttribute("style");
+                } else {
+                    el.setAttribute("style", style.trim());
+                }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
     //  Fix — extend sequence-diagram lifelines to bottom actor boxes
     // ═══════════════════════════════════════════════════════════
 
@@ -1068,6 +1106,9 @@ public final class MermaidSvgFixup {
         Transformer t = tf.newTransformer();
         t.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
         t.setOutputProperty(OutputKeys.INDENT, "no");
+        // Tell the serialiser to wrap <style> content in CDATA sections
+        // so CSS selectors containing > don't break downstream XML parsing
+        t.setOutputProperty(OutputKeys.CDATA_SECTION_ELEMENTS, "style");
         StringWriter sw = new StringWriter();
         t.transform(new DOMSource(doc), new StreamResult(sw));
         return sw.toString();

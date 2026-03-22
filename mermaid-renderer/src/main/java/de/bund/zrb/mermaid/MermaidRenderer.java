@@ -172,6 +172,14 @@ public final class MermaidRenderer {
     static String postProcessSvg(String svg) {
         if (svg == null || svg.isEmpty()) return svg;
 
+        // 0) Extract only <svg>...</svg> — strip wrapper divs or trailing markup
+        //    (Mermaid 11 may emit <style> siblings after </svg>)
+        int svgStart = svg.indexOf("<svg");
+        int svgEnd = svg.lastIndexOf("</svg>");
+        if (svgStart >= 0 && svgEnd > svgStart) {
+            svg = svg.substring(svgStart, svgEnd + 6); // 6 = "</svg>".length()
+        }
+
         // 1) Ensure root <svg> has xmlns declaration
         if (!svg.contains("xmlns=\"http://www.w3.org/2000/svg\"")
                 && !svg.contains("xmlns='http://www.w3.org/2000/svg'")) {
@@ -183,6 +191,14 @@ public final class MermaidRenderer {
 
         // 3) Convert <foreignObject> blocks to <text> elements for Batik
         svg = convertForeignObjectsToText(svg);
+
+        // 3b) Aggressively remove any remaining <foreignObject> blocks
+        //     that the conversion regex may have missed
+        svg = removeRemainingForeignObjects(svg);
+
+        // 3c) Remove stray HTML elements that don't belong in SVG
+        //     (may remain after foreignObject removal or from shim serialisation)
+        svg = removeStrayHtmlElements(svg);
 
         // 4) Fix invalid "translate(undefined, undefined)" transforms
         svg = svg.replaceAll("translate\\(undefined[^)]*\\)", "translate(0, 0)");
@@ -204,7 +220,178 @@ public final class MermaidRenderer {
         // 9) Strip CSS :root rules with custom properties (Batik doesn't support CSS variables)
         svg = svg.replaceAll("#mmd-\\d+\\s*:root\\s*\\{[^}]*\\}", "");
 
+        // 10) Remove alignment-baseline attributes (Batik chokes on value "central")
+        svg = svg.replaceAll("\\s*alignment-baseline\\s*=\\s*\"[^\"]*\"", "");
+
+        // 10b) Clean up style attributes containing serialized JavaScript functions
+        //      (polyfill methods like Array.prototype.at may leak into attr values)
+        svg = svg.replaceAll(" style=\"function\\([^\"]*\"", " style=\"\"");
+
+        // 11) Fix HTML5 void elements that may remain (<br> → <br/>)
+        svg = fixHtmlVoidElements(svg);
+
+        // 12) Wrap <style> content in CDATA so CSS selectors with > don't break XML
+        svg = wrapStylesInCdata(svg);
+
         return svg;
+    }
+
+    /**
+     * Remove any remaining {@code <foreignObject>} blocks and clean up
+     * orphaned closing tags left behind from nested foreignObject structures.
+     * <p>
+     * Mermaid 11 creates deeply nested {@code foreignObject → svg → g → ...}
+     * structures.  The non-greedy regex in {@link #convertForeignObjectsToText}
+     * matches only the innermost level, leaving orphaned closing tags from
+     * outer nesting layers.  This method does a thorough cleanup:
+     * <ol>
+     *   <li>Remove remaining paired foreignObject blocks</li>
+     *   <li>Remove ALL remaining foreignObject open/close tags</li>
+     *   <li>Flatten nested SVGs down to the single root SVG</li>
+     * </ol>
+     */
+    private static String removeRemainingForeignObjects(String svg) {
+        // Remove paired foreignObject blocks (may miss nested ones)
+        svg = Pattern.compile("<foreignObject[^>]*>.*?</foreignObject>",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(svg).replaceAll("");
+        // Remove self-closing foreignObject elements
+        svg = Pattern.compile("<foreignObject[^>]*/\\s*>",
+                Pattern.CASE_INSENSITIVE).matcher(svg).replaceAll("");
+        // Remove ANY remaining foreignObject opening/closing tags (orphaned from nesting)
+        svg = svg.replaceAll("(?i)<foreignobject[^>]*>", "");
+        svg = svg.replaceAll("(?i)</foreignobject>", "");
+
+        // Clean up orphaned nested SVG structures:
+        // After foreignObject removal, nested <svg>...</svg> blocks are exposed
+        // as siblings/children.  We keep only the root <svg> and its closing </svg>.
+        svg = flattenNestedSvgs(svg);
+
+        return svg;
+    }
+
+    /**
+     * Flatten nested SVG elements: keep only the outermost (root) {@code <svg>}
+     * opening tag and its matching (last) {@code </svg>} closing tag.
+     * All inner {@code <svg>} and {@code </svg>} tags are removed, so their
+     * children are promoted into the root SVG's content.
+     * <p>
+     * Also balances orphaned closing tags ({@code </g>}) that result from
+     * the foreignObject/nested-SVG removal.
+     */
+    private static String flattenNestedSvgs(String svg) {
+        int firstSvgStart = svg.indexOf("<svg");
+        if (firstSvgStart < 0) return svg;
+        int firstSvgEnd = svg.indexOf(">", firstSvgStart);
+        if (firstSvgEnd < 0) return svg;
+
+        String rootOpening = svg.substring(0, firstSvgEnd + 1);
+        String inner = svg.substring(firstSvgEnd + 1);
+
+        // Remove all nested <svg ...> opening tags
+        inner = inner.replaceAll("<svg[^>]*>", "");
+
+        // Remove all </svg> except the very last one (the root's closing tag)
+        int lastCloseIdx = inner.lastIndexOf("</svg>");
+        if (lastCloseIdx >= 0) {
+            String beforeLast = inner.substring(0, lastCloseIdx);
+            String theLastClose = inner.substring(lastCloseIdx);
+            beforeLast = beforeLast.replace("</svg>", "");
+            inner = beforeLast + theLastClose;
+        }
+
+        svg = rootOpening + inner;
+
+        // Balance orphaned </g> closing tags — the nested foreignObject/SVG
+        // removal may leave more </g> closings than <g> openings.
+        svg = balanceGTags(svg);
+
+        return svg;
+    }
+
+    /**
+     * Remove orphaned {@code </g>} closing tags by walking left-to-right
+     * with a depth counter.  Every {@code <g ...>} increments depth,
+     * every {@code </g>} decrements it.  If depth would go negative,
+     * the {@code </g>} is an orphan and is skipped.
+     */
+    private static String balanceGTags(String svg) {
+        StringBuilder result = new StringBuilder(svg.length());
+        int depth = 0;
+        int i = 0;
+        int len = svg.length();
+        while (i < len) {
+            // Check for <g> or <g ...>
+            if (i + 2 < len && svg.charAt(i) == '<' && svg.charAt(i + 1) == 'g'
+                    && (i + 2 == len || svg.charAt(i + 2) == ' ' || svg.charAt(i + 2) == '>' || svg.charAt(i + 2) == '\t')) {
+                depth++;
+                int tagEnd = svg.indexOf('>', i);
+                if (tagEnd < 0) tagEnd = len - 1;
+                result.append(svg, i, tagEnd + 1);
+                i = tagEnd + 1;
+            }
+            // Check for </g>
+            else if (i + 3 < len && svg.charAt(i) == '<' && svg.charAt(i + 1) == '/'
+                    && svg.charAt(i + 2) == 'g' && svg.charAt(i + 3) == '>') {
+                if (depth > 0) {
+                    depth--;
+                    result.append("</g>");
+                }
+                // else: orphaned closing tag — silently skip it
+                i += 4;
+            }
+            else {
+                result.append(svg.charAt(i));
+                i++;
+            }
+        }
+        return result.toString();
+    }
+
+    /**
+     * Remove HTML elements that don't belong in SVG (div, span, body, p, etc.).
+     * These may be left behind from incomplete foreignObject conversion or
+     * from the browser shim's serialisation using innerHTML.
+     */
+    private static String removeStrayHtmlElements(String svg) {
+        // Remove open and close tags but keep text content between them
+        // Note: <a> is intentionally excluded — SVG has its own <a> element
+        String htmlTags = "div|span|p|body|section|i|b|em|strong|h[1-6]|ul|ol|li|table|tr|td|th|label";
+        svg = svg.replaceAll("<(" + htmlTags + ")(\\s[^>]*)?>", "");
+        svg = svg.replaceAll("</(" + htmlTags + ")>", "");
+        return svg;
+    }
+
+    /**
+     * Fix HTML5 void elements by ensuring they are self-closing (XHTML style).
+     */
+    private static String fixHtmlVoidElements(String svg) {
+        return svg.replaceAll(
+                "<(br|hr|wbr|img|input|meta|link|col|embed|area|base|source|track)(\\s[^>]*?)?\\s*(?<!/)>",
+                "<$1$2/>");
+    }
+
+    /**
+     * Wrap {@code <style>} content in {@code <![CDATA[...]]>} sections
+     * so that CSS selectors containing {@code >} or {@code <} don't break XML parsing.
+     */
+    private static String wrapStylesInCdata(String svg) {
+        Pattern p = Pattern.compile(
+                "(<style[^>]*>)(.*?)(</style>)",
+                Pattern.DOTALL | Pattern.CASE_INSENSITIVE
+        );
+        Matcher m = p.matcher(svg);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String content = m.group(2);
+            // Only wrap if not already CDATA and content has XML-unsafe chars
+            if (!content.contains("<![CDATA[") &&
+                    (content.contains(">") || content.contains("<") || content.contains("&"))) {
+                m.appendReplacement(sb, Matcher.quoteReplacement(
+                        m.group(1) + "<![CDATA[" + content + "]]>" + m.group(3)));
+            }
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     /**
@@ -298,8 +485,17 @@ public final class MermaidRenderer {
             String width = extractAttr(attrs, "width");
             String height = extractAttr(attrs, "height");
 
-            // Extract text content (strip all HTML tags)
+            // Extract text content (strip all HTML/XML tags)
             String text = content.replaceAll("<[^>]+>", "").trim();
+
+            // Mermaid 11 produces deeply nested foreignObjects containing entire
+            // SVGs with <style> blocks.  The stripped "text" then contains the
+            // full CSS, which is useless as a label.  Detect and skip.
+            if (text.length() > 200 || text.contains("{font-family:") || text.startsWith("#mmd-")) {
+                // CSS or other non-label content — just remove the foreignObject
+                matcher.appendReplacement(sb, "");
+                continue;
+            }
 
             if (text.isEmpty()) {
                 matcher.appendReplacement(sb, "");

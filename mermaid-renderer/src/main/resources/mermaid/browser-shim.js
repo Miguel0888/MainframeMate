@@ -166,9 +166,14 @@ function _serializeNode(node, parentNs) {
         var keys = Object.keys(node._attrs);
         for (var i = 0; i < keys.length; i++) {
             var key = keys[i];
+            var val = node._attrs[key];
             // Don't double-emit xmlns if we already added it above
-            if (key === 'xmlns' && node._attrs[key] === ns && ns !== parentNs) continue;
-            attrs += ' ' + key + '="' + _escapeXmlAttr(node._attrs[keys[i]]) + '"';
+            if (key === 'xmlns' && val === ns && ns !== parentNs) continue;
+            // Skip alignment-baseline — Batik rejects "central" value
+            if (key === 'alignment-baseline') continue;
+            // Skip function values (D3/Mermaid may store callbacks in attrs)
+            if (typeof val === 'function') continue;
+            attrs += ' ' + key + '="' + _escapeXmlAttr(val) + '"';
         }
     }
 
@@ -178,10 +183,13 @@ function _serializeNode(node, parentNs) {
         if (styleKeys.length > 0) {
             var styleStr = '';
             for (var s = 0; s < styleKeys.length; s++) {
+                var sval = node.style._props[styleKeys[s]];
+                // Skip function values (polyfill methods, callbacks)
+                if (typeof sval === 'function') continue;
                 if (styleStr) styleStr += '; ';
-                styleStr += styleKeys[s] + ': ' + node.style._props[styleKeys[s]];
+                styleStr += styleKeys[s] + ': ' + sval;
             }
-            if (!node._attrs || !node._attrs['style']) {
+            if (styleStr && (!node._attrs || !node._attrs['style'])) {
                 attrs += ' style="' + _escapeXmlAttr(styleStr) + '"';
             }
         }
@@ -195,6 +203,14 @@ function _serializeNode(node, parentNs) {
         }
     } else if (node._innerHTMLRaw) {
         inner = node._innerHTMLRaw;
+    }
+
+    // For <style> elements, wrap content in CDATA so CSS selectors with >
+    // don't break XML parsing in downstream Java (Batik, JAXP)
+    if (tag === 'style' && inner && (inner.indexOf('>') >= 0 || inner.indexOf('<') >= 0 || inner.indexOf('&') >= 0)) {
+        if (inner.indexOf('<![CDATA[') < 0) {
+            inner = '<![CDATA[' + inner + ']]>';
+        }
     }
 
     // Self-closing void SVG elements
