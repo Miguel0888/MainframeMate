@@ -678,6 +678,15 @@ function createDomElement(tagName, namespaceURI) {
     el.childNodes = [];
     el.children = [];
     el.parentNode = null;
+
+    // parentElement — returns parentNode if it's an Element (nodeType 1), else null
+    // Mermaid's Gantt chart (D3) accesses el.parentElement.offsetWidth for layout
+    Object.defineProperty(el, 'parentElement', {
+        get: function() {
+            return (el.parentNode && el.parentNode.nodeType === 1) ? el.parentNode : null;
+        },
+        configurable: true
+    });
     el.firstChild = null;
     el.lastChild = null;
     el.nextSibling = null;
@@ -896,6 +905,41 @@ function createDomElement(tagName, namespaceURI) {
         return false;
     };
 
+    // compareDocumentPosition — DOM Level 3 method used by D3 for selection ordering
+    // (required by Sankey, force-directed layouts, etc.)
+    // Returns bitmask: 1=DISCONNECTED, 2=PRECEDING, 4=FOLLOWING,
+    //                  8=CONTAINS, 16=CONTAINED_BY, 32=IMPL_SPECIFIC
+    el.compareDocumentPosition = function(other) {
+        if (el === other) return 0;
+        // Check if other is contained by el
+        if (el.contains(other)) return 16 + 4; // CONTAINED_BY | FOLLOWING
+        // Check if el is contained by other
+        if (other && other.contains && other.contains(el)) return 8 + 2; // CONTAINS | PRECEDING
+        // Walk up to find common ancestor and determine order
+        function _ancestors(node) {
+            var a = [];
+            while (node) { a.unshift(node); node = node.parentNode; }
+            return a;
+        }
+        var aPath = _ancestors(el);
+        var bPath = _ancestors(other);
+        // Find common ancestor
+        var i = 0;
+        while (i < aPath.length && i < bPath.length && aPath[i] === bPath[i]) i++;
+        if (i === 0) return 1; // DISCONNECTED
+        var parent = aPath[i - 1];
+        var aChild = aPath[i];
+        var bChild = bPath[i];
+        // Compare sibling order
+        if (parent && parent.childNodes) {
+            var aIdx = parent.childNodes.indexOf(aChild);
+            var bIdx = parent.childNodes.indexOf(bChild);
+            if (aIdx < bIdx) return 4; // FOLLOWING
+            if (aIdx > bIdx) return 2; // PRECEDING
+        }
+        return 1; // DISCONNECTED (fallback)
+    };
+
     // insertAdjacentElement — used by Mermaid for sequence diagram elements
     el.insertAdjacentElement = function(position, newElement) {
         switch ((position || '').toLowerCase()) {
@@ -1036,6 +1080,15 @@ function createDomElement(tagName, namespaceURI) {
     el.click = function() {};
     el.hasChildNodes = function() { return el.childNodes && el.childNodes.length > 0; };
     el.normalize = function() {};
+
+    // toJSON — prevents "Converting circular structure to JSON" errors when
+    // Mermaid block/architecture diagrams pass objects containing DOM elements
+    // to JSON.stringify (e.g. for internal state serialization).
+    el.toJSON = function() {
+        return { tagName: el.tagName, id: el.id, className: el.className,
+                 childCount: el.childNodes ? el.childNodes.length : 0 };
+    };
+
     el.remove = function() {
         if (el.parentNode && el.parentNode.removeChild) {
             el.parentNode.removeChild(el);
@@ -1752,11 +1805,48 @@ if (!String.prototype.replaceAll) {
     };
 }
 
-// structuredClone — deep-copy via JSON round-trip (sufficient for plain objects)
+// structuredClone — deep-copy that handles circular references
+// (Mermaid block diagrams pass objects with DOM element back-refs which are cyclic)
 if (typeof structuredClone === 'undefined') {
     var structuredClone = function(obj) {
         if (obj === undefined || obj === null) return obj;
-        return JSON.parse(JSON.stringify(obj));
+        if (typeof obj !== 'object') return obj;
+
+        // Try fast JSON round-trip first
+        try {
+            return JSON.parse(JSON.stringify(obj));
+        } catch (e) {
+            // Circular reference — do a manual deep clone
+            var seen = [];
+            function deepClone(val) {
+                if (val === undefined || val === null) return val;
+                if (typeof val !== 'object') return val;
+                if (val instanceof Date) return new Date(val.getTime());
+                if (val instanceof RegExp) return new RegExp(val);
+                // Skip DOM-like elements (have tagName or nodeType)
+                if (val.nodeType !== undefined || val.tagName !== undefined) return null;
+                // Circular reference check
+                for (var s = 0; s < seen.length; s++) {
+                    if (seen[s] === val) return null;
+                }
+                seen.push(val);
+                if (Array.isArray(val)) {
+                    var arr = [];
+                    for (var i = 0; i < val.length; i++) {
+                        arr.push(deepClone(val[i]));
+                    }
+                    return arr;
+                }
+                var copy = {};
+                var keys = Object.keys(val);
+                for (var k = 0; k < keys.length; k++) {
+                    try { copy[keys[k]] = deepClone(val[keys[k]]); }
+                    catch (ce) { /* skip uncloneable props */ }
+                }
+                return copy;
+            }
+            return deepClone(obj);
+        }
     };
     window.structuredClone = structuredClone;
 }

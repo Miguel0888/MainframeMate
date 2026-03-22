@@ -544,8 +544,8 @@ public final class MermaidRenderTest2 {
                 "packet-beta\n"
                         + "    0-15: \"Source Port\"\n"
                         + "    16-31: \"Dest Port\"\n"
-                        + "    0-31: \"Sequence Number\"\n"
-                        + "    0-31: \"Acknowledgment Number\"",
+                        + "    32-63: \"Sequence Number\"\n"
+                        + "    64-95: \"Acknowledgment Number\"",
                 new String[][] {
                         {"renders", "Wird ein Diagramm angezeigt?"},
                         {"fields", "Sind die Felder (Source Port, Dest Port, Seq, Ack) sichtbar?"},

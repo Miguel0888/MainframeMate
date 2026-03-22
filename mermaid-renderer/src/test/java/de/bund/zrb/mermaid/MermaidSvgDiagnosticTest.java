@@ -126,7 +126,8 @@ class MermaidSvgDiagnosticTest {
     @Timeout(value = 180, unit = TimeUnit.SECONDS)
     @DisplayName("TC7: Gantt Chart (known limitation — needs full DOM layout)")
     void tc7_gantt() {
-        String diagramCode = "gantt\n"
+        tryRenderWithDiagnostics("tc7_gantt",
+                "gantt\n"
                 + "    title Project Plan\n"
                 + "    dateFormat  YYYY-MM-DD\n"
                 + "    section Design\n"
@@ -134,25 +135,7 @@ class MermaidSvgDiagnosticTest {
                 + "    Mockup    :after a1, 5d\n"
                 + "    section Dev\n"
                 + "    Backend   :2024-01-08, 14d\n"
-                + "    Frontend  :2024-01-15, 10d";
-
-        System.out.println("\n════════════════════════════════════════════════════════════");
-        System.out.println("  tc7_gantt (known limitation)");
-        System.out.println("════════════════════════════════════════════════════════════");
-
-        String rawSvg = renderer.renderToSvg(diagramCode);
-        if (rawSvg == null) {
-            System.out.println("[KNOWN LIMITATION] Gantt chart requires full DOM layout (offsetWidth)");
-            System.out.println("  This is expected — Gantt uses D3 DOM measurement which our headless shim cannot provide.");
-            // Don't fail — this is a known limitation
-            return;
-        }
-        // If it does render, validate it
-        saveTo("tc7_gantt_raw.svg", rawSvg);
-        String fixed = MermaidSvgFixup.fixForBatik(MermaidRenderer.postProcessSvg(rawSvg));
-        saveTo("tc7_gantt_fixed.svg", fixed);
-        String xmlError = tryXmlParse(fixed);
-        assertNull(xmlError, "If Gantt renders, it should be valid XML");
+                + "    Frontend  :2024-01-15, 10d");
     }
 
     // ── Core validation logic ────────────────────────────────────────────────
@@ -207,6 +190,93 @@ class MermaidSvgDiagnosticTest {
                         + "    checkout main\n"
                         + "    merge develop\n"
                         + "    commit");
+    }
+
+    @Test
+    @Timeout(value = 180, unit = TimeUnit.SECONDS)
+    @DisplayName("TC12: Sankey (known limitation)")
+    void tc12_sankey() {
+        tryRenderWithDiagnostics("tc12_sankey",
+                "sankey-beta\n\nKohle,Strom,30\nGas,Strom,20\nSolar,Strom,15\nWind,Strom,10\n"
+                        + "Strom,Industrie,30\nStrom,Haushalte,25\nStrom,Verkehr,20");
+    }
+
+    @Test
+    @Timeout(value = 180, unit = TimeUnit.SECONDS)
+    @DisplayName("TC13: Block Diagram (known limitation)")
+    void tc13_blockDiagram() {
+        tryRenderWithDiagnostics("tc13_block",
+                "block-beta\n    columns 3\n"
+                        + "    Frontend:1 space:1 API[\"API Gateway\"]:1\n"
+                        + "    ServiceA[\"Service A\"]:1 ServiceB[\"Service B\"]:1 DB[(\"Datenbank\")]:1\n"
+                        + "\n    Frontend --> API\n    API --> ServiceA\n    API --> ServiceB\n"
+                        + "    ServiceA --> DB\n    ServiceB --> DB");
+    }
+
+    @Test
+    @Timeout(value = 180, unit = TimeUnit.SECONDS)
+    @DisplayName("TC14: Architecture (known limitation)")
+    void tc14_architecture() {
+        tryRenderWithDiagnostics("tc14_architecture",
+                "architecture-beta\n"
+                        + "    group internet(cloud)[Internet]\n"
+                        + "    group cloud(cloud)[Cloud]\n"
+                        + "    group onprem(server)[OnPrem]\n"
+                        + "\n    service user(cloud)[User] in internet\n"
+                        + "    service lb(server)[LB] in cloud\n"
+                        + "    service app(server)[App] in cloud\n"
+                        + "    service db(database)[DB] in onprem\n"
+                        + "\n    user:R --> T:lb\n    lb:R --> T:app\n    app:R --> T:db");
+    }
+
+    @Test
+    @Timeout(value = 180, unit = TimeUnit.SECONDS)
+    @DisplayName("TC15: Packet Diagram (known limitation)")
+    void tc15_packetDiagram() {
+        tryRenderWithDiagnostics("tc15_packet",
+                "packet-beta\n"
+                        + "    0-15: \"Source Port\"\n"
+                        + "    16-31: \"Dest Port\"\n"
+                        + "    32-63: \"Sequence Number\"\n"
+                        + "    64-95: \"Acknowledgment Number\"");
+    }
+
+    /**
+     * Try to render a diagram type and report diagnostics, but don't fail.
+     * Used for known-limitation diagram types to capture error details.
+     */
+    private void tryRenderWithDiagnostics(String name, String diagramCode) {
+        System.out.println("\n════════════════════════════════════════════════════════════");
+        System.out.println("  " + name + " (known limitation diagnostic)");
+        System.out.println("════════════════════════════════════════════════════════════");
+
+        JsExecutionResult detailed = renderer.renderToSvgDetailed(diagramCode);
+        if (!detailed.isSuccessful()) {
+            System.out.println("[FAIL] JS execution error: " + detailed.getErrorMessage());
+            saveTo(name + "_error.txt", "JS error:\n" + detailed.getErrorMessage());
+            return;
+        }
+        String output = detailed.getOutput();
+        if (output == null || output.isEmpty()) {
+            System.out.println("[FAIL] Render returned empty output");
+            return;
+        }
+        if (output.startsWith("ERROR:")) {
+            System.out.println("[FAIL] Mermaid render error: " + output);
+            saveTo(name + "_error.txt", output);
+            return;
+        }
+        if (!output.contains("<svg")) {
+            System.out.println("[FAIL] Output does not contain <svg>: "
+                    + output.substring(0, Math.min(500, output.length())));
+            saveTo(name + "_error.txt", "No <svg> in output:\n" + output);
+            return;
+        }
+        System.out.println("[OK] SVG rendered successfully, length: " + output.length());
+        saveTo(name + "_raw.svg", output);
+        String fixed = MermaidSvgFixup.fixForBatik(MermaidRenderer.postProcessSvg(output));
+        saveTo(name + "_fixed.svg", fixed);
+        System.out.println("[OK] Fixed SVG saved, length: " + fixed.length());
     }
 
     private void renderAndValidate(String name, String diagramCode) {

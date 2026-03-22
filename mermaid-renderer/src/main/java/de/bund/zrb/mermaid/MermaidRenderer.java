@@ -267,6 +267,15 @@ public final class MermaidRenderer {
         // 10ad) Clean up empty/broken style attributes: style=";;;" → remove
         svg = svg.replaceAll("\\s+style\\s*=\\s*\"[;\\s]*\"", "");
 
+        // 10ae) Remove empty presentation attributes: font-weight="" / font-style=""
+        //       Mermaid class diagrams emit <tspan font-weight=""> which crashes
+        //       Batik's CSS parser (empty string is not a valid font-weight value).
+        svg = svg.replaceAll("\\s+font-weight\\s*=\\s*\"\"", "");
+        svg = svg.replaceAll("\\s+font-style\\s*=\\s*\"\"", "");
+
+        // 10af) Replace hsl() with NaN values (browser shim artefact)
+        svg = svg.replaceAll("hsl\\([^)]*NaN[^)]*\\)", "#888888");
+
         // 10b) Clean up style attributes containing serialized JavaScript functions
         //      (polyfill methods like Array.prototype.at may leak into attr values)
         svg = svg.replaceAll(" style=\"function\\([^\"]*\"", " style=\"\"");

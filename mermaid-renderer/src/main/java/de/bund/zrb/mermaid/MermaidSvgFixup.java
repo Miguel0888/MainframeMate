@@ -201,6 +201,14 @@ public final class MermaidSvgFixup {
         svg = svg.replaceAll("\\s+style\\s*=\\s*\"[;\\s]*\"", "");
         svg = svg.replaceAll("\\s+style\\s*=\\s*'[;\\s]*'", "");
 
+        // Remove empty presentation attributes: font-weight="" / font-style=""
+        // Mermaid class diagrams emit <tspan font-weight=""> which crashes Batik's
+        // CSS parser (empty string is not a valid font-weight value).
+        svg = svg.replaceAll("\\s+font-weight\\s*=\\s*\"\"", "");
+        svg = svg.replaceAll("\\s+font-weight\\s*=\\s*''", "");
+        svg = svg.replaceAll("\\s+font-style\\s*=\\s*\"\"", "");
+        svg = svg.replaceAll("\\s+font-style\\s*=\\s*''", "");
+
         // Convert hsl() in fill/stroke attributes (e.g. ER diagram row backgrounds)
         // Pattern: fill="hsl(240, 100%, 97%)"
         {
@@ -1343,6 +1351,11 @@ public final class MermaidSvgFixup {
      * Mermaid emits for some diagram themes.
      */
     static String replaceHslValues(String css) {
+        // First: handle hsl() with NaN values (browser shim returns NaN for
+        // computed styles it cannot resolve, e.g. quadrant-chart point colors)
+        css = css.replaceAll(
+                "hsl\\([^)]*NaN[^)]*\\)", "#888888");
+
         java.util.regex.Pattern p = java.util.regex.Pattern.compile(
                 "hsl\\(\\s*(-?[\\d.]+)\\s*,\\s*([\\d.]+)%\\s*,\\s*([\\d.]+)%\\s*\\)");
         java.util.regex.Matcher m = p.matcher(css);
