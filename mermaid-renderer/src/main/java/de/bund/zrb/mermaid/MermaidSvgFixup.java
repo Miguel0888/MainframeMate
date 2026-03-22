@@ -55,6 +55,7 @@ public final class MermaidSvgFixup {
             moveMarkersToDefs(doc);
             fixMarkerFills(doc);
             fixMarkerViewBox(doc);
+            fixMarkerOrient(doc);          // auto-start-reverse → auto (SVG 2→1.1)
             fixGroupZOrder(doc);           // edges paint ON TOP of nodes
             fixNodeZOrder(doc);
             fixLabelCentering(doc);
@@ -65,6 +66,7 @@ public final class MermaidSvgFixup {
             fixCssFillNone(doc);
             fixCssForBatik(doc);           // hsl()→hex, strip unsupported CSS
             fixAlignmentBaseline(doc);     // remove alignment-baseline attrs
+            fixSequenceText(doc);          // fix text positioning in seq diagrams
             fixSequenceLifelines(doc);     // extend lifelines to bottom actor boxes
             fixViewBoxFromAttributes(doc);
 
@@ -112,6 +114,9 @@ public final class MermaidSvgFixup {
 
         // Remove stroke-linecap (Batik may choke on certain contexts)
         svg = svg.replaceAll("stroke-linecap\\s*:\\s*[^;\"'}<]+[;]?", "");
+
+        // Replace orient="auto-start-reverse" with orient="auto" (SVG 2 → 1.1)
+        svg = svg.replace("orient=\"auto-start-reverse\"", "orient=\"auto\"");
 
         return svg;
     }
@@ -335,9 +340,10 @@ public final class MermaidSvgFixup {
      * <ol>
      *   <li>Reset the label group's transform to {@code translate(0,0)}
      *       (= node centre, matching the shape centre).</li>
-     *   <li>Replace {@code dominant-baseline="central"} on {@code <text>}
-     *       with {@code dy="0.35em"} which is the portable vertical-
-     *       centering trick for SVG text.</li>
+     *   <li>Reset the {@code <text>} element's {@code y} to {@code "0"}
+     *       and set {@code dy="0.35em"} for portable vertical centering.</li>
+     *   <li>Clear any {@code y}/{@code dy} attributes on inner {@code <tspan>}
+     *       elements that would shift text away from centre.</li>
      * </ol>
      */
     private static void fixLabelCentering(Document doc) {
@@ -362,15 +368,37 @@ public final class MermaidSvgFixup {
                 childEl.setAttribute("transform", "translate(0, 0)");
 
                 // Fix text elements inside
-                NodeList texts = childEl.getElementsByTagNameNS("*", "text");
-                for (int k = 0; k < texts.getLength(); k++) {
-                    Element text = (Element) texts.item(k);
-                    // Replace dominant-baseline with dy for Batik
-                    text.removeAttribute("dominant-baseline");
-                    text.setAttribute("dy", "0.35em");
-                    // Ensure middle anchor
-                    text.setAttribute("text-anchor", "middle");
-                }
+                resetTextCentering(childEl);
+            }
+        }
+    }
+
+    /**
+     * Reset text centering within a container element.  Sets the
+     * {@code <text>} y to 0, dy to 0.35em, and clears inner tspan
+     * y/dy attributes so the text is visually centred at the container
+     * origin.
+     */
+    private static void resetTextCentering(Element container) {
+        NodeList texts = container.getElementsByTagNameNS("*", "text");
+        for (int k = 0; k < texts.getLength(); k++) {
+            Element text = (Element) texts.item(k);
+            // Remove dominant-baseline (Batik doesn't handle "central")
+            text.removeAttribute("dominant-baseline");
+            // Position text baseline at y=0, then shift down 0.35em
+            // so the visual centre of the glyphs aligns with y=0
+            text.setAttribute("y", "0");
+            text.setAttribute("dy", "0.35em");
+            // Ensure horizontal centering
+            text.setAttribute("text-anchor", "middle");
+
+            // Clear y/dy on inner <tspan> elements — Mermaid sets these
+            // for browser layout but they cause wrong offsets in Batik
+            NodeList tspans = text.getElementsByTagNameNS("*", "tspan");
+            for (int t = 0; t < tspans.getLength(); t++) {
+                Element tspan = (Element) tspans.item(t);
+                tspan.removeAttribute("y");
+                tspan.removeAttribute("dy");
             }
         }
     }
@@ -404,8 +432,9 @@ public final class MermaidSvgFixup {
             // Move fill:none from style to attribute to prevent
             // style-level inheritance into marker content
             String style = path.getAttribute("style");
-            if (style != null && style.contains("fill:none")) {
-                style = style.replace("fill:none;", "").replace("fill:none", "").trim();
+            if (style != null && (style.contains("fill:none") || style.contains("fill: none"))) {
+                style = style.replace("fill:none;", "").replace("fill:none", "")
+                             .replace("fill: none;", "").replace("fill: none", "").trim();
                 if (style.isEmpty()) {
                     path.removeAttribute("style");
                 } else {
@@ -429,6 +458,18 @@ public final class MermaidSvgFixup {
                 if (!line.hasAttribute("stroke-width")) {
                     line.setAttribute("stroke-width", "1.5");
                 }
+                // Move fill:none from style to attribute to prevent
+                // style-level inheritance into marker content
+                String lineStyle = line.getAttribute("style");
+                if (lineStyle != null && (lineStyle.contains("fill:") || lineStyle.contains("fill "))) {
+                    lineStyle = lineStyle.replaceAll("fill\\s*:\\s*none\\s*;?", "").trim();
+                    if (lineStyle.isEmpty()) {
+                        line.removeAttribute("style");
+                    } else {
+                        line.setAttribute("style", lineStyle);
+                    }
+                    line.setAttribute("fill", "none");
+                }
             }
         }
 
@@ -449,7 +490,8 @@ public final class MermaidSvgFixup {
     /**
      * Mermaid's edge labels use {@code <rect>} with CSS-based opacity.
      * Ensure the rect has an explicit {@code fill} so the background
-     * is visible in Batik.
+     * is visible in Batik.  Also recenter text and background rects
+     * since Mermaid's positioning relies on browser font metrics.
      */
     private static void fixEdgeLabelBackground(Document doc) {
         NodeList allGs = doc.getElementsByTagNameNS("*", "g");
@@ -469,14 +511,11 @@ public final class MermaidSvgFixup {
                     lg.setAttribute("transform", "translate(0, 0)");
                 }
             }
-            NodeList texts = g.getElementsByTagNameNS("*", "text");
-            for (int j = 0; j < texts.getLength(); j++) {
-                Element text = (Element) texts.item(j);
-                text.removeAttribute("dominant-baseline");
-                text.setAttribute("dy", "0.35em");
-                text.setAttribute("text-anchor", "middle");
-            }
 
+            // Fix text centering (same as node labels)
+            resetTextCentering(g);
+
+            // Fix background rects: ensure fill and re-center around (0,0)
             NodeList rects = g.getElementsByTagNameNS("*", "rect");
             for (int j = 0; j < rects.getLength(); j++) {
                 Element rect = (Element) rects.item(j);
@@ -486,6 +525,15 @@ public final class MermaidSvgFixup {
                 // Almost-opaque so the line is mostly hidden but line style
                 // (dashed, thick) remains faintly visible
                 rect.setAttribute("style", "opacity:0.85");
+
+                // Re-center the rect around (0,0) — Mermaid positions it
+                // based on browser font metrics which don't match Batik
+                double w = parseDouble(rect, "width", 0);
+                double h = parseDouble(rect, "height", 0);
+                if (w > 0 && h > 0) {
+                    rect.setAttribute("x", String.valueOf(-w / 2.0));
+                    rect.setAttribute("y", String.valueOf(-h / 2.0));
+                }
             }
         }
     }
@@ -549,6 +597,83 @@ public final class MermaidSvgFixup {
 
     // ═══════════════════════════════════════════════════════════
     //  Fix — insert background rect behind edge labels
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Replace {@code orient="auto-start-reverse"} on {@code <marker>}
+     * elements with {@code orient="auto"}.
+     * <p>
+     * {@code auto-start-reverse} is an SVG 2.0 feature that Batik (SVG 1.1)
+     * does not understand.  Without this fix, sequence diagrams (which use
+     * markers with this orient value) fail to rasterise entirely.
+     */
+    private static void fixMarkerOrient(Document doc) {
+        NodeList markers = doc.getElementsByTagNameNS("*", "marker");
+        for (int i = 0; i < markers.getLength(); i++) {
+            Node n = markers.item(i);
+            if (!(n instanceof Element)) continue;
+            Element marker = (Element) n;
+            String orient = marker.getAttribute("orient");
+            if ("auto-start-reverse".equals(orient)) {
+                marker.setAttribute("orient", "auto");
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix — fix text in sequence diagrams
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Fix text positioning in sequence diagrams.  Mermaid's sequence
+     * diagrams use {@code dominant-baseline="central"} on actor text
+     * and {@code dominant-baseline="middle"} + {@code dy="1em"} on
+     * message text.  After removing these for Batik, text appears in
+     * wrong positions.  This method adds proper {@code dy} offsets.
+     */
+    private static void fixSequenceText(Document doc) {
+        NodeList texts = doc.getElementsByTagNameNS("*", "text");
+        for (int i = 0; i < texts.getLength(); i++) {
+            Node n = texts.item(i);
+            if (!(n instanceof Element)) continue;
+            Element text = (Element) n;
+            String cls = attr(text, "class");
+
+            // Actor labels: class="actor actor-box" — need dy for centering
+            if (cls.contains("actor")) {
+                text.removeAttribute("dominant-baseline");
+                // Set dy for vertical centering (replaces dominant-baseline:central)
+                text.setAttribute("dy", "0.35em");
+                // Also fix inner tspans
+                NodeList tspans = text.getElementsByTagNameNS("*", "tspan");
+                for (int t = 0; t < tspans.getLength(); t++) {
+                    Element tspan = (Element) tspans.item(t);
+                    // Keep the x attribute (absolute horizontal position)
+                    // but clear dy since we set it on the <text>
+                    tspan.removeAttribute("dy");
+                }
+            }
+            // Message labels: class="messageText" — have dy="1em" which is too much
+            else if (cls.contains("messageText")) {
+                text.removeAttribute("dominant-baseline");
+                // Mermaid sets dy="1em" assuming dominant-baseline:middle.
+                // Without dominant-baseline, the text baseline is "alphabetic"
+                // (at bottom of letters). We need a smaller dy.
+                text.setAttribute("dy", "0.35em");
+            }
+            // Loop/note labels: class contains "loopText" or "noteText" or "labelText"
+            else if (cls.contains("loopText") || cls.contains("noteText") || cls.contains("labelText")) {
+                text.removeAttribute("dominant-baseline");
+                text.setAttribute("dy", "0.35em");
+                // Fix inner tspans
+                NodeList tspans = text.getElementsByTagNameNS("*", "tspan");
+                for (int t = 0; t < tspans.getLength(); t++) {
+                    ((Element) tspans.item(t)).removeAttribute("dy");
+                }
+            }
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════
 
     /**
