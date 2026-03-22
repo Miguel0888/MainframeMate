@@ -243,11 +243,22 @@ public final class MermaidRenderer {
         //      (polyfill methods like Array.prototype.at may leak into attr values)
         svg = svg.replaceAll(" style=\"function\\([^\"]*\"", " style=\"\"");
 
+        // 10c) Sanitise CSS for Batik: strip @keyframes, animation, hsl(), rgba(),
+        //      stroke-linecap — these must be removed BEFORE CDATA wrapping
+        svg = sanitiseCssForBatik(svg);
+
         // 11) Fix HTML5 void elements that may remain (<br> → <br/>)
         svg = fixHtmlVoidElements(svg);
 
         // 12) Wrap <style> content in CDATA so CSS selectors with > don't break XML
         svg = wrapStylesInCdata(svg);
+
+        // 12b) Remove duplicated empty <g class="node"> groups.
+        //      Mermaid 11's innerHTML serialisation emits the full nodes list
+        //      inside each foreignObject's nested SVG.  After foreignObject/nested-SVG
+        //      removal these duplicates get promoted to root level.
+        //      Keep only <g class="node"> that have a transform with real coordinates.
+        svg = deduplicateNodeGroups(svg);
 
         // 13) Final safety: re-extract <svg>...</svg> to ensure no trailing content,
         //     then re-balance <g> tags one more time
@@ -436,6 +447,263 @@ public final class MermaidRenderer {
         }
         m.appendTail(sb);
         return sb.toString();
+    }
+
+    /**
+     * Sanitise CSS inside {@code <style>} blocks so Batik's CSS engine doesn't NPE.
+     * <p>
+     * Batik cannot parse:
+     * <ul>
+     *   <li>{@code @keyframes} blocks → NPE in CSSEngine.parseStyleSheet</li>
+     *   <li>{@code animation} property → references non-existent keyframes</li>
+     *   <li>{@code hsl()} / {@code rgba()} colour functions → unsupported</li>
+     *   <li>{@code stroke-linecap} in certain contexts</li>
+     *   <li>Various HTML-only CSS properties ({@code position}, {@code z-index}, etc.)</li>
+     * </ul>
+     * This must run BEFORE {@link #wrapStylesInCdata} because CDATA wrapping
+     * makes the content opaque to regex processing.
+     */
+    private static String sanitiseCssForBatik(String svg) {
+        // Phase 1: Extract each <style>...</style> block, clean its content, and put it back.
+        // Use a simple approach: find <style> and </style>, process the content between them.
+        StringBuilder result = new StringBuilder(svg.length());
+        String lowerSvg = svg.toLowerCase();
+        int lastEnd = 0;
+
+        while (true) {
+            int styleStart = lowerSvg.indexOf("<style", lastEnd);
+            if (styleStart < 0) break;
+
+            int styleTagEnd = lowerSvg.indexOf(">", styleStart);
+            if (styleTagEnd < 0) break;
+            styleTagEnd++; // include the '>'
+
+            int closeStyleStart = lowerSvg.indexOf("</style>", styleTagEnd);
+            if (closeStyleStart < 0) break;
+
+            // Append everything before this <style> block
+            result.append(svg, lastEnd, styleStart);
+
+            // Extract the opening tag and CSS content
+            String openTag = svg.substring(styleStart, styleTagEnd);
+            String css = svg.substring(styleTagEnd, closeStyleStart);
+
+            // Strip CDATA wrapper if present
+            String cssContent = css;
+            if (cssContent.contains("<![CDATA[")) {
+                cssContent = cssContent.replace("<![CDATA[", "").replace("]]>", "");
+            }
+
+            // ── Clean the CSS content ──
+
+            // 1) Remove @keyframes blocks (with nested braces)
+            //    Must handle: @keyframes name { from { ... } to { ... } }
+            //    Use iterative removal since regex can struggle with nested braces
+            cssContent = removeKeyframesBlocks(cssContent);
+
+            // 2) Remove animation properties
+            cssContent = cssContent.replaceAll("animation\\s*:\\s*[^;}\"]+(;|(?=\\}))", "");
+
+            // 3) Remove stroke-linecap
+            cssContent = cssContent.replaceAll("stroke-linecap\\s*:\\s*[^;}\"]+(;|(?=\\}))", "");
+
+            // 4) Convert hsl() → hex
+            cssContent = MermaidSvgFixup.replaceHslValues(cssContent);
+
+            // 5) Convert rgba()/rgb() → hex
+            cssContent = MermaidSvgFixup.replaceRgbaValues(cssContent);
+
+            // 6) Remove unsupported CSS properties
+            String[] unsupported = {
+                "position", "z-index", "pointer-events", "cursor",
+                "text-align", "background-color", "box-shadow", "filter",
+                "alignment-baseline", "vertical-align", "display",
+                "overflow", "padding", "margin"
+            };
+            for (String prop : unsupported) {
+                cssContent = cssContent.replaceAll(
+                    prop + "\\s*:\\s*[^;}\"]+(;|(?=\\}))", "");
+            }
+
+            // 7) Replace currentColor with concrete value
+            cssContent = cssContent.replace("currentColor", "#333333");
+
+            // 8) Replace "revert" with safe defaults
+            cssContent = cssContent.replaceAll("stroke\\s*:\\s*revert\\s*;?", "");
+            cssContent = cssContent.replaceAll("stroke-width\\s*:\\s*revert\\s*;?", "");
+
+            // 9) Strip :root rules with CSS custom properties
+            cssContent = cssContent.replaceAll("#mmd-\\d+\\s*:root\\s*\\{[^}]*\\}", "");
+
+            // Rebuild the <style> block with cleaned content
+            result.append(openTag).append(cssContent).append("</style>");
+
+            lastEnd = closeStyleStart + "</style>".length();
+        }
+
+        // Append remainder of SVG
+        result.append(svg, lastEnd, svg.length());
+
+        // Phase 2: Also strip @keyframes and animation from outside <style> (inline styles)
+        String output = result.toString();
+        output = output.replaceAll("\\s+alignment-baseline\\s*=\\s*\"[^\"]*\"", "");
+        return output;
+    }
+
+    /**
+     * Remove {@code @keyframes} blocks by iteratively scanning for them.
+     * This is more reliable than regex for nested braces.
+     */
+    private static String removeKeyframesBlocks(String css) {
+        StringBuilder sb = new StringBuilder(css.length());
+        int i = 0;
+        int len = css.length();
+        while (i < len) {
+            // Look for @keyframes
+            int kfIdx = css.indexOf("@keyframes", i);
+            if (kfIdx < 0) {
+                sb.append(css, i, len);
+                break;
+            }
+            // Append everything before @keyframes
+            sb.append(css, i, kfIdx);
+
+            // Find the opening brace of the @keyframes block
+            int braceStart = css.indexOf('{', kfIdx);
+            if (braceStart < 0) {
+                // No opening brace found — keep the rest as-is
+                sb.append(css, kfIdx, len);
+                break;
+            }
+
+            // Count braces to find the matching closing brace
+            int depth = 0;
+            int j = braceStart;
+            while (j < len) {
+                char c = css.charAt(j);
+                if (c == '{') depth++;
+                else if (c == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        j++; // skip the final '}'
+                        break;
+                    }
+                }
+                j++;
+            }
+            // Skip the entire @keyframes block
+            i = j;
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Remove duplicated empty {@code <g class="node ...">} groups that arise
+     * from Mermaid 11's DOM serialisation.
+     * <p>
+     * Mermaid creates {@code <foreignObject>} elements containing nested
+     * {@code <svg>} with their own {@code <g class="nodes">} block — each
+     * such block contains copies of ALL node groups, not just the current
+     * label.  After foreignObject removal and SVG flattening, these copies
+     * end up as siblings at the root level, producing massive duplication.
+     * <p>
+     * This method keeps only {@code <g class="node ...">} groups that:
+     * <ul>
+     *   <li>have a {@code transform} attribute with real coordinates, OR</li>
+     *   <li>contain shape elements ({@code <rect>}, {@code <polygon>}, {@code <path>}), OR</li>
+     *   <li>contain non-empty text content</li>
+     * </ul>
+     * All other "empty" node groups are removed as duplicates.
+     */
+    private static String deduplicateNodeGroups(String svg) {
+        // Strategy: Find all <g class="node ..."> ... </g> groups.
+        // If they don't have a transform attribute AND contain no shapes/text,
+        // they're duplicates and should be removed.
+        StringBuilder result = new StringBuilder(svg.length());
+        int i = 0;
+        int len = svg.length();
+
+        while (i < len) {
+            // Look for <g class="node
+            int gStart = svg.indexOf("<g class=\"node ", i);
+            if (gStart < 0) {
+                result.append(svg, i, len);
+                break;
+            }
+
+            // Append everything before this <g>
+            result.append(svg, i, gStart);
+
+            // Find the closing > of this <g> tag
+            int tagEnd = svg.indexOf(">", gStart);
+            if (tagEnd < 0) {
+                result.append(svg, gStart, len);
+                break;
+            }
+
+            String openTag = svg.substring(gStart, tagEnd + 1);
+
+            // Find the matching </g> — need to count nested <g> tags
+            int depth = 1;
+            int scanPos = tagEnd + 1;
+            while (scanPos < len && depth > 0) {
+                // Look for next <g or </g
+                int nextOpen = svg.indexOf("<g", scanPos);
+                int nextClose = svg.indexOf("</g>", scanPos);
+
+                if (nextClose < 0) {
+                    scanPos = len;
+                    break;
+                }
+
+                // Check if there's an opening <g before the next </g>
+                if (nextOpen >= 0 && nextOpen < nextClose) {
+                    // Verify it's actually <g> or <g ...> (not <g-something>)
+                    int afterG = nextOpen + 2;
+                    if (afterG < len && (svg.charAt(afterG) == '>' || svg.charAt(afterG) == ' '
+                            || svg.charAt(afterG) == '\t' || svg.charAt(afterG) == '\n')) {
+                        // Check if self-closing
+                        int gEnd = svg.indexOf(">", nextOpen);
+                        if (gEnd >= 0 && svg.charAt(gEnd - 1) != '/') {
+                            depth++;
+                        }
+                    }
+                    scanPos = nextOpen + 2;
+                } else {
+                    depth--;
+                    if (depth == 0) {
+                        scanPos = nextClose + 4; // "</g>".length()
+                    } else {
+                        scanPos = nextClose + 4;
+                    }
+                }
+            }
+
+            String fullGroup = svg.substring(gStart, scanPos);
+
+            // Decide whether to keep this group:
+            // KEEP if it has a transform attribute (= positioned real node)
+            // KEEP if it contains shape elements (rect with width, polygon with points, path with d)
+            // REMOVE if it's an empty duplicate
+            boolean hasTransform = openTag.contains("transform=");
+            boolean hasShapes = fullGroup.contains("<rect ") && fullGroup.contains("width=");
+            boolean hasPolygon = fullGroup.contains("<polygon ");
+            boolean hasPath = fullGroup.contains(" d=\"M");
+            boolean hasText = fullGroup.contains("<text");
+
+            if (hasTransform || hasShapes || hasPolygon || hasPath || hasText) {
+                result.append(fullGroup);
+            }
+            // else: duplicate — skip it
+
+            i = scanPos;
+        }
+
+        // Also remove orphaned empty <rect/> tags (artifacts from foreignObject removal)
+        String output = result.toString();
+        output = output.replace("<rect/>", "");
+
+        return output;
     }
 
     /**

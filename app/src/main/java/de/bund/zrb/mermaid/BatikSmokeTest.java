@@ -184,16 +184,29 @@ public final class BatikSmokeTest {
         svg = svg.replaceAll("\\s+alignment-baseline\\s*=\\s*\"[^\"]*\"", "");
         svg = svg.replaceAll("alignment-baseline\\s*:\\s*[^;\"'}<]+[;]?", "");
 
-        // Remove @keyframes (Batik CSS parser NPE)
-        svg = svg.replaceAll("@keyframes\\s+[^{]+\\{[^}]*\\{[^}]*\\}[^}]*\\{[^}]*\\}[^}]*\\}", "");
-        svg = svg.replaceAll("@keyframes\\s+[^{]+\\{[^}]*\\{[^}]*\\}[^}]*\\}", "");
-        svg = svg.replaceAll("@keyframes\\s+[^{]+\\{[^}]*\\}", "");
+        // Remove @keyframes blocks (Batik CSS parser NPE) — iterative approach
+        svg = removeKeyframesBlocks(svg);
 
         // Remove animation CSS property
         svg = svg.replaceAll("animation\\s*:\\s*[^;\"'}<]+[;]?", "");
 
-        // Convert hsl/rgba → hex, remove stroke-linecap etc
-        svg = MermaidSvgFixup.regexSanitize(svg);
+        // Remove stroke-linecap
+        svg = svg.replaceAll("stroke-linecap\\s*:\\s*[^;\"'}<]+[;]?", "");
+
+        // Convert hsl()/rgba() to hex
+        svg = MermaidSvgFixup.replaceHslValues(svg);
+        svg = MermaidSvgFixup.replaceRgbaValues(svg);
+
+        // Remove unsupported CSS properties
+        svg = svg.replaceAll("position\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("z-index\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("pointer-events\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("cursor\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("text-align\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("background-color\\s*:\\s*[^;\"]+;?", "");
+
+        // Replace currentColor in CSS context too
+        svg = svg.replace("currentColor", "#333333");
 
         // Replace width="100%" with pixel width
         svg = svg.replaceFirst("width=\"100%\"", "width=\"800\"");
@@ -246,6 +259,42 @@ public final class BatikSmokeTest {
             }
         }
         m.appendTail(sb);
+        return sb.toString();
+    }
+
+    /**
+     * Remove {@code @keyframes} blocks by iteratively scanning for them.
+     * More reliable than regex for nested braces.
+     */
+    private static String removeKeyframesBlocks(String css) {
+        StringBuilder sb = new StringBuilder(css.length());
+        int i = 0;
+        int len = css.length();
+        while (i < len) {
+            int kfIdx = css.indexOf("@keyframes", i);
+            if (kfIdx < 0) {
+                sb.append(css, i, len);
+                break;
+            }
+            sb.append(css, i, kfIdx);
+            int braceStart = css.indexOf('{', kfIdx);
+            if (braceStart < 0) {
+                sb.append(css, kfIdx, len);
+                break;
+            }
+            int depth = 0;
+            int j = braceStart;
+            while (j < len) {
+                char c = css.charAt(j);
+                if (c == '{') depth++;
+                else if (c == '}') {
+                    depth--;
+                    if (depth == 0) { j++; break; }
+                }
+                j++;
+            }
+            i = j;
+        }
         return sb.toString();
     }
 

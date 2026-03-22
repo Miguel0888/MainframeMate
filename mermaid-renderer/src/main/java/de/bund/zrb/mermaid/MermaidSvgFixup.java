@@ -647,30 +647,35 @@ public final class MermaidSvgFixup {
             String css = styleNode.getTextContent();
             if (css == null || css.isEmpty()) continue;
 
-            // 1) Convert hsl(...) → hex
+            // 1) Remove @keyframes blocks using iterative brace counting
+            css = removeKeyframesBlocks(css);
+
+            // 2) Convert hsl(...) → hex
             css = replaceHslValues(css);
 
-            // 2) Convert rgba(...) → hex (drop alpha)
+            // 3) Convert rgba(...) → hex (drop alpha)
             css = replaceRgbaValues(css);
 
-            // 3) Remove @keyframes blocks (Batik CSS engine cannot parse them → NPE)
-            css = css.replaceAll("@keyframes\\s+[^{]+\\{[^}]*\\{[^}]*\\}[^}]*\\}", "");
-            // Simpler fallback: @keyframes name { ... } with single-level braces
-            css = css.replaceAll("@keyframes\\s+[^{]+\\{[^}]*\\}", "");
-
             // 4) Remove unsupported CSS properties
-            // Strip entire property declarations: "property-name: value;"
-            css = css.replaceAll("position\\s*:\\s*[^;\"]+;?", "");
-            css = css.replaceAll("box-shadow\\s*:\\s*[^;\"]+;?", "");
-            css = css.replaceAll("filter\\s*:\\s*[^;\"]+;?", "");
-            css = css.replaceAll("z-index\\s*:\\s*[^;\"]+;?", "");
-            css = css.replaceAll("pointer-events\\s*:\\s*[^;\"]+;?", "");
-            css = css.replaceAll("cursor\\s*:\\s*[^;\"]+;?", "");
-            css = css.replaceAll("text-align\\s*:\\s*[^;\"]+;?", "");
-            css = css.replaceAll("background-color\\s*:\\s*[^;\"]+;?", "");
-            css = css.replaceAll("alignment-baseline\\s*:\\s*[^;\"]+;?", "");
-            css = css.replaceAll("animation\\s*:\\s*[^;\"]+;?", "");
-            css = css.replaceAll("stroke-linecap\\s*:\\s*[^;\"]+;?", "");
+            String[] unsupported = {
+                "position", "box-shadow", "filter", "z-index",
+                "pointer-events", "cursor", "text-align", "background-color",
+                "alignment-baseline", "animation", "stroke-linecap",
+                "vertical-align", "display", "overflow", "padding", "margin"
+            };
+            for (String prop : unsupported) {
+                css = css.replaceAll(prop + "\\s*:\\s*[^;}\"]+[;]?", "");
+            }
+
+            // 5) Replace currentColor
+            css = css.replace("currentColor", "#333333");
+
+            // 6) Replace "revert" values
+            css = css.replaceAll("stroke\\s*:\\s*revert\\s*;?", "");
+            css = css.replaceAll("stroke-width\\s*:\\s*revert\\s*;?", "");
+
+            // 7) Strip :root rules with CSS custom properties
+            css = css.replaceAll("#mmd-\\d+\\s*:root\\s*\\{[^}]*\\}", "");
 
             styleNode.setTextContent(css);
         }
@@ -685,17 +690,59 @@ public final class MermaidSvgFixup {
             if (style != null && !style.isEmpty()) {
                 String fixed = replaceHslValues(style);
                 fixed = replaceRgbaValues(fixed);
+                fixed = fixed.replace("currentColor", "#333333");
                 if (!fixed.equals(style)) {
                     el.setAttribute("style", fixed);
                 }
+            }
+            // Fix fill/stroke attributes with unsupported values
+            String fill = el.getAttribute("fill");
+            if ("currentColor".equals(fill)) {
+                el.setAttribute("fill", "#333333");
             }
         }
     }
 
     /**
+     * Remove {@code @keyframes} blocks by iteratively scanning for them.
+     * More reliable than regex for nested braces.
+     */
+    private static String removeKeyframesBlocks(String css) {
+        StringBuilder sb = new StringBuilder(css.length());
+        int i = 0;
+        int len = css.length();
+        while (i < len) {
+            int kfIdx = css.indexOf("@keyframes", i);
+            if (kfIdx < 0) {
+                sb.append(css, i, len);
+                break;
+            }
+            sb.append(css, i, kfIdx);
+            int braceStart = css.indexOf('{', kfIdx);
+            if (braceStart < 0) {
+                sb.append(css, kfIdx, len);
+                break;
+            }
+            int depth = 0;
+            int j = braceStart;
+            while (j < len) {
+                char c = css.charAt(j);
+                if (c == '{') depth++;
+                else if (c == '}') {
+                    depth--;
+                    if (depth == 0) { j++; break; }
+                }
+                j++;
+            }
+            i = j;
+        }
+        return sb.toString();
+    }
+
+    /**
      * Replace all {@code hsl(h, s%, l%)} occurrences with hex colour values.
      */
-    private static String replaceHslValues(String css) {
+    static String replaceHslValues(String css) {
         java.util.regex.Pattern p = java.util.regex.Pattern.compile(
                 "hsl\\(\\s*([\\d.]+)\\s*,\\s*([\\d.]+)%\\s*,\\s*([\\d.]+)%\\s*\\)");
         java.util.regex.Matcher m = p.matcher(css);
@@ -718,7 +765,7 @@ public final class MermaidSvgFixup {
     /**
      * Replace all {@code rgba(r, g, b, a)} and {@code rgb(r g b / a)} occurrences with hex.
      */
-    private static String replaceRgbaValues(String css) {
+    static String replaceRgbaValues(String css) {
         // rgba(r, g, b, a)
         java.util.regex.Pattern p = java.util.regex.Pattern.compile(
                 "rgba?\\(\\s*([\\d.]+)\\s*[,\\s]\\s*([\\d.]+)\\s*[,\\s]\\s*([\\d.]+)\\s*[,/]\\s*([\\d.]+)\\s*\\)");

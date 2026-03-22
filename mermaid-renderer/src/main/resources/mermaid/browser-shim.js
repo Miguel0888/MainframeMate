@@ -659,19 +659,41 @@ function createDomElement(tagName, namespaceURI) {
 
     el.cloneNode = function(deep) {
         var clone = createDomElement(tagName, namespaceURI);
-        clone.innerHTML = el.innerHTML;
-        clone.textContent = el.textContent;
         clone.className = el.className;
         clone.id = el.id;
         var keys = Object.keys(el._attrs);
         for (var i = 0; i < keys.length; i++) {
             clone._attrs[keys[i]] = el._attrs[keys[i]];
         }
+        // Copy style properties
+        if (el.style && el.style._props) {
+            var skeys = Object.keys(el.style._props);
+            for (var s = 0; s < skeys.length; s++) {
+                clone.style._props[skeys[s]] = el.style._props[skeys[s]];
+                var camel = skeys[s].replace(/-([a-z])/g, function(m, c) { return c.toUpperCase(); });
+                clone.style[camel] = el.style._props[skeys[s]];
+            }
+        }
         if (deep) {
-            for (var j = 0; j < el.childNodes.length; j++) {
-                if (el.childNodes[j].cloneNode) {
-                    clone.appendChild(el.childNodes[j].cloneNode(true));
+            // Deep clone: recursively clone child nodes
+            if (el.childNodes && el.childNodes.length > 0) {
+                for (var j = 0; j < el.childNodes.length; j++) {
+                    var child = el.childNodes[j];
+                    if (child.cloneNode) {
+                        clone.appendChild(child.cloneNode(true));
+                    } else if (child.nodeType === 3) {
+                        // Text node
+                        clone.appendChild({ nodeType: 3, textContent: child.textContent, ownerDocument: el.ownerDocument });
+                    }
                 }
+            } else if (el._innerHTMLRaw) {
+                // No child nodes but has raw HTML — copy it
+                clone._innerHTMLRaw = el._innerHTMLRaw;
+            }
+        } else {
+            // Shallow clone: only copy _innerHTMLRaw if no children
+            if (!el.childNodes || el.childNodes.length === 0) {
+                clone._innerHTMLRaw = el._innerHTMLRaw || '';
             }
         }
         return clone;
