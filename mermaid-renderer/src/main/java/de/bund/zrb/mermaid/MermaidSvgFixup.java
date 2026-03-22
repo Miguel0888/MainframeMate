@@ -716,13 +716,35 @@ public final class MermaidSvgFixup {
                     found = true;
                 }
             }
+            // polygon: parse points, apply own transform, resolve parents
+            else if ("polygon".equals(tag)) {
+                String points = el.getAttribute("points");
+                if (points != null && !points.isEmpty()) {
+                    double[] localOff = parseElementTranslate(el);
+                    String[] pairs = points.trim().split("\\s+");
+                    for (String pair : pairs) {
+                        String[] xy = pair.split(",");
+                        if (xy.length == 2) {
+                            try {
+                                double px = Double.parseDouble(xy[0].trim()) + localOff[0];
+                                double py = Double.parseDouble(xy[1].trim()) + localOff[1];
+                                double[] abs = resolveAbsolutePosition(el, px, py);
+                                updateBounds(abs[0], abs[1], abs[0], abs[1]);
+                                found = true;
+                            } catch (NumberFormatException ignored) {}
+                        }
+                    }
+                }
+            }
             // line: x1, y1, x2, y2
             else if ("line".equals(tag)) {
                 double x1 = parseDouble(el, "x1", 0);
                 double y1 = parseDouble(el, "y1", 0);
                 double x2 = parseDouble(el, "x2", 0);
                 double y2 = parseDouble(el, "y2", 0);
-                updateBounds(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2));
+                double[] abs1 = resolveAbsolutePosition(el, Math.min(x1, x2), Math.min(y1, y2));
+                double[] abs2 = resolveAbsolutePosition(el, Math.max(x1, x2), Math.max(y1, y2));
+                updateBounds(abs1[0], abs1[1], abs2[0], abs2[1]);
                 found = true;
             }
             // circle: cx, cy, r
@@ -731,7 +753,20 @@ public final class MermaidSvgFixup {
                 double cy = parseDouble(el, "cy", 0);
                 double r = parseDouble(el, "r", 0);
                 if (r > 0) {
-                    updateBounds(cx - r, cy - r, cx + r, cy + r);
+                    double[] abs = resolveAbsolutePosition(el, cx, cy);
+                    updateBounds(abs[0] - r, abs[1] - r, abs[0] + r, abs[1] + r);
+                    found = true;
+                }
+            }
+            // ellipse: cx, cy, rx, ry
+            else if ("ellipse".equals(tag)) {
+                double cx = parseDouble(el, "cx", 0);
+                double cy = parseDouble(el, "cy", 0);
+                double rx = parseDouble(el, "rx", 0);
+                double ry = parseDouble(el, "ry", 0);
+                if (rx > 0 || ry > 0) {
+                    double[] abs = resolveAbsolutePosition(el, cx, cy);
+                    updateBounds(abs[0] - rx, abs[1] - ry, abs[0] + rx, abs[1] + ry);
                     found = true;
                 }
             }
@@ -739,11 +774,12 @@ public final class MermaidSvgFixup {
             else if ("text".equals(tag)) {
                 double x = parseDouble(el, "x", 0);
                 double y = parseDouble(el, "y", 0);
+                double[] abs = resolveAbsolutePosition(el, x, y);
                 // Estimate text extent
                 String content = el.getTextContent();
                 int len = (content != null) ? content.trim().length() : 0;
                 double tw = len * 8;
-                updateBounds(x - tw / 2, y - 10, x + tw / 2, y + 10);
+                updateBounds(abs[0] - tw / 2, abs[1] - 10, abs[0] + tw / 2, abs[1] + 10);
                 found = true;
             }
         }
@@ -886,6 +922,33 @@ public final class MermaidSvgFixup {
             parent = pe.getParentNode();
         }
         return new double[]{x, y};
+    }
+
+    /**
+     * Parse a {@code translate(dx, dy)} from an element's <b>own</b>
+     * {@code transform} attribute.  Returns {@code {dx, dy}} or
+     * {@code {0, 0}} if no translate is found.
+     * <p>
+     * This is needed for elements like {@code <polygon>} where Mermaid
+     * places a {@code transform} directly on the shape element, not only
+     * on the parent {@code <g>}.
+     */
+    private static double[] parseElementTranslate(Element el) {
+        String transform = el.getAttribute("transform");
+        if (transform != null && transform.contains("translate")) {
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("translate\\(\\s*(-?[\\d.]+)\\s*[,\\s]\\s*(-?[\\d.]+)\\s*\\)")
+                    .matcher(transform);
+            if (m.find()) {
+                try {
+                    return new double[]{
+                            Double.parseDouble(m.group(1)),
+                            Double.parseDouble(m.group(2))
+                    };
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        return new double[]{0, 0};
     }
 
     private static boolean isInsideTag(Element el, String tagName) {
