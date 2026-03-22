@@ -288,19 +288,21 @@ function _serializeNode(node, parentNs) {
 }
 
 // ── Text width estimation (for layout without a real rendering engine) ──────
-function _estimateTextWidth(el) {
-    var text = _collectAllText(el);
-    if (!text) return 0;
-
+function _sanitizeTextForMeasurement(text) {
+    if (!text) return '';
     // Sanity check: if the "text" is actually CSS or huge markup content, cap it
     if (text.length > 200 || text.indexOf('{') >= 0 || text.indexOf('}') >= 0) {
-        // This is likely CSS content from a <style> block that leaked into text measurement
-        // Extract only what looks like a label (alphanumeric + common punctuation)
         var stripped = text.replace(/[^a-zA-Z0-9äöüÄÖÜß\s.,!?:;\-()]/g, '').trim();
-        if (stripped.length === 0) return 0;
+        if (stripped.length === 0) return '';
         if (stripped.length > 50) stripped = stripped.substring(0, 50);
-        text = stripped;
+        return stripped;
     }
+    return text;
+}
+
+function _estimateTextWidth(el) {
+    var text = _sanitizeTextForMeasurement(_collectAllText(el));
+    if (!text) return 0;
 
     // Use Java bridge for accurate pixel-level text measurement if available
     if (typeof javaBridge !== 'undefined' && javaBridge.measureTextWidth) {
@@ -315,6 +317,70 @@ function _estimateTextWidth(el) {
 
     // Fallback: rough estimation (~8px per character at 16px font)
     return text.length * 8 + 16;
+}
+
+/**
+ * Measure text and return full metrics {width, ascent, descent, height}.
+ * Uses Java bridge measureTextFull for pixel-accurate values.
+ * Falls back to approximations if bridge is unavailable.
+ */
+function _measureTextMetrics(el) {
+    var text = _sanitizeTextForMeasurement(_collectAllText(el));
+    if (!text) return { width: 0, ascent: 0, descent: 0, height: 0 };
+
+    var fontFamily = _resolveFontFamily(el) || '"trebuchet ms", verdana, arial, sans-serif';
+    var fontSize = _resolveFontSize(el) || 16;
+
+    // Use Java bridge for accurate measurement
+    if (typeof javaBridge !== 'undefined' && javaBridge.measureTextFull) {
+        try {
+            var result = javaBridge.measureTextFull(text, fontFamily, fontSize);
+            var parts = ('' + result).split(',');
+            return {
+                width:   parseFloat(parts[0]) || 0,
+                ascent:  parseFloat(parts[1]) || Math.round(fontSize * 0.8),
+                descent: parseFloat(parts[2]) || Math.round(fontSize * 0.2),
+                height:  parseFloat(parts[3]) || Math.round(fontSize * 1.2)
+            };
+        } catch (e) {
+            // Fall through to estimation
+        }
+    }
+
+    // Fallback: width from _estimateTextWidth, height approximated
+    var w = _estimateTextWidth(el);
+    var asc = Math.round(fontSize * 0.8);
+    var desc = Math.round(fontSize * 0.25);
+    return { width: w, ascent: asc, descent: desc, height: asc + desc };
+}
+
+/**
+ * Resolve the effective text-anchor for an SVG text/tspan element.
+ * Checks inline style, style attribute, and dedicated attribute.
+ * Returns 'start', 'middle', or 'end'. Default is 'start' per SVG spec.
+ */
+function _resolveTextAnchor(el) {
+    var current = el;
+    while (current && current.nodeType === 1) {
+        // Check style object
+        if (current.style && current.style.textAnchor) {
+            return current.style.textAnchor;
+        }
+        if (current.style && current.style._props && current.style._props['text-anchor']) {
+            return current.style._props['text-anchor'];
+        }
+        // Check style attribute string
+        var styleAttr = current._attrs && current._attrs['style'];
+        if (styleAttr) {
+            var match = styleAttr.match(/text-anchor\s*:\s*(\w+)/);
+            if (match) return match[1].trim();
+        }
+        // Check text-anchor attribute (SVG)
+        var ta = current._attrs && current._attrs['text-anchor'];
+        if (ta) return ta;
+        current = current.parentNode;
+    }
+    return 'start';
 }
 
 /**
@@ -490,20 +556,107 @@ function _computeElementDims(el) {
         }
     }
 
-    // 6) text — estimate from content; height based on actual font-size
-    //    Real browsers return getBBox height ≈ fontSize (ascent + descent).
-    //    Using a hardcoded 24 inflated layout spacing (especially sequence diagram
-    //    message-text ↔ arrow-line gap).
-    if (tag === 'text' || tag === 'tspan') {
-        var tw = _estimateTextWidth(el);
-        if (tw > 0) {
+    // 6) text — estimate from content; height based on actual font metrics.
+    //    Real browsers return getBBox() encompassing all tspans, with
+    //    height = ascent + descent (per line), x depending on text-anchor.
+    if (tag === 'text') {
+        // Check for multi-line text (tspan children with dy offsets)
+        var tspans = [];
+        if (el.childNodes) {
+            for (var ti = 0; ti < el.childNodes.length; ti++) {
+                var tc = el.childNodes[ti];
+                if (tc.tagName && tc.tagName.toLowerCase() === 'tspan') tspans.push(tc);
+            }
+        }
+        if (tspans.length > 0) {
+            // Multi-line: aggregate all tspan dimensions
+            var textMinX = Infinity, textMinY = Infinity, textMaxX = -Infinity, textMaxY = -Infinity;
+            var baseY = num('y') || 0;
+            var accDy = 0; // accumulated dy offset
+            var anchor = _resolveTextAnchor(el);
+            for (var si = 0; si < tspans.length; si++) {
+                var span = tspans[si];
+                var spanAttrs = span._attrs || {};
+                var spanMetrics = _measureTextMetrics(span);
+                if (spanMetrics.width <= 0) continue;
+                var spanX = parseFloat(spanAttrs['x']);
+                if (isNaN(spanX)) spanX = num('x') || 0;
+                var spanDy = spanAttrs['dy'];
+                if (spanDy !== undefined && spanDy !== null && spanDy !== '') {
+                    // Handle em units (e.g. "1.2em")
+                    var spanFs = _resolveFontSize(span) || _resolveFontSize(el) || 16;
+                    if (typeof spanDy === 'string' && spanDy.indexOf('em') >= 0) {
+                        accDy += parseFloat(spanDy) * spanFs;
+                    } else {
+                        accDy += parseFloat(spanDy) || 0;
+                    }
+                }
+                var spanY = baseY + accDy;
+                // x position depends on text-anchor
+                var sx;
+                if (anchor === 'middle') {
+                    sx = spanX - spanMetrics.width / 2;
+                } else if (anchor === 'end') {
+                    sx = spanX - spanMetrics.width;
+                } else {
+                    sx = spanX;
+                }
+                var sy = spanY - spanMetrics.ascent;
+                if (sx < textMinX) textMinX = sx;
+                if (sy < textMinY) textMinY = sy;
+                if (sx + spanMetrics.width > textMaxX) textMaxX = sx + spanMetrics.width;
+                if (sy + spanMetrics.height > textMaxY) textMaxY = sy + spanMetrics.height;
+            }
+            if (textMinX < Infinity && textMaxX > textMinX) {
+                return { x: textMinX, y: textMinY,
+                         w: textMaxX - textMinX, h: textMaxY - textMinY };
+            }
+        }
+        // Single-line text (no tspan children, or tspans had no text)
+        var textMetrics = _measureTextMetrics(el);
+        if (textMetrics.width > 0) {
             var tx = num('x'), ty = num('y');
-            var fs6 = _resolveFontSize(el) || 16;
-            var ascent6 = Math.round(fs6 * 0.8);   // baseline → top of glyphs
-            var th6     = Math.round(fs6);           // ascent + descent ≈ fontSize
-            return { x: isNaN(tx) ? 0 : tx - tw / 2,
-                     y: isNaN(ty) ? -ascent6 : ty - ascent6,
-                     w: tw, h: th6 };
+            var anchor1 = _resolveTextAnchor(el);
+            var bx;
+            if (anchor1 === 'middle') {
+                bx = isNaN(tx) ? -textMetrics.width / 2 : tx - textMetrics.width / 2;
+            } else if (anchor1 === 'end') {
+                bx = isNaN(tx) ? -textMetrics.width : tx - textMetrics.width;
+            } else {
+                bx = isNaN(tx) ? 0 : tx;
+            }
+            return { x: bx,
+                     y: isNaN(ty) ? -textMetrics.ascent : ty - textMetrics.ascent,
+                     w: textMetrics.width, h: textMetrics.height };
+        }
+    }
+    if (tag === 'tspan') {
+        var tspanMetrics = _measureTextMetrics(el);
+        if (tspanMetrics.width > 0) {
+            var tsx = num('x'), tsy = num('y');
+            var tAnchor = _resolveTextAnchor(el);
+            var tbx;
+            if (tAnchor === 'middle') {
+                tbx = isNaN(tsx) ? -tspanMetrics.width / 2 : tsx - tspanMetrics.width / 2;
+            } else if (tAnchor === 'end') {
+                tbx = isNaN(tsx) ? -tspanMetrics.width : tsx - tspanMetrics.width;
+            } else {
+                tbx = isNaN(tsx) ? 0 : tsx;
+            }
+            // Account for dy offset
+            var tsDy = attrs['dy'];
+            var dyOffset = 0;
+            if (tsDy !== undefined && tsDy !== null && tsDy !== '') {
+                var tsFs = _resolveFontSize(el) || 16;
+                if (typeof tsDy === 'string' && tsDy.indexOf('em') >= 0) {
+                    dyOffset = parseFloat(tsDy) * tsFs;
+                } else {
+                    dyOffset = parseFloat(tsDy) || 0;
+                }
+            }
+            var tby = isNaN(tsy) ? -tspanMetrics.ascent + dyOffset : tsy - tspanMetrics.ascent + dyOffset;
+            return { x: tbx, y: tby,
+                     w: tspanMetrics.width, h: tspanMetrics.height };
         }
     }
 
@@ -560,7 +713,8 @@ function _computeElementDims(el) {
     // Fallback: text-based estimate or reasonable container default
     var textLen = _estimateTextWidth(el);
     if (textLen > 0) {
-        return { x: 0, y: 0, w: textLen, h: 24 };
+        var fallbackFs = _resolveFontSize(el) || 16;
+        return { x: 0, y: 0, w: textLen, h: Math.round(fallbackFs * 1.2) };
     }
     // Container elements and SVG roots get large defaults
     // so Mermaid can compute proper layout bounds (especially Gantt charts)
