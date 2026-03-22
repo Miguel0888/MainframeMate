@@ -375,6 +375,73 @@ public final class MermaidRenderTest {
                         {"lifelines-ok", "Reichen die Lebenslinien bis zu den unteren Actor-Boxen?"}
                 }));
 
+        // 9 — Mindmap: Humus
+        s.add(new DiagramSpec("mindmap-humus",
+                "9 \u2014 Mindmap: Humus",
+                "Eine Mindmap mit zentralem Knoten \"Humus\" (doppelt umrundet = Kreis).\n"
+                        + "Acht Hauptzweige strahlen vom Zentrum ab:\n"
+                        + "  \u2022 Arten (mit Unterpunkten: N\u00e4hrhumus, Dauerhumus)\n"
+                        + "  \u2022 Entstehung (mit Unterpunkten: Zersetzung, Bodenorganismen inkl. Regenw\u00fcrmer/Bakterien/Pilze, Laub)\n"
+                        + "  \u2022 Bestandteile (Organische Substanz, Mineralstoffe, Wasser, Luft)\n"
+                        + "  \u2022 Funktionen (N\u00e4hrstoffspeicher, Wasserspeicherung, Bodenlockerung, Bodenleben, Kohlenstoffspeicher)\n"
+                        + "  \u2022 Bedeutung f\u00fcr Pflanzen (Wurzelbildung, N\u00e4hrstoffversorgung, Austrocknung)\n"
+                        + "  \u2022 Einflussfaktoren (Klima, Feuchtigkeit, pH-Wert, Bodenart, Bewirtschaftung)\n"
+                        + "  \u2022 Gefahren (Erosion, \u00dcberd\u00fcngung, Verdichtung, Austrocknung)\n"
+                        + "  \u2022 F\u00f6rderung (Kompost, Mulchen, Fruchtfolge, Gr\u00fcnd\u00fcngung, Bodenbearbeitung)\n"
+                        + "Zweige sollten farbig und radial um die Mitte angeordnet sein.",
+                "mindmap\n"
+                        + "  root((Humus))\n"
+                        + "    Arten\n"
+                        + "      N\u00e4hrhumus\n"
+                        + "      Dauerhumus\n"
+                        + "    Entstehung\n"
+                        + "      Zersetzung organischer Stoffe\n"
+                        + "      Bodenorganismen\n"
+                        + "        Regenw\u00fcrmer\n"
+                        + "        Bakterien\n"
+                        + "        Pilze\n"
+                        + "      Laub und Pflanzenreste\n"
+                        + "    Bestandteile\n"
+                        + "      Organische Substanz\n"
+                        + "      Mineralstoffe\n"
+                        + "      Wasser\n"
+                        + "      Luft\n"
+                        + "    Funktionen\n"
+                        + "      N\u00e4hrstoffspeicher\n"
+                        + "      Wasserspeicherung\n"
+                        + "      Bodenlockerung\n"
+                        + "      F\u00f6rderung des Bodenlebens\n"
+                        + "      Kohlenstoffspeicher\n"
+                        + "    Bedeutung f\u00fcr Pflanzen\n"
+                        + "      Bessere Wurzelbildung\n"
+                        + "      N\u00e4hrstoffversorgung\n"
+                        + "      Schutz vor Austrocknung\n"
+                        + "    Einflussfaktoren\n"
+                        + "      Klima\n"
+                        + "      Feuchtigkeit\n"
+                        + "      pH-Wert\n"
+                        + "      Bodenart\n"
+                        + "      Bewirtschaftung\n"
+                        + "    Gefahren\n"
+                        + "      Erosion\n"
+                        + "      \u00dcberd\u00fcngung\n"
+                        + "      Verdichtung\n"
+                        + "      Austrocknung\n"
+                        + "    F\u00f6rderung\n"
+                        + "      Kompost\n"
+                        + "      Mulchen\n"
+                        + "      Fruchtfolge\n"
+                        + "      Gr\u00fcnd\u00fcngung\n"
+                        + "      Schonende Bodenbearbeitung",
+                new String[][] {
+                        {"renders-at-all", "Wird \u00fcberhaupt ein Diagramm angezeigt (kein Render-Fehler)?"},
+                        {"center-node", "Gibt es einen zentralen Knoten \"Humus\" in der Mitte?"},
+                        {"branches-visible", "Sind mehrere Hauptzweige vom Zentrum abgehend sichtbar?"},
+                        {"sub-nodes", "Haben die Hauptzweige sichtbare Unterpunkte (z.B. unter Arten: N\u00e4hrhumus, Dauerhumus)?"},
+                        {"text-readable", "Sind die Texte auf den Knoten/Zweigen lesbar?"},
+                        {"tree-structure", "Ist eine baumartige oder radiale Struktur erkennbar (nicht alles auf einer Linie)?"}
+                }));
+
         return s;
     }
 
@@ -535,10 +602,25 @@ public final class MermaidRenderTest {
             card.add(descArea);
             card.add(Box.createVerticalStrut(4));
 
-            // ── Rendered image — zoomable + pannable ──
+            // ── Rendered image — zoomable + pannable with dynamic SVG re-rendering ──
             JPanel imgContainer;
             if (rc.image != null) {
-                final BufferedImage img = rc.image;
+                // Base dimensions (from initial render) — used as the
+                // stable reference frame for zoom/pan calculations.
+                final int baseW = rc.image.getWidth();
+                final int baseH = rc.image.getHeight();
+
+                // Mutable image holder — replaced when SVG is re-rendered
+                // at higher resolution for crisp zoom.
+                final BufferedImage[] currentImg = {rc.image};
+
+                // SVG bytes for on-demand re-rendering via Batik
+                byte[] svgTmp = null;
+                if (rc.svg != null) {
+                    try { svgTmp = rc.svg.getBytes("UTF-8"); }
+                    catch (Exception ignored) {}
+                }
+                final byte[] svgData = svgTmp;
 
                 // Zoomable panel with drag-pan + wheel-zoom
                 final double[] zoom = {1.0};
@@ -550,15 +632,55 @@ public final class MermaidRenderTest {
                         super.paintComponent(g);
                         Graphics2D g2 = (Graphics2D) g.create();
                         g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                                zoom[0] < 1.0 ? RenderingHints.VALUE_INTERPOLATION_BILINEAR
-                                               : RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-                        int dw = (int) Math.round(img.getWidth() * zoom[0]);
-                        int dh = (int) Math.round(img.getHeight() * zoom[0]);
-                        g2.drawImage(img, (int) Math.round(offX[0]), (int) Math.round(offY[0]), dw, dh, null);
+                                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                        // Display size is ALWAYS baseSize * zoom — this stays
+                        // visually stable even when currentImg is swapped for a
+                        // higher-resolution render.
+                        int dw = (int) Math.round(baseW * zoom[0]);
+                        int dh = (int) Math.round(baseH * zoom[0]);
+                        g2.drawImage(currentImg[0],
+                                (int) Math.round(offX[0]), (int) Math.round(offY[0]),
+                                dw, dh, null);
                         g2.dispose();
                     }
                 };
                 zoomPanel.setBackground(Color.WHITE);
+
+                // ── Dynamic SVG re-rendering on zoom ──
+                // When the user zooms in far enough that the cached raster
+                // image would be visibly upscaled, we re-render the SVG at
+                // the needed resolution via Batik.  A debounce timer avoids
+                // re-rendering on every intermediate scroll tick.
+                final javax.swing.Timer[] rerenderTimer = {null};
+                final Runnable scheduleRerender = new Runnable() {
+                    @Override public void run() {
+                        if (svgData == null) return;
+                        // Check: would the display upscale beyond the cached image?
+                        double displayW = baseW * zoom[0];
+                        int cachedW = currentImg[0].getWidth();
+                        if (displayW <= cachedW * 1.2) return; // still crisp enough
+
+                        // (Re-)start debounce timer
+                        if (rerenderTimer[0] != null) rerenderTimer[0].stop();
+                        rerenderTimer[0] = new javax.swing.Timer(350, new ActionListener() {
+                            @Override public void actionPerformed(ActionEvent e) {
+                                double neededW = baseW * zoom[0] * 1.3; // 30 % headroom
+                                neededW = Math.min(neededW, 8000);      // memory cap
+                                int cachedW2 = currentImg[0].getWidth();
+                                if (neededW <= cachedW2 * 1.2) return;
+
+                                BufferedImage hi = SvgRenderer.renderToBufferedImageForced(
+                                        svgData, (float) neededW);
+                                if (hi != null) {
+                                    currentImg[0] = autoCrop(hi);
+                                    zoomPanel.repaint();
+                                }
+                            }
+                        });
+                        rerenderTimer[0].setRepeats(false);
+                        rerenderTimer[0].start();
+                    }
+                };
 
                 // Fit-to-panel on first layout
                 zoomPanel.addComponentListener(new java.awt.event.ComponentAdapter() {
@@ -566,11 +688,11 @@ public final class MermaidRenderTest {
                     @Override public void componentResized(java.awt.event.ComponentEvent e) {
                         if (first && zoomPanel.getWidth() > 0 && zoomPanel.getHeight() > 0) {
                             first = false;
-                            double sx = (double) zoomPanel.getWidth() / img.getWidth();
-                            double sy = (double) zoomPanel.getHeight() / img.getHeight();
+                            double sx = (double) zoomPanel.getWidth() / baseW;
+                            double sy = (double) zoomPanel.getHeight() / baseH;
                             zoom[0] = Math.min(sx, sy);
-                            double dw = img.getWidth() * zoom[0];
-                            double dh = img.getHeight() * zoom[0];
+                            double dw = baseW * zoom[0];
+                            double dh = baseH * zoom[0];
                             offX[0] = (zoomPanel.getWidth() - dw) / 2.0;
                             offY[0] = (zoomPanel.getHeight() - dh) / 2.0;
                             zoomPanel.repaint();
@@ -589,6 +711,7 @@ public final class MermaidRenderTest {
                         offX[0] = px - (px - offX[0]) * (zoom[0] / oldZ);
                         offY[0] = py - (py - offY[0]) * (zoom[0] / oldZ);
                         zoomPanel.repaint();
+                        scheduleRerender.run();
                     }
                 });
 
@@ -637,6 +760,7 @@ public final class MermaidRenderTest {
                         offX[0] = cx - (cx - offX[0]) * (zoom[0] / oldZ);
                         offY[0] = cy - (cy - offY[0]) * (zoom[0] / oldZ);
                         zoomPanel.repaint();
+                        scheduleRerender.run();
                     }
                 });
                 btnZoomOut.addActionListener(new ActionListener() {
@@ -652,11 +776,11 @@ public final class MermaidRenderTest {
                 btnFit.addActionListener(new ActionListener() {
                     @Override public void actionPerformed(ActionEvent e) {
                         if (zoomPanel.getWidth() > 0 && zoomPanel.getHeight() > 0) {
-                            double sx = (double) zoomPanel.getWidth() / img.getWidth();
-                            double sy = (double) zoomPanel.getHeight() / img.getHeight();
+                            double sx = (double) zoomPanel.getWidth() / baseW;
+                            double sy = (double) zoomPanel.getHeight() / baseH;
                             zoom[0] = Math.min(sx, sy);
-                            double dw = img.getWidth() * zoom[0];
-                            double dh = img.getHeight() * zoom[0];
+                            double dw = baseW * zoom[0];
+                            double dh = baseH * zoom[0];
                             offX[0] = (zoomPanel.getWidth() - dw) / 2.0;
                             offY[0] = (zoomPanel.getHeight() - dh) / 2.0;
                             zoomPanel.repaint();
