@@ -75,6 +75,7 @@ public final class MermaidSvgFixup {
             fixMarkerFills(doc);
             fixMarkerViewBox(doc);
             fixMarkerOrient(doc);          // auto-start-reverse → auto (SVG 2→1.1)
+            flattenSwitchElements(doc);    // <switch> → keep first child only
             fixGroupZOrder(doc);           // edges paint ON TOP of nodes
             fixNodeZOrder(doc);
             fixLabelCentering(doc);
@@ -85,7 +86,7 @@ public final class MermaidSvgFixup {
             fixStrokeNoneOnLines(doc);
             fixCssFillNone(doc);
             fixCssForBatik(doc);           // hsl()→hex, strip unsupported CSS
-            fixAlignmentBaseline(doc);     // remove alignment-baseline attrs
+            fixAlignmentBaseline(doc);     // remove alignment-baseline AND dominant-baseline attrs
             fixSequenceText(doc);          // fix text positioning in seq diagrams
             fixSequenceLifelines(doc);     // extend lifelines to bottom actor boxes
             fixViewBoxFromAttributes(doc);
@@ -163,6 +164,59 @@ public final class MermaidSvgFixup {
         // Remove dominant-baseline from CSS and inline styles
         // (Batik may choke on certain values like "middle", "central")
         svg = svg.replaceAll("dominant-baseline\\s*:\\s*[^;\"'}<]+[;]?", "");
+
+        // Remove dominant-baseline XML attributes (Batik doesn't support values
+        // like "central" which Mermaid journey/gitGraph diagrams emit)
+        svg = svg.replaceAll("\\s+dominant-baseline\\s*=\\s*\"[^\"]*\"", "");
+        svg = svg.replaceAll("\\s+dominant-baseline\\s*=\\s*'[^']*'", "");
+
+        // Replace CSS var() references — Batik has no CSS variable support
+        svg = svg.replace("var(--mermaid-font-family)",
+                "'trebuchet ms', verdana, arial, sans-serif");
+        // Remove remaining var(--name, fallback) → use fallback
+        svg = svg.replaceAll("var\\(\\s*--[\\w-]+\\s*,\\s*([^)]+)\\)", "$1");
+
+        // Fix fractional rgb() values: Mermaid git-graph theme emits values like
+        // rgb(48.8333, 0, 146.5) which Batik cannot parse.  Round to integers.
+        {
+            java.util.regex.Pattern rgbP = java.util.regex.Pattern.compile(
+                    "rgb\\(\\s*(-?[\\d.]+)\\s*,\\s*(-?[\\d.]+)\\s*,\\s*(-?[\\d.]+)\\s*\\)");
+            java.util.regex.Matcher rgbM = rgbP.matcher(svg);
+            StringBuffer rgbSb = new StringBuffer(svg.length());
+            while (rgbM.find()) {
+                try {
+                    int r = Math.max(0, Math.min(255, (int) Math.round(Double.parseDouble(rgbM.group(1)))));
+                    int g = Math.max(0, Math.min(255, (int) Math.round(Double.parseDouble(rgbM.group(2)))));
+                    int b = Math.max(0, Math.min(255, (int) Math.round(Double.parseDouble(rgbM.group(3)))));
+                    rgbM.appendReplacement(rgbSb, String.format("#%02x%02x%02x", r, g, b));
+                } catch (NumberFormatException e) {
+                    rgbM.appendReplacement(rgbSb, "#888888");
+                }
+            }
+            rgbM.appendTail(rgbSb);
+            svg = rgbSb.toString();
+        }
+
+        // Clean up empty/broken style attributes: style=";;;" → remove
+        svg = svg.replaceAll("\\s+style\\s*=\\s*\"[;\\s]*\"", "");
+        svg = svg.replaceAll("\\s+style\\s*=\\s*'[;\\s]*'", "");
+
+        // Convert hsl() in fill/stroke attributes (e.g. ER diagram row backgrounds)
+        // Pattern: fill="hsl(240, 100%, 97%)"
+        {
+            java.util.regex.Pattern hslAttrP = java.util.regex.Pattern.compile(
+                    "(fill|stroke)\\s*=\\s*\"(hsl\\([^)]+\\))\"");
+            java.util.regex.Matcher hslAttrM = hslAttrP.matcher(svg);
+            StringBuffer hslAttrSb = new StringBuffer(svg.length());
+            while (hslAttrM.find()) {
+                String attrName = hslAttrM.group(1);
+                String hslVal = hslAttrM.group(2);
+                String converted = replaceHslValues(hslVal);
+                hslAttrM.appendReplacement(hslAttrSb, attrName + "=\"" + converted + "\"");
+            }
+            hslAttrM.appendTail(hslAttrSb);
+            svg = hslAttrSb.toString();
+        }
 
         return svg;
     }
@@ -279,6 +333,52 @@ public final class MermaidSvgFixup {
                 }
             }
             addFillToDescendants(el, fill);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix — flatten <switch> elements for Batik
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Batik has issues with SVG {@code <switch>} elements when the children
+     * lack proper {@code requiredFeatures} or {@code systemLanguage}
+     * attributes.  Mermaid's journey diagram emits {@code <switch>} blocks
+     * with two {@code <text>} alternatives but no feature-gating, which can
+     * cause Batik to render both or fail entirely.
+     * <p>
+     * This fix replaces each {@code <switch>} with its first element child,
+     * discarding the rest.
+     */
+    private static void flattenSwitchElements(Document doc) {
+        NodeList switches = doc.getElementsByTagNameNS("*", "switch");
+        // Snapshot into list because we'll be modifying the DOM
+        List<Element> switchList = new ArrayList<Element>();
+        for (int i = 0; i < switches.getLength(); i++) {
+            Node n = switches.item(i);
+            if (n instanceof Element) switchList.add((Element) n);
+        }
+
+        for (Element sw : switchList) {
+            Node parent = sw.getParentNode();
+            if (parent == null) continue;
+
+            // Find first element child
+            Element firstChild = null;
+            Node child = sw.getFirstChild();
+            while (child != null) {
+                if (child instanceof Element) {
+                    firstChild = (Element) child;
+                    break;
+                }
+                child = child.getNextSibling();
+            }
+
+            if (firstChild != null) {
+                // Replace <switch> with its first child
+                parent.insertBefore(firstChild, sw);
+            }
+            parent.removeChild(sw);
         }
     }
 
@@ -791,14 +891,18 @@ public final class MermaidSvgFixup {
             // Remove viewBox — let marker content use markerWidth/Height directly
             marker.removeAttribute("viewBox");
 
-            // Ensure marker is large enough
+            // Ensure marker is reasonably sized — not too small and not absurdly large.
+            // Mermaid class-diagram emits markerHeight="240" markerWidth="190" for
+            // start markers, which creates a huge coordinate space that can confuse Batik.
             String mw = marker.getAttribute("markerWidth");
             String mh = marker.getAttribute("markerHeight");
             try {
                 double w = mw.isEmpty() ? 0 : Double.parseDouble(mw);
                 double h = mh.isEmpty() ? 0 : Double.parseDouble(mh);
                 if (w < 12) marker.setAttribute("markerWidth", "12");
+                else if (w > 30) marker.setAttribute("markerWidth", "30");
                 if (h < 12) marker.setAttribute("markerHeight", "12");
+                else if (h > 30) marker.setAttribute("markerHeight", "30");
             } catch (NumberFormatException ignored) {}
 
             // Ensure overflow is visible
@@ -1116,6 +1220,12 @@ public final class MermaidSvgFixup {
             // 7) Strip :root rules with CSS custom properties
             css = css.replaceAll("#mmd-\\d+\\s*:root\\s*\\{[^}]*\\}", "");
 
+            // 8) Replace CSS var() references with their fallback or a safe default.
+            //    Mermaid git-graph emits font-family:var(--mermaid-font-family);
+            //    Batik's CSS engine cannot handle var() at all.
+            //    Pattern: property:...var(--name)... → strip the var() call
+            css = replaceCssVarReferences(css);
+
             styleNode.setTextContent(css);
         }
 
@@ -1145,8 +1255,50 @@ public final class MermaidSvgFixup {
             String fill = el.getAttribute("fill");
             if ("currentColor".equals(fill)) {
                 el.setAttribute("fill", "#333333");
+            } else if (fill != null && !fill.isEmpty()) {
+                // Convert hsl/rgba/rgb in fill attributes (e.g. ER diagram rows)
+                String fixedFill = replaceHslValues(fill);
+                fixedFill = replaceRgbaValues(fixedFill);
+                if (!fixedFill.equals(fill)) {
+                    el.setAttribute("fill", fixedFill);
+                }
+            }
+            String stroke = el.getAttribute("stroke");
+            if (stroke != null && !stroke.isEmpty()) {
+                String fixedStroke = replaceHslValues(stroke);
+                fixedStroke = replaceRgbaValues(fixedStroke);
+                fixedStroke = fixedStroke.replace("currentColor", "#333333");
+                if (!fixedStroke.equals(stroke)) {
+                    el.setAttribute("stroke", fixedStroke);
+                }
             }
         }
+    }
+
+    /**
+     * Replace CSS {@code var(--name)} references with safe fallbacks.
+     * Batik's CSS engine does not support CSS custom properties / variables.
+     * <p>
+     * Strategy:
+     * <ul>
+     *   <li>{@code var(--name, fallback)} → use the fallback value</li>
+     *   <li>{@code var(--mermaid-font-family)} → replace with default font stack</li>
+     *   <li>Any remaining {@code var(--...)} → remove the entire property declaration</li>
+     * </ul>
+     */
+    private static String replaceCssVarReferences(String css) {
+        // Step 1: var(--name, fallback) → use fallback
+        css = css.replaceAll("var\\(\\s*--[\\w-]+\\s*,\\s*([^)]+)\\)", "$1");
+
+        // Step 2: known Mermaid variables with concrete replacements
+        css = css.replace("var(--mermaid-font-family)",
+                "'trebuchet ms', verdana, arial, sans-serif");
+
+        // Step 3: remove any remaining property declarations that contain var()
+        // e.g. "font-family:var(--foo);" → ""
+        css = css.replaceAll("[\\w-]+\\s*:\\s*[^;{}]*var\\(--[^)]*\\)[^;{}]*(;|(?=\\}))", "");
+
+        return css;
     }
 
     /**
@@ -1187,10 +1339,12 @@ public final class MermaidSvgFixup {
 
     /**
      * Replace all {@code hsl(h, s%, l%)} occurrences with hex colour values.
+     * Supports negative hue values (e.g. {@code hsl(-4, 100%, 93%)}) which
+     * Mermaid emits for some diagram themes.
      */
     static String replaceHslValues(String css) {
         java.util.regex.Pattern p = java.util.regex.Pattern.compile(
-                "hsl\\(\\s*([\\d.]+)\\s*,\\s*([\\d.]+)%\\s*,\\s*([\\d.]+)%\\s*\\)");
+                "hsl\\(\\s*(-?[\\d.]+)\\s*,\\s*([\\d.]+)%\\s*,\\s*([\\d.]+)%\\s*\\)");
         java.util.regex.Matcher m = p.matcher(css);
         StringBuffer sb = new StringBuffer();
         while (m.find()) {
@@ -1209,27 +1363,48 @@ public final class MermaidSvgFixup {
     }
 
     /**
-     * Replace all {@code rgba(r, g, b, a)} and {@code rgb(r g b / a)} occurrences with hex.
+     * Replace all {@code rgba(r, g, b, a)} and {@code rgb(r, g, b)} occurrences with hex.
+     * Handles fractional values like {@code rgb(48.833, 0, 146.5)} which Mermaid's
+     * git-graph theme generates and Batik cannot parse.
      */
     static String replaceRgbaValues(String css) {
-        // rgba(r, g, b, a)
-        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
-                "rgba?\\(\\s*([\\d.]+)\\s*[,\\s]\\s*([\\d.]+)\\s*[,\\s]\\s*([\\d.]+)\\s*[,/]\\s*([\\d.]+)\\s*\\)");
-        java.util.regex.Matcher m = p.matcher(css);
-        StringBuffer sb = new StringBuffer();
-        while (m.find()) {
+        // First pass: rgba(r, g, b, a) with 4 components
+        java.util.regex.Pattern p4 = java.util.regex.Pattern.compile(
+                "rgba\\(\\s*(-?[\\d.]+)\\s*[,\\s]\\s*(-?[\\d.]+)\\s*[,\\s]\\s*(-?[\\d.]+)\\s*[,/]\\s*([\\d.]+)\\s*\\)");
+        java.util.regex.Matcher m4 = p4.matcher(css);
+        StringBuffer sb4 = new StringBuffer();
+        while (m4.find()) {
             try {
-                int r = (int) Double.parseDouble(m.group(1));
-                int g = (int) Double.parseDouble(m.group(2));
-                int b = (int) Double.parseDouble(m.group(3));
-                String hex = String.format("#%02x%02x%02x", clamp(r), clamp(g), clamp(b));
-                m.appendReplacement(sb, hex);
+                int r = clamp((int) Math.round(Double.parseDouble(m4.group(1))));
+                int g = clamp((int) Math.round(Double.parseDouble(m4.group(2))));
+                int b = clamp((int) Math.round(Double.parseDouble(m4.group(3))));
+                String hex = String.format("#%02x%02x%02x", r, g, b);
+                m4.appendReplacement(sb4, hex);
             } catch (NumberFormatException e) {
-                m.appendReplacement(sb, "#888888");
+                m4.appendReplacement(sb4, "#888888");
             }
         }
-        m.appendTail(sb);
-        return sb.toString();
+        m4.appendTail(sb4);
+        css = sb4.toString();
+
+        // Second pass: rgb(r, g, b) with 3 components (including fractional values)
+        java.util.regex.Pattern p3 = java.util.regex.Pattern.compile(
+                "rgb\\(\\s*(-?[\\d.]+)\\s*[,\\s]\\s*(-?[\\d.]+)\\s*[,\\s]\\s*(-?[\\d.]+)\\s*\\)");
+        java.util.regex.Matcher m3 = p3.matcher(css);
+        StringBuffer sb3 = new StringBuffer();
+        while (m3.find()) {
+            try {
+                int r = clamp((int) Math.round(Double.parseDouble(m3.group(1))));
+                int g = clamp((int) Math.round(Double.parseDouble(m3.group(2))));
+                int b = clamp((int) Math.round(Double.parseDouble(m3.group(3))));
+                String hex = String.format("#%02x%02x%02x", r, g, b);
+                m3.appendReplacement(sb3, hex);
+            } catch (NumberFormatException e) {
+                m3.appendReplacement(sb3, "#888888");
+            }
+        }
+        m3.appendTail(sb3);
+        return sb3.toString();
     }
 
     private static String hslToHex(double h, double s, double l) {
@@ -1556,7 +1731,11 @@ public final class MermaidSvgFixup {
      * centering via {@code dy} and {@code dominant-baseline} which we set
      * in other fix methods).
      * <p>
-     * Also strips {@code alignment-baseline} from inline {@code style} attributes.
+     * Also strips {@code alignment-baseline} and {@code dominant-baseline}
+     * from inline {@code style} attributes and XML attributes.
+     * <p>
+     * Additionally cleans up empty/broken {@code style} attributes
+     * (e.g. {@code style=";;;"}) that confuse Batik's CSS parser.
      */
     private static void fixAlignmentBaseline(Document doc) {
         NodeList all = doc.getElementsByTagNameNS("*", "*");
@@ -1568,14 +1747,29 @@ public final class MermaidSvgFixup {
             if (el.hasAttribute("alignment-baseline")) {
                 el.removeAttribute("alignment-baseline");
             }
-            // Remove from inline style
+            // Remove dominant-baseline XML attribute — Batik may choke on
+            // values like "central", "middle" that are CSS Inline Layout 3 values
+            if (el.hasAttribute("dominant-baseline")) {
+                el.removeAttribute("dominant-baseline");
+                // Add dy="0.35em" to text elements as replacement for
+                // dominant-baseline:central vertical centering
+                if ("text".equals(el.getLocalName()) && !el.hasAttribute("dy")) {
+                    el.setAttribute("dy", "0.35em");
+                }
+            }
+            // Remove from inline style and clean up empty styles
             String style = el.getAttribute("style");
-            if (style != null && style.contains("alignment-baseline")) {
-                style = style.replaceAll("alignment-baseline\\s*:\\s*[^;]+;?\\s*", "");
-                if (style.trim().isEmpty()) {
+            if (style != null && !style.isEmpty()) {
+                if (style.contains("alignment-baseline") || style.contains("dominant-baseline")) {
+                    style = style.replaceAll("alignment-baseline\\s*:\\s*[^;]+;?\\s*", "");
+                    style = style.replaceAll("dominant-baseline\\s*:\\s*[^;]+;?\\s*", "");
+                }
+                // Clean up empty/broken styles: remove sequences of only semicolons/whitespace
+                style = style.replaceAll("^[;\\s]+$", "").trim();
+                if (style.isEmpty()) {
                     el.removeAttribute("style");
                 } else {
-                    el.setAttribute("style", style.trim());
+                    el.setAttribute("style", style);
                 }
             }
         }

@@ -251,6 +251,22 @@ public final class MermaidRenderer {
         // 10a) Remove alignment-baseline from CSS in <style> blocks AND inline styles
         svg = svg.replaceAll("alignment-baseline\\s*:\\s*[^;\"'}<]+[;]?", "");
 
+        // 10aa) Remove dominant-baseline attributes (Batik chokes on "central", "middle")
+        svg = svg.replaceAll("\\s+dominant-baseline\\s*=\\s*\"[^\"]*\"", "");
+        svg = svg.replaceAll("\\s+dominant-baseline\\s*=\\s*'[^']*'", "");
+        svg = svg.replaceAll("dominant-baseline\\s*:\\s*[^;\"'}<]+[;]?", "");
+
+        // 10ab) Replace CSS var() references (Batik has no CSS variable support)
+        svg = svg.replace("var(--mermaid-font-family)",
+                "'trebuchet ms', verdana, arial, sans-serif");
+        svg = svg.replaceAll("var\\(\\s*--[\\w-]+\\s*,\\s*([^)]+)\\)", "$1");
+
+        // 10ac) Fix fractional rgb() values: e.g. rgb(48.833, 0, 146.5) → hex
+        svg = fixFractionalRgbValues(svg);
+
+        // 10ad) Clean up empty/broken style attributes: style=";;;" → remove
+        svg = svg.replaceAll("\\s+style\\s*=\\s*\"[;\\s]*\"", "");
+
         // 10b) Clean up style attributes containing serialized JavaScript functions
         //      (polyfill methods like Array.prototype.at may leak into attr values)
         svg = svg.replaceAll(" style=\"function\\([^\"]*\"", " style=\"\"");
@@ -576,6 +592,13 @@ public final class MermaidRenderer {
             // 9) Strip :root rules with CSS custom properties
             cssContent = cssContent.replaceAll("#mmd-\\d+\\s*:root\\s*\\{[^}]*\\}", "");
 
+            // 10) Replace CSS var() references (Batik has no CSS variable support)
+            cssContent = cssContent.replace("var(--mermaid-font-family)",
+                    "'trebuchet ms', verdana, arial, sans-serif");
+            cssContent = cssContent.replaceAll("var\\(\\s*--[\\w-]+\\s*,\\s*([^)]+)\\)", "$1");
+            // Remove remaining property declarations that still contain var()
+            cssContent = cssContent.replaceAll("[\\w-]+\\s*:\\s*[^;{}]*var\\(--[^)]*\\)[^;{}]*(;|(?=\\}))", "");
+
             // Rebuild the <style> block with cleaned content
             result.append(openTag).append(cssContent).append("</style>");
 
@@ -640,6 +663,30 @@ public final class MermaidRenderer {
             i = j;
         }
         return sb.toString();
+    }
+
+    /**
+     * Fix fractional rgb() colour values that Batik cannot parse.
+     * Mermaid's git-graph theme generates values like {@code rgb(48.833, 0, 146.5)}
+     * which must be rounded to integer values.
+     */
+    private static String fixFractionalRgbValues(String svg) {
+        java.util.regex.Pattern rgbP = Pattern.compile(
+                "rgb\\(\\s*(-?[\\d.]+)\\s*,\\s*(-?[\\d.]+)\\s*,\\s*(-?[\\d.]+)\\s*\\)");
+        java.util.regex.Matcher rgbM = rgbP.matcher(svg);
+        StringBuffer rgbSb = new StringBuffer(svg.length());
+        while (rgbM.find()) {
+            try {
+                int r = Math.max(0, Math.min(255, (int) Math.round(Double.parseDouble(rgbM.group(1)))));
+                int g = Math.max(0, Math.min(255, (int) Math.round(Double.parseDouble(rgbM.group(2)))));
+                int b = Math.max(0, Math.min(255, (int) Math.round(Double.parseDouble(rgbM.group(3)))));
+                rgbM.appendReplacement(rgbSb, String.format("#%02x%02x%02x", r, g, b));
+            } catch (NumberFormatException e) {
+                rgbM.appendReplacement(rgbSb, "#888888");
+            }
+        }
+        rgbM.appendTail(rgbSb);
+        return rgbSb.toString();
     }
 
     /**
