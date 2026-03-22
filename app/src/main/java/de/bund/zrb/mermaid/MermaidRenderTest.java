@@ -40,8 +40,6 @@ public final class MermaidRenderTest {
     /** Test time limit in seconds. */
     private static final int COUNTDOWN_SECONDS = 10 * 60;   // 10 minutes
 
-    /** Forced rasterisation width in pixels — Batik scales the SVG to exactly this. */
-    private static final float RENDER_WIDTH = 1400f;
 
     private MermaidRenderTest() {}
 
@@ -414,17 +412,12 @@ public final class MermaidRenderTest {
             try { w.write(svg); } finally { w.close(); }
 
             byte[] svgBytes = svg.getBytes("UTF-8");
-            // Use the SVG's own width (set proportionally to content by fixViewBoxFromAttributes)
-            // but ensure minimum 800px for crisp rendering
-            float renderW = RENDER_WIDTH;
-            java.util.regex.Matcher wm = java.util.regex.Pattern
-                    .compile("width=\"(\\d+)\"").matcher(svg);
-            if (wm.find()) {
-                float svgW = Float.parseFloat(wm.group(1));
-                renderW = Math.max(svgW, RENDER_WIDTH);
-            }
-            BufferedImage img = SvgRenderer.renderToBufferedImageForced(svgBytes, renderW);
-            // Auto-crop whitespace so "fit to panel" shows content, not padding
+
+            // MermaidSvgFixup.setDimensions() already set width/height on the
+            // SVG root so the larger dimension ≈ 2000px.  Batik renders at
+            // these intrinsic dimensions → crisp, properly-sized image.
+            BufferedImage img = SvgRenderer.renderToBufferedImage(svgBytes);
+            // Auto-crop residual whitespace
             img = autoCrop(img);
             rendered.add(new RenderedCase(spec, img, svg, false, img == null));
         }

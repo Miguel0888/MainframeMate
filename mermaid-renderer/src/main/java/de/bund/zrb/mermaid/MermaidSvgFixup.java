@@ -676,9 +676,12 @@ public final class MermaidSvgFixup {
     /**
      * Scans all SVG elements for positional attributes (x, y, width, height,
      * x1, y1, x2, y2, cx, cy, r, rx, ry) and recalculates the root SVG
-     * viewBox to encompass all content.  This fixes sequence diagrams where
-     * the original viewBox is too small because fixViewBox in MermaidRenderer
-     * only scans translate() and path data.
+     * viewBox to encompass all content.
+     * <p>
+     * The new viewBox is the <b>union</b> of the scanned element bounds
+     * (with padding) and Mermaid's original viewBox — this ensures content
+     * is never clipped, even when elements extend beyond Mermaid's own
+     * viewBox calculation.
      */
     private static void fixViewBoxFromAttributes(Document doc) {
         Element svgRoot = doc.getDocumentElement();
@@ -746,21 +749,15 @@ public final class MermaidSvgFixup {
         }
 
         if (!found || _maxX <= _minX || _maxY <= _minY) {
-            // Element scanning failed — still set proportional width from existing viewBox
-            setProportionalWidth(svgRoot);
+            // Element scanning failed — still set dimensions from existing viewBox
+            setDimensions(svgRoot);
             return;
         }
 
-        // Compute tight bounds + minimal padding
-        double pad = 10;
-        double tightX = _minX - pad;
-        double tightY = _minY - pad;
-        double tightW = _maxX - _minX + 2 * pad;
-        double tightH = _maxY - _minY + 2 * pad;
-
-        // Parse Mermaid's original viewBox
+        // Parse Mermaid's original viewBox (our safety boundary)
         String currentVb = svgRoot.getAttribute("viewBox");
-        double cvbX = tightX, cvbY = tightY, cvbW = tightW, cvbH = tightH;
+        double cvbX = 0, cvbY = 0, cvbW = 0, cvbH = 0;
+        boolean hasMermaidVb = false;
         if (currentVb != null && !currentVb.isEmpty()) {
             String[] parts = currentVb.trim().split("\\s+");
             if (parts.length == 4) {
@@ -769,43 +766,83 @@ public final class MermaidSvgFixup {
                     cvbY = Double.parseDouble(parts[1]);
                     cvbW = Double.parseDouble(parts[2]);
                     cvbH = Double.parseDouble(parts[3]);
+                    hasMermaidVb = true;
                 } catch (NumberFormatException ignored) {}
             }
         }
 
-        // UNION of Mermaid's viewBox and our tight bounds
-        // (ensures we never clip content Mermaid placed outside our scan range)
-        double unionX = Math.min(cvbX, tightX);
-        double unionY = Math.min(cvbY, tightY);
-        double unionR = Math.max(cvbX + cvbW, tightX + tightW);
-        double unionB = Math.max(cvbY + cvbH, tightY + tightH);
-        double unionW = unionR - unionX;
-        double unionH = unionB - unionY;
+        // Build a viewBox that encompasses ALL scanned content.
+        // If Mermaid had an original viewBox, take the UNION of both
+        // so we never clip content that either source found.
+        double pad = 20;
+        double tightLeft  = _minX - pad;
+        double tightRight = _maxX + pad;
+        double tightTop   = _minY - pad;
+        double tightBot   = _maxY + pad;
 
-        // Ensure minimum dimensions
-        if (unionW < 50) unionW = 50;
-        if (unionH < 50) unionH = 50;
+        double newLeft, newRight, newTop, newBot;
+        if (hasMermaidVb) {
+            double mRight = cvbX + cvbW;
+            double mBot   = cvbY + cvbH;
+            // Union: take the wider extent on each side
+            newLeft  = Math.min(tightLeft,  cvbX);
+            newTop   = Math.min(tightTop,   cvbY);
+            newRight = Math.max(tightRight, mRight);
+            newBot   = Math.max(tightBot,   mBot);
+        } else {
+            newLeft  = tightLeft;
+            newTop   = tightTop;
+            newRight = tightRight;
+            newBot   = tightBot;
+        }
 
-        int vbX = (int) Math.floor(unionX);
-        int vbY = (int) Math.floor(unionY);
-        int vbW = (int) Math.ceil(unionW);
-        int vbH = (int) Math.ceil(unionH);
+        int vbX = (int) Math.floor(newLeft);
+        int vbY = (int) Math.floor(newTop);
+        int vbW = (int) Math.ceil(newRight - newLeft);
+        int vbH = (int) Math.ceil(newBot - newTop);
+        if (vbW < 50) vbW = 50;
+        if (vbH < 50) vbH = 50;
 
         svgRoot.setAttribute("viewBox", vbX + " " + vbY + " " + vbW + " " + vbH);
-        setProportionalWidth(svgRoot);
+        setDimensions(svgRoot);
     }
 
-    /** Set SVG width proportional to viewBox (2px per unit, min 200px). */
-    private static void setProportionalWidth(Element svgRoot) {
+    /**
+     * Target pixel count for the SVG's <b>larger</b> dimension.
+     * The smaller dimension is calculated proportionally from the viewBox
+     * aspect ratio.  2 000 px gives crisp rendering even when zoomed in,
+     * while still being reasonable for rasterisation performance.
+     */
+    private static final double TARGET_MAX_DIMENSION_PX = 2000.0;
+
+    /**
+     * Set both {@code width} and {@code height} on the root {@code <svg>}
+     * element so that the <b>larger</b> viewBox dimension maps to
+     * {@link #TARGET_MAX_DIMENSION_PX} pixels, and the smaller dimension
+     * is scaled proportionally.
+     * <p>
+     * This ensures that Batik (and any other SVG rasteriser) renders the
+     * image at a consistently high resolution regardless of whether the
+     * diagram is landscape or portrait.
+     */
+    private static void setDimensions(Element svgRoot) {
         String vb = svgRoot.getAttribute("viewBox");
         if (vb == null || vb.isEmpty()) return;
         String[] parts = vb.trim().split("\\s+");
-        if (parts.length < 3) return;
+        if (parts.length < 4) return;
         try {
-            int vbW = (int) Math.ceil(Double.parseDouble(parts[2]));
-            int pixelWidth = Math.max(vbW * 2, 200);
-            svgRoot.setAttribute("width", String.valueOf(pixelWidth));
-            svgRoot.removeAttribute("height");
+            double vbW = Double.parseDouble(parts[2]);
+            double vbH = Double.parseDouble(parts[3]);
+            if (vbW <= 0 || vbH <= 0) return;
+
+            double maxDim = Math.max(vbW, vbH);
+            double scale = TARGET_MAX_DIMENSION_PX / maxDim;
+
+            int pixelWidth  = Math.max((int) Math.ceil(vbW * scale), 200);
+            int pixelHeight = Math.max((int) Math.ceil(vbH * scale), 200);
+
+            svgRoot.setAttribute("width",  String.valueOf(pixelWidth));
+            svgRoot.setAttribute("height", String.valueOf(pixelHeight));
         } catch (NumberFormatException ignored) {}
     }
 

@@ -55,6 +55,7 @@ wendet folgende DOM-Level-Fixes an:
 | `fixCssForBatik` | **`hsl()`, `rgba()`, `filter`, `position` → Batik crasht** | hsl→hex, rgba→hex, unsupported props strippen |
 | `fixSequenceLifelines` | **Lebenslinien zu kurz → enden vor unteren Actor-Boxen** | y2 auf Top der unteren Boxen verlängern, y1 auf Bottom der oberen Boxen |
 | `fixViewBoxFromAttributes` | ViewBox zu klein (fehlende Element-Koordinaten) | Alle x/y/width/height/x1/y1/x2/y2 scannen |
+| `setDimensions` | **SVG hat keine/falsche Pixel-Dimensionen → verpixeltes Bild** | `width`+`height` setzen: max(vbW,vbH) → 2000px, andere Achse proportional |
 
 ### Ressourcen
 
