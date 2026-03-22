@@ -45,6 +45,23 @@ function _matchesSelector(el, sel) {
     var last = segments[segments.length - 1];
     // Simple selectors
     if (last === '*') return true;
+
+    // :not() pseudo-selector — negate the inner selector.
+    // Supports compound forms like "tag:not(sel)" (e.g. "g:not(:first-child)").
+    var notMatch = last.match(/^([^:]*):not\(([^)]+)\)(.*)$/);
+    if (notMatch) {
+        var beforeNot = notMatch[1]; // tag/class before :not (e.g. "g")
+        var innerSel = notMatch[2];  // selector inside :not() (e.g. ":first-child")
+        var afterNot = notMatch[3];  // anything after :not()
+        // Element must match the part before :not (if any)
+        if (beforeNot && !_matchesSelector(el, beforeNot)) return false;
+        // Element must NOT match the inner selector
+        if (_matchesSelector(el, innerSel)) return false;
+        // Element must match any remaining part after :not
+        if (afterNot && !_matchesSelector(el, afterNot.charAt(0) === ':' ? '*' + afterNot : afterNot)) return false;
+        return true;
+    }
+
     // :first-child pseudo-selector — used by D3's insert(tag, ":first-child")
     // to insert shape elements BEFORE labels in node groups
     if (last === ':first-child') {
@@ -492,6 +509,10 @@ function _computeElementDims(el) {
         if (!isNaN(rw) && !isNaN(rh)) {
             return { x: isNaN(rx) ? 0 : rx, y: isNaN(ry) ? 0 : ry, w: rw, h: rh };
         }
+        // Rect without explicit width/height has 0×0 dimensions (SVG spec).
+        // Must NOT fall through to the generic 20×20 fallback — that inflates
+        // parent group measurements (e.g. Mermaid ER diagram background rects).
+        return { x: isNaN(rx) ? 0 : rx, y: isNaN(ry) ? 0 : ry, w: 0, h: 0 };
     }
 
     // 2) circle — use r
@@ -629,6 +650,8 @@ function _computeElementDims(el) {
                      y: isNaN(ty) ? -textMetrics.ascent : ty - textMetrics.ascent,
                      w: textMetrics.width, h: textMetrics.height };
         }
+        // Text element with no measurable content → 0×0 (must not fall to 20×20 fallback)
+        return { x: 0, y: 0, w: 0, h: 0 };
     }
     if (tag === 'tspan') {
         var tspanMetrics = _measureTextMetrics(el);
@@ -658,6 +681,8 @@ function _computeElementDims(el) {
             return { x: tbx, y: tby,
                      w: tspanMetrics.width, h: tspanMetrics.height };
         }
+        // Tspan with no measurable content → 0×0 (must not fall to 20×20 fallback)
+        return { x: 0, y: 0, w: 0, h: 0 };
     }
 
     // 7) foreignObject — explicit width/height, or estimate from text content
@@ -672,6 +697,8 @@ function _computeElementDims(el) {
             var fs7 = _resolveFontSize(el) || 16;
             return { x: isNaN(fx) ? 0 : fx, y: isNaN(fy) ? 0 : fy, w: foText, h: Math.round(fs7) };
         }
+        // foreignObject without content or dimensions → 0×0
+        return { x: isNaN(fx) ? 0 : fx, y: isNaN(fy) ? 0 : fy, w: 0, h: 0 };
     }
 
     // 7b) HTML elements (div, span, p, label, etc.) — used inside foreignObject
