@@ -562,10 +562,16 @@ function _computeElementDims(el) {
     if (textLen > 0) {
         return { x: 0, y: 0, w: textLen, h: 24 };
     }
-    // Container elements (div, body, html, canvas) get large defaults
-    // so libraries like Cytoscape.js can compute proper layout bounds
-    if (tag === 'div' || tag === 'body' || tag === 'html' || tag === 'canvas' || tag === 'section') {
+    // Container elements and SVG roots get large defaults
+    // so Mermaid can compute proper layout bounds (especially Gantt charts)
+    if (tag === 'div' || tag === 'body' || tag === 'html' || tag === 'canvas' || tag === 'section'
+        || tag === 'svg' || tag === 'article' || tag === 'main' || tag === 'nav' || tag === 'header'
+        || tag === 'footer' || tag === 'aside') {
         return { x: 0, y: 0, w: 800, h: 600 };
+    }
+    // g (group) elements with no children — small default
+    if (tag === 'g') {
+        return { x: 0, y: 0, w: 0, h: 0 };
     }
     return { x: 0, y: 0, w: 20, h: 20 };
 }

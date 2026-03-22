@@ -1502,12 +1502,37 @@ public final class MermaidSvgFixup {
         Element svgRoot = doc.getDocumentElement();
         if (svgRoot == null) return;
 
-        // Initialise bounds accumulators
-        _minX = Double.MAX_VALUE;  _minY = Double.MAX_VALUE;
-        _maxX = -Double.MAX_VALUE; _maxY = -Double.MAX_VALUE;
-        boolean found = false;
+        // Parse Mermaid's original viewBox FIRST — it is always our baseline.
+        // We ONLY expand, never shrink.
+        String currentVb = svgRoot.getAttribute("viewBox");
+        double cvbX = 0, cvbY = 0, cvbW = 0, cvbH = 0;
+        boolean hasMermaidVb = false;
+        if (currentVb != null && !currentVb.isEmpty()) {
+            String[] parts = currentVb.trim().split("\\s+");
+            if (parts.length == 4) {
+                try {
+                    cvbX = Double.parseDouble(parts[0]);
+                    cvbY = Double.parseDouble(parts[1]);
+                    cvbW = Double.parseDouble(parts[2]);
+                    cvbH = Double.parseDouble(parts[3]);
+                    hasMermaidVb = cvbW > 0 && cvbH > 0;
+                } catch (NumberFormatException ignored) {}
+            }
+        }
 
-        // Scan all elements
+        // Initialise bounds from Mermaid's viewBox (our minimum)
+        if (hasMermaidVb) {
+            _minX = cvbX;
+            _minY = cvbY;
+            _maxX = cvbX + cvbW;
+            _maxY = cvbY + cvbH;
+        } else {
+            _minX = Double.MAX_VALUE;  _minY = Double.MAX_VALUE;
+            _maxX = -Double.MAX_VALUE; _maxY = -Double.MAX_VALUE;
+        }
+        boolean found = hasMermaidVb;
+
+        // Scan all elements to find content that extends beyond Mermaid's viewBox
         NodeList all = doc.getElementsByTagNameNS("*", "*");
         for (int i = 0; i < all.getLength(); i++) {
             Node n = all.item(i);
@@ -1525,7 +1550,7 @@ public final class MermaidSvgFixup {
                 double y = parseDouble(el, "y", 0);
                 double w = parseDouble(el, "width", 0);
                 double h = parseDouble(el, "height", 0);
-                if (w > 0 || h > 0) {
+                if (w > 0 && h > 0) {
                     double[] abs = resolveAbsolutePosition(el, x, y);
                     updateBounds(abs[0], abs[1], abs[0] + w, abs[1] + h);
                     found = true;
@@ -1585,72 +1610,54 @@ public final class MermaidSvgFixup {
                     found = true;
                 }
             }
-            // text: x, y
+            // text: x, y — use wider estimate (avg char width ~9px)
             else if ("text".equals(tag)) {
                 double x = parseDouble(el, "x", 0);
                 double y = parseDouble(el, "y", 0);
                 double[] abs = resolveAbsolutePosition(el, x, y);
-                // Estimate text extent
                 String content = el.getTextContent();
                 int len = (content != null) ? content.trim().length() : 0;
-                double tw = len * 8;
-                updateBounds(abs[0] - tw / 2, abs[1] - 10, abs[0] + tw / 2, abs[1] + 10);
+                double tw = len * 9;  // 9px per char is closer to real rendering
+                double th = 16;       // typical font height
+                updateBounds(abs[0] - tw / 2, abs[1] - th, abs[0] + tw / 2, abs[1] + 4);
                 found = true;
+            }
+            // path: parse d attribute bounding box
+            else if ("path".equals(tag)) {
+                String d = el.getAttribute("d");
+                if (d != null && !d.isEmpty()) {
+                    try {
+                        double[] pathBounds = parsePathBounds(d);
+                        if (pathBounds != null) {
+                            double[] localOff = parseElementTranslate(el);
+                            double px = pathBounds[0] + localOff[0];
+                            double py = pathBounds[1] + localOff[1];
+                            double px2 = pathBounds[2] + localOff[0];
+                            double py2 = pathBounds[3] + localOff[1];
+                            double[] abs1 = resolveAbsolutePosition(el, px, py);
+                            double[] abs2 = resolveAbsolutePosition(el, px2, py2);
+                            updateBounds(abs1[0], abs1[1], abs2[0], abs2[1]);
+                            found = true;
+                        }
+                    } catch (Exception ignored) {}
+                }
             }
         }
 
         if (!found || _maxX <= _minX || _maxY <= _minY) {
-            // Element scanning failed — still set dimensions from existing viewBox
             setDimensions(svgRoot);
             return;
         }
 
         // Parse Mermaid's original viewBox (our safety boundary)
-        String currentVb = svgRoot.getAttribute("viewBox");
-        double cvbX = 0, cvbY = 0, cvbW = 0, cvbH = 0;
-        boolean hasMermaidVb = false;
-        if (currentVb != null && !currentVb.isEmpty()) {
-            String[] parts = currentVb.trim().split("\\s+");
-            if (parts.length == 4) {
-                try {
-                    cvbX = Double.parseDouble(parts[0]);
-                    cvbY = Double.parseDouble(parts[1]);
-                    cvbW = Double.parseDouble(parts[2]);
-                    cvbH = Double.parseDouble(parts[3]);
-                    hasMermaidVb = true;
-                } catch (NumberFormatException ignored) {}
-            }
-        }
+        // Already parsed at the top of this method — bounds include it.
 
-        // Build a viewBox that encompasses ALL scanned content.
-        // If Mermaid had an original viewBox, take the UNION of both
-        // so we never clip content that either source found.
+        // Apply padding and set the new viewBox
         double pad = 20;
-        double tightLeft  = _minX - pad;
-        double tightRight = _maxX + pad;
-        double tightTop   = _minY - pad;
-        double tightBot   = _maxY + pad;
-
-        double newLeft, newRight, newTop, newBot;
-        if (hasMermaidVb) {
-            double mRight = cvbX + cvbW;
-            double mBot   = cvbY + cvbH;
-            // Union: take the wider extent on each side
-            newLeft  = Math.min(tightLeft,  cvbX);
-            newTop   = Math.min(tightTop,   cvbY);
-            newRight = Math.max(tightRight, mRight);
-            newBot   = Math.max(tightBot,   mBot);
-        } else {
-            newLeft  = tightLeft;
-            newTop   = tightTop;
-            newRight = tightRight;
-            newBot   = tightBot;
-        }
-
-        int vbX = (int) Math.floor(newLeft);
-        int vbY = (int) Math.floor(newTop);
-        int vbW = (int) Math.ceil(newRight - newLeft);
-        int vbH = (int) Math.ceil(newBot - newTop);
+        int vbX = (int) Math.floor(_minX - pad);
+        int vbY = (int) Math.floor(_minY - pad);
+        int vbW = (int) Math.ceil((_maxX + pad) - (_minX - pad));
+        int vbH = (int) Math.ceil((_maxY + pad) - (_minY - pad));
         if (vbW < 50) vbW = 50;
         if (vbH < 50) vbH = 50;
 
@@ -1773,6 +1780,99 @@ public final class MermaidSvgFixup {
             parent = parent.getParentNode();
         }
         return false;
+    }
+
+    /**
+     * Parse an SVG path "d" attribute and return its bounding box as
+     * {@code [minX, minY, maxX, maxY]}, or {@code null} if parsing fails.
+     * Handles M, L, H, V, C, S, Q, T, A, Z commands (absolute and relative).
+     */
+    private static double[] parsePathBounds(String d) {
+        if (d == null || d.isEmpty()) return null;
+        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE;
+        double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+        double curX = 0, curY = 0, startX = 0, startY = 0;
+        boolean found = false;
+
+        java.util.regex.Matcher tokenizer = java.util.regex.Pattern
+                .compile("[MmLlHhVvCcSsQqTtAaZz][^MmLlHhVvCcSsQqTtAaZz]*")
+                .matcher(d);
+        while (tokenizer.find()) {
+            String token = tokenizer.group().trim();
+            char cmd = token.charAt(0);
+            boolean isRel = Character.isLowerCase(cmd);
+            char CMD = Character.toUpperCase(cmd);
+            java.util.regex.Matcher numMatcher = java.util.regex.Pattern
+                    .compile("-?[\\d]+(?:\\.[\\d]*)?(?:[eE][+-]?[\\d]+)?")
+                    .matcher(token.substring(1));
+            java.util.List<Double> vals = new java.util.ArrayList<Double>();
+            while (numMatcher.find()) vals.add(Double.parseDouble(numMatcher.group()));
+
+            switch (CMD) {
+                case 'M':
+                    for (int k = 0; k + 1 < vals.size(); k += 2) {
+                        double mx = isRel ? curX + vals.get(k) : vals.get(k);
+                        double my = isRel ? curY + vals.get(k + 1) : vals.get(k + 1);
+                        if (mx < minX) minX = mx; if (mx > maxX) maxX = mx;
+                        if (my < minY) minY = my; if (my > maxY) maxY = my;
+                        curX = mx; curY = my; found = true;
+                        if (k == 0) { startX = mx; startY = my; }
+                    }
+                    break;
+                case 'L': case 'T':
+                    for (int k = 0; k + 1 < vals.size(); k += 2) {
+                        double lx = isRel ? curX + vals.get(k) : vals.get(k);
+                        double ly = isRel ? curY + vals.get(k + 1) : vals.get(k + 1);
+                        if (lx < minX) minX = lx; if (lx > maxX) maxX = lx;
+                        if (ly < minY) minY = ly; if (ly > maxY) maxY = ly;
+                        curX = lx; curY = ly; found = true;
+                    }
+                    break;
+                case 'H':
+                    for (int k = 0; k < vals.size(); k++) {
+                        double hx = isRel ? curX + vals.get(k) : vals.get(k);
+                        if (hx < minX) minX = hx; if (hx > maxX) maxX = hx;
+                        if (curY < minY) minY = curY; if (curY > maxY) maxY = curY;
+                        curX = hx; found = true;
+                    }
+                    break;
+                case 'V':
+                    for (int k = 0; k < vals.size(); k++) {
+                        double vy = isRel ? curY + vals.get(k) : vals.get(k);
+                        if (curX < minX) minX = curX; if (curX > maxX) maxX = curX;
+                        if (vy < minY) minY = vy; if (vy > maxY) maxY = vy;
+                        curY = vy; found = true;
+                    }
+                    break;
+                case 'C':
+                    for (int k = 0; k + 5 < vals.size(); k += 6) {
+                        for (int p = 0; p < 3; p++) {
+                            double cx = isRel ? curX + vals.get(k + p * 2) : vals.get(k + p * 2);
+                            double cy = isRel ? curY + vals.get(k + p * 2 + 1) : vals.get(k + p * 2 + 1);
+                            if (cx < minX) minX = cx; if (cx > maxX) maxX = cx;
+                            if (cy < minY) minY = cy; if (cy > maxY) maxY = cy;
+                        }
+                        curX = isRel ? curX + vals.get(k + 4) : vals.get(k + 4);
+                        curY = isRel ? curY + vals.get(k + 5) : vals.get(k + 5);
+                        found = true;
+                    }
+                    break;
+                case 'A':
+                    for (int k = 0; k + 6 < vals.size(); k += 7) {
+                        double ax = isRel ? curX + vals.get(k + 5) : vals.get(k + 5);
+                        double ay = isRel ? curY + vals.get(k + 6) : vals.get(k + 6);
+                        if (ax < minX) minX = ax; if (ax > maxX) maxX = ax;
+                        if (ay < minY) minY = ay; if (ay > maxY) maxY = ay;
+                        curX = ax; curY = ay; found = true;
+                    }
+                    break;
+                case 'Z':
+                    curX = startX; curY = startY;
+                    break;
+            }
+        }
+        if (!found || minX > maxX) return null;
+        return new double[]{minX, minY, maxX, maxY};
     }
 
     // ═══════════════════════════════════════════════════════════

@@ -227,8 +227,10 @@ public final class MermaidRenderer {
         svg = svg.replaceAll("translate\\(undefined[^)]*\\)", "translate(0, 0)");
         svg = svg.replaceAll("translate\\(NaN[^)]*\\)", "translate(0, 0)");
 
-        // 5) Recalculate viewBox from actual path coordinates
-        svg = fixViewBox(svg);
+        // 5) viewBox recalculation — handled by MermaidSvgFixup.fixViewBoxFromAttributes()
+        //    which uses DOM-based scanning and is much more precise than regex scanning.
+        //    Do NOT run the regex-based fixViewBox here — it can produce wrong results
+        //    by scanning coordinates inside <style>, <defs>, and marker elements.
 
         // 6) Replace width="100%" with a temporary pixel width
         //    (MermaidSvgFixup.fixViewBoxFromAttributes will set the final proportional width)
