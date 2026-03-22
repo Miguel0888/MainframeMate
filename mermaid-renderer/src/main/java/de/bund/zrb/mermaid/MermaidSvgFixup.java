@@ -660,6 +660,42 @@ public final class MermaidSvgFixup {
                 // Without dominant-baseline, the text baseline is "alphabetic"
                 // (at bottom of letters). We need a smaller dy.
                 text.setAttribute("dy", "0.35em");
+
+                // ── Move text closer to the corresponding arrow line ────────
+                // In the headless shim the text bbox is over-estimated, causing
+                // Mermaid to place message labels ~40 px above the arrow instead
+                // of the expected ~5 px.  Walk forward through siblings to find
+                // the next <line class="messageLine…"> and re-position the text
+                // so that the visual baseline sits a small gap above the line.
+                Element nextLine = findNextMessageLine(text);
+                if (nextLine != null) {
+                    String lineYStr = attr(nextLine, "y1");
+                    String textYStr = attr(text, "y");
+                    if (!lineYStr.isEmpty() && !textYStr.isEmpty()) {
+                        try {
+                            double lineY = Double.parseDouble(lineYStr);
+                            double textY = Double.parseDouble(textYStr);
+                            // Resolve font-size from style (default 16 px)
+                            double fontSize = parseFontSizeFromStyle(text);
+                            // dy=0.35em shifts visual baseline down by 0.35·fontSize
+                            double dyShift = 0.35 * fontSize;
+                            // We want the visual text bottom (baseline + descent)
+                            // to be ~4 px above the arrow line.
+                            // descent ≈ 0.25·fontSize
+                            double desiredGap = 4;
+                            double descent = fontSize * 0.25;
+                            // visual bottom = newY + dyShift + descent
+                            // visual bottom = lineY - desiredGap
+                            double newY = lineY - desiredGap - descent - dyShift;
+                            // Only move DOWN (towards line) — never push text further away
+                            if (newY > textY) {
+                                text.setAttribute("y", String.valueOf(Math.round(newY)));
+                            }
+                        } catch (NumberFormatException ignored) {
+                            // keep original position
+                        }
+                    }
+                }
             }
             // Loop/note labels: class contains "loopText" or "noteText" or "labelText"
             else if (cls.contains("loopText") || cls.contains("noteText") || cls.contains("labelText")) {
@@ -672,6 +708,59 @@ public final class MermaidSvgFixup {
                 }
             }
         }
+    }
+
+    /**
+     * Walk forward through element siblings of {@code text} and return the
+     * first {@code <line>} whose class starts with {@code "messageLine"}.
+     */
+    private static Element findNextMessageLine(Element text) {
+        Node sib = text.getNextSibling();
+        while (sib != null) {
+            if (sib instanceof Element) {
+                Element el = (Element) sib;
+                if ("line".equalsIgnoreCase(el.getLocalName())) {
+                    String cls = attr(el, "class");
+                    if (cls.contains("messageLine")) {
+                        return el;
+                    }
+                }
+                // Stop if we hit the next messageText — no matching line found
+                if ("text".equalsIgnoreCase(el.getLocalName())) {
+                    String cls = attr(el, "class");
+                    if (cls.contains("messageText")) break;
+                }
+            }
+            sib = sib.getNextSibling();
+        }
+        return null;
+    }
+
+    /**
+     * Extract the CSS {@code font-size} value from an element's inline style.
+     * Returns 16 as default if not found.
+     */
+    private static double parseFontSizeFromStyle(Element el) {
+        String style = attr(el, "style");
+        if (!style.isEmpty()) {
+            // Match "font-size: 16px" or "font-size:14px"
+            int idx = style.indexOf("font-size");
+            if (idx >= 0) {
+                String rest = style.substring(idx + 9).trim();
+                if (rest.startsWith(":")) rest = rest.substring(1).trim();
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < rest.length(); i++) {
+                    char c = rest.charAt(i);
+                    if (c == '.' || (c >= '0' && c <= '9')) sb.append(c);
+                    else if (sb.length() > 0) break;
+                }
+                if (sb.length() > 0) {
+                    try { return Double.parseDouble(sb.toString()); }
+                    catch (NumberFormatException ignored) { }
+                }
+            }
+        }
+        return 16.0;
     }
 
     // ═══════════════════════════════════════════════════════════

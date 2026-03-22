@@ -435,12 +435,20 @@ function _computeElementDims(el) {
         }
     }
 
-    // 6) text — estimate from content
+    // 6) text — estimate from content; height based on actual font-size
+    //    Real browsers return getBBox height ≈ fontSize (ascent + descent).
+    //    Using a hardcoded 24 inflated layout spacing (especially sequence diagram
+    //    message-text ↔ arrow-line gap).
     if (tag === 'text' || tag === 'tspan') {
         var tw = _estimateTextWidth(el);
         if (tw > 0) {
             var tx = num('x'), ty = num('y');
-            return { x: isNaN(tx) ? 0 : tx - tw / 2, y: isNaN(ty) ? -12 : ty - 12, w: tw, h: 24 };
+            var fs6 = _resolveFontSize(el) || 16;
+            var ascent6 = Math.round(fs6 * 0.8);   // baseline → top of glyphs
+            var th6     = Math.round(fs6);           // ascent + descent ≈ fontSize
+            return { x: isNaN(tx) ? 0 : tx - tw / 2,
+                     y: isNaN(ty) ? -ascent6 : ty - ascent6,
+                     w: tw, h: th6 };
         }
     }
 
@@ -453,7 +461,8 @@ function _computeElementDims(el) {
         // No dimensions set yet — estimate from text content (Mermaid measures before setting w/h)
         var foText = _estimateTextWidth(el);
         if (foText > 0) {
-            return { x: isNaN(fx) ? 0 : fx, y: isNaN(fy) ? 0 : fy, w: foText, h: 24 };
+            var fs7 = _resolveFontSize(el) || 16;
+            return { x: isNaN(fx) ? 0 : fx, y: isNaN(fy) ? 0 : fy, w: foText, h: Math.round(fs7) };
         }
     }
 
@@ -461,7 +470,8 @@ function _computeElementDims(el) {
     if (tag === 'div' || tag === 'span' || tag === 'p' || tag === 'label' || tag === 'b' || tag === 'i') {
         var htw = _estimateTextWidth(el);
         if (htw > 0) {
-            return { x: 0, y: 0, w: htw, h: 24 };
+            var fs7b = _resolveFontSize(el) || 16;
+            return { x: 0, y: 0, w: htw, h: Math.round(fs7b) };
         }
     }
 
