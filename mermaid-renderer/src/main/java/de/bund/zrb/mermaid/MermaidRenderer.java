@@ -25,6 +25,18 @@ public final class MermaidRenderer {
     private static final String BROWSER_SHIM_RESOURCE = "/mermaid/browser-shim.js";
     private static final String MERMAID_BUNDLE_RESOURCE = "/mermaid/mermaid.min.js";
 
+    /**
+     * Mermaid initialization config.  {@code htmlLabels: false} forces Mermaid
+     * to use native SVG {@code <text>} elements instead of
+     * {@code <foreignObject>} with HTML — the headless browser shim cannot
+     * properly serialize foreignObject content (innerHTML explosion).
+     */
+    private static final String MERMAID_INIT_CONFIG =
+            "{ startOnLoad: false, securityLevel: 'loose',"
+            + " htmlLabels: false,"
+            + " flowchart: { htmlLabels: false },"
+            + " sequence: { htmlLabels: false } }";
+
     private static final MermaidRenderer INSTANCE = new MermaidRenderer();
 
     private final GraalJsExecutor executor = new GraalJsExecutor();
@@ -71,7 +83,7 @@ public final class MermaidRenderer {
                 + "var __mermaid = window.mermaid;\n"
                 + "var __svgResult = '';\n"
                 + "var __renderError = '';\n"
-                + "__mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });\n"
+                + "__mermaid.initialize(" + MERMAID_INIT_CONFIG + ");\n"
                 + "\n"
                 + "// Pre-create a container element in the DOM so diagram renderers\n"
                 + "// (especially Gantt) can find it and measure offsetWidth/Height.\n"
@@ -146,7 +158,7 @@ public final class MermaidRenderer {
                 + "var __mermaid = window.mermaid;\n"
                 + "var __svgResult = '';\n"
                 + "var __renderError = '';\n"
-                + "__mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });\n"
+                + "__mermaid.initialize(" + MERMAID_INIT_CONFIG + ");\n"
                 + "var __container = document.createElement('div');\n"
                 + "__container.id = 'd' + '" + diagramId + "';\n"
                 + "__container.setAttribute('id', 'd' + '" + diagramId + "');\n"
@@ -259,6 +271,15 @@ public final class MermaidRenderer {
         //      removal these duplicates get promoted to root level.
         //      Keep only <g class="node"> that have a transform with real coordinates.
         svg = deduplicateNodeGroups(svg);
+
+        // 12c) Fix <rect> elements without width/height — Batik requires these attributes.
+        //      Mermaid with htmlLabels:false emits <rect class="background" style="stroke: none"/>
+        //      which are decorative background rects with no dimensions.
+        //      Remove them entirely (they're invisible anyway) or add default values.
+        svg = svg.replaceAll("<rect[^>]*class=\"background\"[^>]*style=\"stroke:\\s*none\"[^>]*/?>", "");
+        // For any remaining <rect> without width, add width="0" height="0" so Batik doesn't crash
+        svg = Pattern.compile("<rect(?![^>]*width=)([^>]*?)(/?)>").matcher(svg)
+                .replaceAll("<rect width=\"0\" height=\"0\"$1$2>");
 
         // 13) Final safety: re-extract <svg>...</svg> to ensure no trailing content,
         //     then re-balance <g> tags one more time
@@ -778,11 +799,27 @@ public final class MermaidRenderer {
     /**
      * Replace {@code <foreignObject>...<span>Label</span>...</foreignObject>} blocks
      * with SVG {@code <text>} elements containing the extracted text.
+     * <p>
+     * Mermaid 11's foreignObject content may be bloated (containing entire nested SVGs
+     * from the browser shim's innerHTML explosion).  This method uses a smart extraction
+     * strategy:
+     * <ol>
+     *   <li>First, look for {@code <span class="nodeLabel">text</span>} or
+     *       {@code <span class="edgeLabel">text</span>} — the actual label text</li>
+     *   <li>If not found, strip all HTML/XML tags and use the plain text</li>
+     *   <li>If the result is too long or contains CSS, discard the foreignObject</li>
+     * </ol>
      */
     private static String convertForeignObjectsToText(String svg) {
         Pattern foPattern = Pattern.compile(
                 "<foreignobject([^>]*)>(.*?)</foreignobject>",
                 Pattern.CASE_INSENSITIVE | Pattern.DOTALL
+        );
+
+        // Pattern to extract label text from Mermaid's label spans
+        Pattern labelSpanPattern = Pattern.compile(
+                "<span[^>]*class\\s*=\\s*\"[^\"]*(?:nodeLabel|edgeLabel)[^\"]*\"[^>]*>([^<]*)</span>",
+                Pattern.CASE_INSENSITIVE
         );
 
         Matcher matcher = foPattern.matcher(svg);
@@ -797,8 +834,17 @@ public final class MermaidRenderer {
             String width = extractAttr(attrs, "width");
             String height = extractAttr(attrs, "height");
 
-            // Extract text content (strip all HTML/XML tags)
-            String text = content.replaceAll("<[^>]+>", "").trim();
+            // Strategy 1: Look for Mermaid's label spans (nodeLabel, edgeLabel)
+            String text = null;
+            Matcher labelMatcher = labelSpanPattern.matcher(content);
+            if (labelMatcher.find()) {
+                text = labelMatcher.group(1).trim();
+            }
+
+            // Strategy 2: Strip all HTML/XML tags and use plain text
+            if (text == null || text.isEmpty()) {
+                text = content.replaceAll("<[^>]+>", "").trim();
+            }
 
             // Mermaid 11 produces deeply nested foreignObjects containing entire
             // SVGs with <style> blocks.  The stripped "text" then contains the
@@ -843,7 +889,7 @@ public final class MermaidRenderer {
             textEl.append(" dominant-baseline=\"central\"");
             textEl.append(" font-family=\"sans-serif\"");
             textEl.append(" font-size=\"14\"");
-            textEl.append(" fill=\"currentColor\"");
+            textEl.append(" fill=\"#333333\"");
             textEl.append(">");
             textEl.append(escapeXml(text));
             textEl.append("</text>");
