@@ -358,7 +358,16 @@ public final class MermaidRenderTest {
             try { w.write(svg); } finally { w.close(); }
 
             byte[] svgBytes = svg.getBytes("UTF-8");
-            BufferedImage img = SvgRenderer.renderToBufferedImageForced(svgBytes, RENDER_WIDTH);
+            // Use the SVG's own width (set proportionally to content by fixViewBoxFromAttributes)
+            // but ensure minimum 800px for crisp rendering
+            float renderW = RENDER_WIDTH;
+            java.util.regex.Matcher wm = java.util.regex.Pattern
+                    .compile("width=\"(\\d+)\"").matcher(svg);
+            if (wm.find()) {
+                float svgW = Float.parseFloat(wm.group(1));
+                renderW = Math.max(svgW, RENDER_WIDTH);
+            }
+            BufferedImage img = SvgRenderer.renderToBufferedImageForced(svgBytes, renderW);
             rendered.add(new RenderedCase(spec, img, svg, false, img == null));
         }
 

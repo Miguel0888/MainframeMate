@@ -747,31 +747,25 @@ public final class MermaidSvgFixup {
 
         if (!found || _maxX <= _minX || _maxY <= _minY) return;
 
-        // Check if current viewBox already encompasses content
-        String currentVb = svgRoot.getAttribute("viewBox");
-        if (currentVb != null && !currentVb.isEmpty()) {
-            String[] parts = currentVb.trim().split("\\s+");
-            if (parts.length == 4) {
-                try {
-                    double cvbX = Double.parseDouble(parts[0]);
-                    double cvbY = Double.parseDouble(parts[1]);
-                    double cvbW = Double.parseDouble(parts[2]);
-                    double cvbH = Double.parseDouble(parts[3]);
-                    // Only fix if content extends beyond current viewBox
-                    if (cvbX <= _minX && cvbY <= _minY
-                            && cvbX + cvbW >= _maxX && cvbY + cvbH >= _maxY) {
-                        return; // current viewBox is fine
-                    }
-                } catch (NumberFormatException ignored) {}
-            }
-        }
+        // Always set a tight viewBox with minimal padding
+        double pad = 10;
+        int vbX = (int) Math.floor(_minX - pad);
+        int vbY = (int) Math.floor(_minY - pad);
+        int vbW = (int) Math.ceil(_maxX - _minX + 2 * pad);
+        int vbH = (int) Math.ceil(_maxY - _minY + 2 * pad);
 
-        double pad = 30;
-        int vbX = (int) (_minX - pad);
-        int vbY = (int) (_minY - pad);
-        int vbW = (int) (_maxX - _minX + 2 * pad);
-        int vbH = (int) (_maxY - _minY + 2 * pad);
+        // Ensure minimum viewBox dimensions
+        if (vbW < 50) vbW = 50;
+        if (vbH < 50) vbH = 50;
+
         svgRoot.setAttribute("viewBox", vbX + " " + vbY + " " + vbW + " " + vbH);
+
+        // Set width proportional to viewBox — no fixed 800px
+        // Use a base DPI of ~2px per viewBox-unit for crisp rendering
+        int pixelWidth = Math.max(vbW * 2, 200);
+        svgRoot.setAttribute("width", String.valueOf(pixelWidth));
+        // Remove any fixed height so aspect ratio is preserved from viewBox
+        svgRoot.removeAttribute("height");
     }
 
     // Thread-local bounds accumulators (avoid passing state through every call)

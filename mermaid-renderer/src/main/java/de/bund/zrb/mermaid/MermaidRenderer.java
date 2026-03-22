@@ -119,7 +119,8 @@ public final class MermaidRenderer {
         // 5) Recalculate viewBox from actual path coordinates
         svg = fixViewBox(svg);
 
-        // 6) Replace width="100%" with a concrete pixel width
+        // 6) Replace width="100%" with a temporary pixel width
+        //    (MermaidSvgFixup.fixViewBoxFromAttributes will set the final proportional width)
         svg = svg.replaceFirst("width=\"100%\"", "width=\"800\"");
 
         // 7) Remove max-width from inline style (confuses Batik)
