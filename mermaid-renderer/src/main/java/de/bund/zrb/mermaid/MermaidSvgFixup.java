@@ -31,6 +31,25 @@ public final class MermaidSvgFixup {
     private static final Logger LOG = Logger.getLogger(MermaidSvgFixup.class.getName());
     private static final String SVG_NS = "http://www.w3.org/2000/svg";
 
+    // ── Typographic constants ───────────────────────────────────
+    /** Default SVG font size in px (matches Mermaid's {@code font-size:16px}). */
+    private static final double DEFAULT_FONT_SIZE = 16.0;
+    /** Line-height factor relative to font size (CSS normal ≈ 1.2). */
+    private static final double LINE_HEIGHT_FACTOR = 1.2;
+    /** Baseline shift as em-value for single-line vertical centering.
+     *  0.35 em ≈ half the cap-height, placing the glyph centre at y=0. */
+    private static final String BASELINE_SHIFT_EM = "0.35em";
+
+    /** Regex for Mermaid mindmap rounded-rect path commands.
+     *  Captures: (1) -halfW, (2) halfH, (3) -H, (4) -R, (5) contentW */
+    private static final java.util.regex.Pattern MINDMAP_BOX_PATH = java.util.regex.Pattern.compile(
+            "M\\s*(-?[\\d.]+)\\s+(-?[\\d.]+)"        // M x y  (x = -halfW, y = halfH)
+            + "\\s+v\\s*(-?[\\d.]+)"                  // v -H
+            + "\\s+q\\s*0\\s*,\\s*(-?[\\d.]+)"        // q 0,-R …
+            + "\\s+[\\d.]+\\s*,\\s*-?[\\d.]+"         // … R,-R  (rest of first quadratic)
+            + "\\s+h\\s*(-?[\\d.]+)"                  // h W  (content width)
+    );
+
     private MermaidSvgFixup() {}
 
     /**
@@ -443,25 +462,26 @@ public final class MermaidSvgFixup {
             if (numRows > 1) {
                 // Multi-line text: position rows with dy offsets
                 double fontSize = parseFontSizeFromStyle(text);
-                if (fontSize <= 0) fontSize = 16;
-                double lineHeight = fontSize * 1.2;
+                if (fontSize <= 0) fontSize = DEFAULT_FONT_SIZE;
+                double lineHeight = fontSize * LINE_HEIGHT_FACTOR;
 
                 // Shift text y up so the multi-line block is centred at y=0
                 // Centre of N rows = first baseline + (N-1) * lineHeight / 2
-                // We want that centre at dy=0.35em, so:
+                // We want that centre at dy=BASELINE_SHIFT_EM, so:
                 // y = -(N-1) * lineHeight / 2
                 double centerOffset = (numRows - 1) * lineHeight / 2.0;
                 text.setAttribute("y", String.valueOf(Math.round(-centerOffset)));
-                text.setAttribute("dy", "0.35em");
+                text.setAttribute("dy", BASELINE_SHIFT_EM);
 
-                // Add dy="1.2em" on 2nd+ row tspans for line breaks
+                // Add dy on 2nd+ row tspans for line breaks
+                String lineDy = LINE_HEIGHT_FACTOR + "em";
                 for (int r = 1; r < numRows; r++) {
-                    rowTspans.get(r).setAttribute("dy", "1.2em");
+                    rowTspans.get(r).setAttribute("dy", lineDy);
                 }
             } else {
                 // Single-line: simple centering at y=0
                 text.setAttribute("y", "0");
-                text.setAttribute("dy", "0.35em");
+                text.setAttribute("dy", BASELINE_SHIFT_EM);
             }
         }
     }
@@ -479,6 +499,10 @@ public final class MermaidSvgFixup {
      * The path pattern is:
      * {@code M-{halfW} {halfH} v-{H} q0,-R R,-R h{W} qR,0 R,R v{H} q0,R -R,R h-{W} q-R,0 -R,-R Z}
      * <p>
+     * We only modify the height-related values (halfH, H) and the underline
+     * position.  The width ({@code h{W}}) and corner radius are preserved
+     * exactly from the original path.
+     * <p>
      * The companion {@code <line>} (underline) at y={halfH+R} is also moved.
      */
     private static void fixMindmapMultilineBoxes(Document doc) {
@@ -494,60 +518,69 @@ public final class MermaidSvgFixup {
             int numRows = countRowTspans(g);
             if (numRows <= 1) continue;
 
-            // Find the <path class="node-bkg ..."> child
+            // Find the <path class="node-bkg ..."> and <line class="node-line..."> children
             Element pathEl = null;
             Element lineEl = null;
+            Element textEl = null;
             NodeList children = g.getChildNodes();
             for (int j = 0; j < children.getLength(); j++) {
                 Node child = children.item(j);
                 if (!(child instanceof Element)) continue;
                 Element ce = (Element) child;
-                if ("path".equals(ce.getLocalName()) && attr(ce, "class").contains("node-bkg")) {
+                String tag = ce.getLocalName();
+                if ("path".equals(tag) && attr(ce, "class").contains("node-bkg")) {
                     pathEl = ce;
-                } else if ("line".equals(ce.getLocalName()) && attr(ce, "class").contains("node-line")) {
+                } else if ("line".equals(tag) && attr(ce, "class").contains("node-line")) {
                     lineEl = ce;
                 }
             }
+            // Also find the text element for font-size lookup
+            NodeList textNodes = g.getElementsByTagNameNS("*", "text");
+            if (textNodes.getLength() > 0) {
+                textEl = (Element) textNodes.item(0);
+            }
             if (pathEl == null) continue;
 
-            // Parse path d attribute and expand height
+            // Parse path d attribute
             String d = pathEl.getAttribute("d");
             if (d == null || d.isEmpty()) continue;
 
-            // Pattern: M-{halfW} {halfH} v-{H} q0,-{R} {R},-{R} h{W} q{R},0 {R},{R} v{H} q0,{R} -{R},{R} h-{W} q-{R},0 -{R},-{R} Z
-            java.util.regex.Pattern pathPattern = java.util.regex.Pattern.compile(
-                    "M\\s*(-?[\\d.]+)\\s+(-?[\\d.]+)"    // M x y  (x = -halfW, y = halfH)
-                    + "\\s+v\\s*(-?[\\d.]+)"              // v -H
-                    + "\\s+q\\s*0\\s*,\\s*(-?[\\d.]+)"    // q 0,-R ...
-            );
-            java.util.regex.Matcher pm = pathPattern.matcher(d);
+            java.util.regex.Matcher pm = MINDMAP_BOX_PATH.matcher(d);
             if (!pm.find()) continue;
 
             try {
-                double halfW = Math.abs(Double.parseDouble(pm.group(1)));
-                double oldHalfH = Double.parseDouble(pm.group(2));
-                double oldH = Math.abs(Double.parseDouble(pm.group(3)));
-                double radius = Math.abs(Double.parseDouble(pm.group(4)));
+                double halfW    = Math.abs(Double.parseDouble(pm.group(1)));
+                // group(2) = oldHalfH — not needed, we compute the new one
+                double oldH     = Math.abs(Double.parseDouble(pm.group(3)));
+                double radius   = Math.abs(Double.parseDouble(pm.group(4)));
+                double contentW = Math.abs(Double.parseDouble(pm.group(5)));
 
-                // Calculate new height for N rows
-                double fontSize = 16.0;
-                double lineHeight = fontSize * 1.2;
-                double newH = oldH + (numRows - 1) * lineHeight;
+                // Resolve actual font-size from the text element
+                double fontSize = DEFAULT_FONT_SIZE;
+                if (textEl != null) {
+                    double parsed = parseFontSizeFromStyle(textEl);
+                    if (parsed > 0) fontSize = parsed;
+                }
+                double lineHeight = fontSize * LINE_HEIGHT_FACTOR;
+
+                // Expand height by (numRows - 1) line-heights
+                double newH     = oldH + (numRows - 1) * lineHeight;
                 double newHalfH = newH / 2.0;
 
-                // Build new path d
+                // Rebuild path — only height changes; width and radii are preserved
                 long hw = Math.round(halfW);
                 long hh = Math.round(newHalfH);
-                long h = Math.round(newH);
-                long r = Math.round(radius);
+                long h  = Math.round(newH);
+                long r  = Math.round(radius);
+                long cw = Math.round(contentW);
                 String newD = "M-" + hw + " " + hh
                         + " v-" + h
                         + " q0,-" + r + " " + r + ",-" + r
-                        + " h" + (hw * 2)
+                        + " h" + cw
                         + " q" + r + ",0 " + r + "," + r
                         + " v" + h
                         + " q0," + r + " -" + r + "," + r
-                        + " h-" + (hw * 2)
+                        + " h-" + cw
                         + " q-" + r + ",0 -" + r + ",-" + r
                         + " Z";
                 pathEl.setAttribute("d", newD);
@@ -559,7 +592,7 @@ public final class MermaidSvgFixup {
                     lineEl.setAttribute("y2", String.valueOf(newLineY));
                 }
             } catch (NumberFormatException ignored) {
-                // Path doesn't match expected pattern — skip
+                // Path doesn't match expected number format — skip silently
             }
         }
     }
