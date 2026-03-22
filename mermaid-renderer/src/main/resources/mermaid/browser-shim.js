@@ -165,13 +165,59 @@ function _escapeXmlText(val) {
 }
 
 // ── Element serialization helper ────────────────────────────────────────────
+// SVG element names that must keep camelCase (SVG is case-sensitive unlike HTML)
+var SVG_CAMEL_CASE_TAGS = {
+    'LINEARGRADIENT': 'linearGradient',
+    'RADIALGRADIENT': 'radialGradient',
+    'CLIPPATH': 'clipPath',
+    'TEXTPATH': 'textPath',
+    'FOREIGNOBJECT': 'foreignObject',
+    'ANIMATETRANSFORM': 'animateTransform',
+    'ANIMATEMOTION': 'animateMotion',
+    'FEGAUSSIANBLUR': 'feGaussianBlur',
+    'FECOLORMATRIX': 'feColorMatrix',
+    'FECOMPONENTTRANSFER': 'feComponentTransfer',
+    'FECOMPOSITE': 'feComposite',
+    'FECONVOLVEMATRIX': 'feConvolveMatrix',
+    'FEDIFFUSELIGHTING': 'feDiffuseLighting',
+    'FEDISPLACEMENTMAP': 'feDisplacementMap',
+    'FEDISTANTLIGHT': 'feDistantLight',
+    'FEDROPSHADOW': 'feDropShadow',
+    'FEFLOOD': 'feFlood',
+    'FEFUNCA': 'feFuncA',
+    'FEFUNCB': 'feFuncB',
+    'FEFUNCG': 'feFuncG',
+    'FEFUNCR': 'feFuncR',
+    'FEIMAGE': 'feImage',
+    'FEMERGE': 'feMerge',
+    'FEMERGENODE': 'feMergeNode',
+    'FEMORPHOLOGY': 'feMorphology',
+    'FEOFFSET': 'feOffset',
+    'FEPOINTLIGHT': 'fePointLight',
+    'FESPECULARLIGHTING': 'feSpecularLighting',
+    'FESPOTLIGHT': 'feSpotLight',
+    'FETILE': 'feTile',
+    'FETURBULENCE': 'feTurbulence',
+    'GLYPHREF': 'glyphRef',
+    'ALTGLYPH': 'altGlyph',
+    'ALTGLYPHDEF': 'altGlyphDef',
+    'ALTGLYPHITEM': 'altGlyphItem',
+    'FEBLEND': 'feBlend'
+};
+
+function _svgTagName(upper) {
+    return SVG_CAMEL_CASE_TAGS[upper] || upper.toLowerCase();
+}
+
 function _serializeNode(node, parentNs) {
     if (!node) return '';
     if (node.nodeType === 3) return _escapeXmlText(node.textContent || '');
     if (node.nodeType !== 1) return '';
 
-    var tag = (node.tagName || 'div').toLowerCase();
+    var rawTag = node.tagName || 'div';
     var ns = node.namespaceURI || XHTML_NS;
+    // SVG elements are case-sensitive; HTML elements are lowercased
+    var tag = (ns === SVG_NS) ? _svgTagName(rawTag) : rawTag.toLowerCase();
     var attrs = '';
 
     // Emit xmlns only when namespace differs from parent
@@ -667,7 +713,14 @@ function _parseTranslate(el) {
 function createDomElement(tagName, namespaceURI) {
     var el = EventTargetMixin({});
     el.nodeType = 1;
-    el.tagName = tagName ? tagName.toUpperCase() : 'DIV';
+    // HTML elements use uppercase tagName (browser convention);
+    // SVG elements preserve the original case (SVG is case-sensitive)
+    if (namespaceURI === SVG_NS) {
+        var upper = tagName ? tagName.toUpperCase() : 'SVG';
+        el.tagName = SVG_CAMEL_CASE_TAGS[upper] || (tagName || 'svg');
+    } else {
+        el.tagName = tagName ? tagName.toUpperCase() : 'DIV';
+    }
     el.nodeName = el.tagName;
     el.namespaceURI = namespaceURI || XHTML_NS;
     el.ownerDocument = null; // will be set to document after document is created

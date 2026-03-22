@@ -95,7 +95,8 @@ public final class SvgRenderer {
             transcoder.transcode(input, new TranscoderOutput());
             return transcoder.getImage();
         } catch (Exception e) {
-            LOG.log(Level.FINE, "[SvgRenderer] Failed to render SVG (" + svgData.length + " bytes)", e);
+            LOG.log(Level.WARNING, "[SvgRenderer] Failed to render SVG (" + svgData.length + " bytes): "
+                    + e.getClass().getSimpleName() + ": " + e.getMessage(), e);
             return null;
         }
     }
@@ -122,7 +123,8 @@ public final class SvgRenderer {
             transcoder.transcode(input, new TranscoderOutput());
             return transcoder.getImage();
         } catch (Exception e) {
-            LOG.log(Level.FINE, "[SvgRenderer] Failed to render SVG (forced width=" + width + ")", e);
+            LOG.log(Level.WARNING, "[SvgRenderer] Failed to render SVG (forced width=" + width + "): "
+                    + e.getClass().getSimpleName() + ": " + e.getMessage(), e);
             return null;
         }
     }

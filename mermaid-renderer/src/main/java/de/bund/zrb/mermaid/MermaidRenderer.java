@@ -284,6 +284,25 @@ public final class MermaidRenderer {
         //      stroke-linecap — these must be removed BEFORE CDATA wrapping
         svg = sanitiseCssForBatik(svg);
 
+        // 10cf) Replace "transparent" as paint value with "none" (Batik NPE)
+        svg = svg.replace("fill:transparent", "fill:none");
+        svg = svg.replace("stroke:transparent", "stroke:none");
+        svg = svg.replace("fill=\"transparent\"", "fill=\"none\"");
+        svg = svg.replace("stroke=\"transparent\"", "stroke=\"none\"");
+
+        // 10d) Fix negative width/height on <rect> elements (Gantt charts produce these
+        //      when the headless shim miscalculates container dimensions)
+        svg = svg.replaceAll("(width|height)\\s*=\\s*\"-[\\d.]+\"", "$1=\"0\"");
+
+        // 10e) Fix SVG element case sensitivity: D3 creates lowercase element names
+        //      (lineargradient) but SVG requires camelCase (linearGradient)
+        svg = svg.replace("<lineargradient", "<linearGradient");
+        svg = svg.replace("</lineargradient>", "</linearGradient>");
+        svg = svg.replace("<radialgradient", "<radialGradient");
+        svg = svg.replace("</radialgradient>", "</radialGradient>");
+        svg = svg.replace("<clippath", "<clipPath");
+        svg = svg.replace("</clippath>", "</clipPath>");
+
         // 11) Fix HTML5 void elements that may remain (<br> → <br/>)
         svg = fixHtmlVoidElements(svg);
 
@@ -594,6 +613,12 @@ public final class MermaidRenderer {
             // 7) Replace currentColor with concrete value
             cssContent = cssContent.replace("currentColor", "#333333");
 
+            // 7b) Replace "transparent" paint value with "none" — Batik's CSS parser
+            //     throws NullPointerException when encountering "transparent" as a fill
+            //     or stroke value (it's a CSS3 color, not SVG 1.1).
+            cssContent = cssContent.replace("fill:transparent", "fill:none");
+            cssContent = cssContent.replace("stroke:transparent", "stroke:none");
+
             // 8) Replace "revert" with safe defaults
             cssContent = cssContent.replaceAll("stroke\\s*:\\s*revert\\s*;?", "");
             cssContent = cssContent.replaceAll("stroke-width\\s*:\\s*revert\\s*;?", "");
@@ -607,6 +632,15 @@ public final class MermaidRenderer {
             cssContent = cssContent.replaceAll("var\\(\\s*--[\\w-]+\\s*,\\s*([^)]+)\\)", "$1");
             // Remove remaining property declarations that still contain var()
             cssContent = cssContent.replaceAll("[\\w-]+\\s*:\\s*[^;{}]*var\\(--[^)]*\\)[^;{}]*(;|(?=\\}))", "");
+
+            // 11) Remove CSS rules with bare SVG element type selectors that crash
+            //     Batik's CSS parser.  Mermaid class diagrams emit:
+            //       marker path, marker circle, marker polygon { fill:... !important; }
+            //     Batik's CSSEngine throws NullPointerException when parsing these.
+            cssContent = cssContent.replaceAll(
+                    "marker\\s+path\\s*,\\s*marker\\s+circle\\s*,\\s*marker\\s+polygon\\s*\\{[^}]*\\}", "");
+            // Also remove .arrowMarkerPath rules that reference markers
+            cssContent = cssContent.replaceAll("\\.arrowMarkerPath\\s*\\{[^}]*\\}", "");
 
             // Rebuild the <style> block with cleaned content
             result.append(openTag).append(cssContent).append("</style>");

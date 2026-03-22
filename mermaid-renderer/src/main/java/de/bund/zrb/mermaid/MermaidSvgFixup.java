@@ -139,6 +139,13 @@ public final class MermaidSvgFixup {
         // Replace orient="auto-start-reverse" with orient="auto" (SVG 2 → 1.1)
         svg = svg.replace("orient=\"auto-start-reverse\"", "orient=\"auto\"");
 
+        // Replace "transparent" paint value with "none" — Batik's CSS parser throws
+        // NullPointerException on "transparent" (CSS3 color, not SVG 1.1).
+        svg = svg.replace("fill:transparent", "fill:none");
+        svg = svg.replace("stroke:transparent", "stroke:none");
+        svg = svg.replace("fill=\"transparent\"", "fill=\"none\"");
+        svg = svg.replace("stroke=\"transparent\"", "stroke=\"none\"");
+
         // Fix negative stroke-width values in CSS (Mermaid mindmap generates
         // edge-depth-N classes with negative stroke-widths for deep nesting levels,
         // e.g. stroke-width:-1.  Batik's BasicStroke throws IllegalArgumentException
@@ -225,6 +232,41 @@ public final class MermaidSvgFixup {
             hslAttrM.appendTail(hslAttrSb);
             svg = hslAttrSb.toString();
         }
+
+        // Fix negative width/height on <rect> elements — Batik throws
+        // "The attribute 'width' of the element <rect> cannot be negative".
+        // Gantt charts produce these when the browser shim miscalculates container width.
+        {
+            java.util.regex.Pattern negRectP = java.util.regex.Pattern.compile(
+                    "(width|height)\\s*=\\s*\"(-[\\d.]+)\"");
+            java.util.regex.Matcher negRectM = negRectP.matcher(svg);
+            StringBuffer negRectSb = new StringBuffer(svg.length());
+            while (negRectM.find()) {
+                negRectM.appendReplacement(negRectSb, negRectM.group(1) + "=\"0\"");
+            }
+            negRectM.appendTail(negRectSb);
+            svg = negRectSb.toString();
+        }
+
+        // Fix SVG element case sensitivity: D3 creates <lineargradient> (lowercase)
+        // but SVG requires <linearGradient> (camelCase).  Same for other elements.
+        svg = svg.replace("<lineargradient", "<linearGradient");
+        svg = svg.replace("</lineargradient>", "</linearGradient>");
+        svg = svg.replace("<radialgradient", "<radialGradient");
+        svg = svg.replace("</radialgradient>", "</radialGradient>");
+        svg = svg.replace("<clippath", "<clipPath");
+        svg = svg.replace("</clippath>", "</clipPath>");
+        svg = svg.replace("<textpath", "<textPath");
+        svg = svg.replace("</textpath>", "</textPath>");
+        svg = svg.replace("<foreignobject", "<foreignObject");
+        svg = svg.replace("</foreignobject>", "</foreignObject>");
+
+        // Also remove CSS rules with bare 'marker' type selectors that crash
+        // Batik's CSSEngine (NullPointerException in parseStyleSheet).
+        // Mermaid class diagrams emit: marker path, marker circle, marker polygon {...}
+        svg = svg.replaceAll(
+                "marker\\s+path\\s*,\\s*marker\\s+circle\\s*,\\s*marker\\s+polygon\\s*\\{[^}]*\\}", "");
+        svg = svg.replaceAll("\\.arrowMarkerPath\\s*\\{[^}]*\\}", "");
 
         return svg;
     }
