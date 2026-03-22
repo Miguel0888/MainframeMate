@@ -99,7 +99,7 @@ public final class MermaidRenderer {
                 + "    __result.then(function(res) {\n"
                 + "      __svgResult = (res && res.svg) ? res.svg : (typeof res === 'string' ? res : '');\n"
                 + "    })['catch'](function(err) {\n"
-                + "      __renderError = '' + err;\n"
+                + "      __renderError = '' + err + (err && err.stack ? '\\nSTACK: ' + err.stack : '');\n"
                 + "    });\n"
                 + "  } else if (__result && __result.svg) {\n"
                 + "    // Direct result object\n"
@@ -109,7 +109,7 @@ public final class MermaidRenderer {
                 + "    __svgResult = __result;\n"
                 + "  }\n"
                 + "} catch(renderErr) {\n"
-                + "  __renderError = '' + renderErr;\n"
+                + "  __renderError = '' + renderErr + (renderErr && renderErr.stack ? '\\nSTACK: ' + renderErr.stack : '');\n"
                 + "}\n";
 
         // Use executeAsync: the setup script chains .then() on the Promise,

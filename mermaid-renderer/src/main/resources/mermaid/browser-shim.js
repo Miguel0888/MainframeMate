@@ -358,6 +358,15 @@ function _computeElementDims(el) {
     var tag = (el.tagName || '').toLowerCase();
     var attrs = el._attrs || {};
 
+    // display:none elements have zero dimensions (critical for Cytoscape headless detection)
+    var styleAttr = attrs['style'] || '';
+    if (el.style && el.style._props && el.style._props['display'] === 'none') {
+        return { x: 0, y: 0, w: 0, h: 0 };
+    }
+    if (styleAttr.indexOf('display') >= 0 && styleAttr.match(/display\s*:\s*none/i)) {
+        return { x: 0, y: 0, w: 0, h: 0 };
+    }
+
     // Helper to read numeric attribute
     function num(name) {
         var v = attrs[name];
@@ -502,11 +511,17 @@ function _computeElementDims(el) {
         }
     }
 
-    // Fallback: text-based estimate
+    // Fallback: text-based estimate or reasonable container default
     var textLen = _estimateTextWidth(el);
-    var w = Math.max(textLen, 20);
-    var h = textLen > 0 ? 24 : 20;
-    return { x: 0, y: 0, w: w, h: h };
+    if (textLen > 0) {
+        return { x: 0, y: 0, w: textLen, h: 24 };
+    }
+    // Container elements (div, body, html, canvas) get large defaults
+    // so libraries like Cytoscape.js can compute proper layout bounds
+    if (tag === 'div' || tag === 'body' || tag === 'html' || tag === 'canvas' || tag === 'section') {
+        return { x: 0, y: 0, w: 800, h: 600 };
+    }
+    return { x: 0, y: 0, w: 20, h: 20 };
 }
 
 /**
@@ -1276,36 +1291,81 @@ window.scrollX = 0;
 window.scrollY = 0;
 
 window.getComputedStyle = function(el) {
+    // Build defaults — use 'relative' position so Cytoscape accepts the container
     var defaults = {
-        display: 'block', visibility: 'visible', opacity: '1',
-        fontSize: '16px', fontFamily: 'sans-serif', fontWeight: '400', fontStyle: 'normal',
-        lineHeight: '1.2', color: 'rgb(0, 0, 0)', backgroundColor: 'rgba(0, 0, 0, 0)',
-        fill: 'rgb(0, 0, 0)', stroke: 'none', strokeWidth: '1',
-        width: '100px', height: '20px', margin: '0px', padding: '0px',
-        border: '0px none rgb(0, 0, 0)', borderWidth: '0px',
-        position: 'static', overflow: 'visible',
-        whiteSpace: 'normal', textAlign: 'start', textDecoration: 'none',
-        transform: 'none', transition: 'none',
-        boxSizing: 'content-box'
+        'display': 'block', 'visibility': 'visible', 'opacity': '1',
+        'font-size': '16px', 'font-family': 'sans-serif', 'font-weight': '400', 'font-style': 'normal',
+        'line-height': '1.2', 'color': 'rgb(0, 0, 0)', 'background-color': 'rgba(0, 0, 0, 0)',
+        'fill': 'rgb(0, 0, 0)', 'stroke': 'none', 'stroke-width': '1',
+        'width': '800px', 'height': '600px',
+        'margin': '0px', 'margin-top': '0px', 'margin-right': '0px', 'margin-bottom': '0px', 'margin-left': '0px',
+        'padding': '0px', 'padding-top': '0px', 'padding-right': '0px', 'padding-bottom': '0px', 'padding-left': '0px',
+        'border': '0px none rgb(0, 0, 0)', 'border-width': '0px',
+        'border-top-width': '0px', 'border-right-width': '0px', 'border-bottom-width': '0px', 'border-left-width': '0px',
+        'position': 'relative', 'overflow': 'visible',
+        'white-space': 'normal', 'text-align': 'start', 'text-decoration': 'none',
+        'transform': 'none', 'transition': 'none',
+        'box-sizing': 'content-box',
+        'min-width': '0px', 'min-height': '0px',
+        'max-width': 'none', 'max-height': 'none',
+        'top': 'auto', 'right': 'auto', 'bottom': 'auto', 'left': 'auto',
+        'float': 'none', 'clear': 'none',
+        'vertical-align': 'baseline',
+        'outline': 'none', 'cursor': 'auto',
+        'pointer-events': 'auto',
+        'user-select': 'auto',
+        'clip': 'auto',
+        'border-radius': '0px'
     };
-    return {
+
+    // Resolve a value: element's own style overrides defaults
+    function resolve(prop) {
+        // Check element's inline style first (kebab-case) via style object
+        if (el && el.style && el.style._props && el.style._props[prop] !== undefined && el.style._props[prop] !== '') {
+            return el.style._props[prop];
+        }
+        // Also check the raw style attribute string (set via setAttribute('style', ...))
+        if (el && el._attrs && el._attrs['style']) {
+            var styleStr = el._attrs['style'];
+            var re = new RegExp('(?:^|;)\\s*' + prop.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&') + '\\s*:\\s*([^;]+)', 'i');
+            var match = styleStr.match(re);
+            if (match) return match[1].trim();
+        }
+        // Check element's attributes (width/height on SVG/canvas elements)
+        if (el && el._attrs) {
+            if (prop === 'width' && el._attrs['width']) return el._attrs['width'] + (String(el._attrs['width']).indexOf('px') < 0 ? 'px' : '');
+            if (prop === 'height' && el._attrs['height']) return el._attrs['height'] + (String(el._attrs['height']).indexOf('px') < 0 ? 'px' : '');
+        }
+        return defaults[prop] || '';
+    }
+
+    // Build the result object with ALL default properties accessible directly
+    // Both camelCase and kebab-case access must work (Cytoscape uses camelCase)
+    var result = {
         getPropertyValue: function(prop) {
-            // Check element's own style first
-            if (el && el.style && el.style._props && el.style._props[prop]) {
-                return el.style._props[prop];
-            }
-            // Convert camelCase prop to kebab-case for lookup
+            // Convert camelCase to kebab-case
             var kebab = prop.replace(/([A-Z])/g, '-$1').toLowerCase();
-            return defaults[prop] || defaults[kebab] || '';
+            return resolve(kebab) || resolve(prop) || '';
         },
-        display: defaults.display,
-        visibility: defaults.visibility,
-        opacity: defaults.opacity,
-        fontSize: defaults.fontSize,
-        fontFamily: defaults.fontFamily,
-        color: defaults.color,
-        backgroundColor: defaults.backgroundColor
+        setProperty: function() {},
+        removeProperty: function() { return ''; },
+        length: 0,
+        item: function() { return ''; }
     };
+
+    // Populate direct property access for all defaults (both kebab and camelCase)
+    var keys = Object.keys(defaults);
+    for (var i = 0; i < keys.length; i++) {
+        var kebab = keys[i];
+        var val = resolve(kebab);
+        // kebab-case access
+        result[kebab] = val;
+        // camelCase access
+        var camel = kebab.replace(/-([a-z])/g, function(m, c) { return c.toUpperCase(); });
+        result[camel] = val;
+    }
+
+    return result;
 };
 
 window.matchMedia = function(query) {
@@ -1328,8 +1388,29 @@ window.getSelection = function() {
     };
 };
 
-window.requestAnimationFrame = function(fn) { fn(Date.now()); return 0; };
-window.cancelAnimationFrame = function(id) {};
+// requestAnimationFrame: Do NOT invoke callback synchronously.
+// Cytoscape starts an animation loop that calls requestAnimationFrame recursively.
+// Executing callbacks synchronously would cause infinite recursion / stack overflow.
+// Headless mode does not need animation — the layout runs synchronously in run().
+var __rafId = 0;
+var __rafQueue = [];
+window.requestAnimationFrame = function(fn) {
+    __rafId++;
+    __rafQueue.push({id: __rafId, fn: fn});
+    return __rafId;
+};
+window.cancelAnimationFrame = function(id) {
+    __rafQueue = __rafQueue.filter(function(item) { return item.id !== id; });
+};
+// Flush up to N queued animation frames (used after layout completes)
+window.__flushAnimationFrames = function(maxIterations) {
+    var count = 0;
+    while (__rafQueue.length > 0 && count < (maxIterations || 10)) {
+        var item = __rafQueue.shift();
+        try { item.fn(Date.now()); } catch(e) {}
+        count++;
+    }
+};
 window.setTimeout = function(fn, delay) { if (typeof fn === 'function') fn(); return 0; };
 window.clearTimeout = function(id) {};
 window.setInterval = function(fn, delay) { return 0; };
@@ -1418,6 +1499,9 @@ document.documentElement.appendChild(document.body);
 document.documentElement.ownerDocument = document;
 document.head.ownerDocument = document;
 document.body.ownerDocument = document;
+
+// Cytoscape.js accesses getComputedStyle via node.ownerDocument.defaultView
+document.defaultView = window;
 
 
 document.createElement = function(name) {

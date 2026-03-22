@@ -111,16 +111,10 @@ class MermaidRendererTest {
             return;
         }
 
-        // Mindmap requires Canvas 2D text measurement and d3-color CSS parsing
-        // which needs a fuller DOM environment than our lightweight GraalJS shim provides.
-        // This test documents the current state — it may start passing as the shim evolves.
         String svg = renderer.renderToSvg(
                 "mindmap\n  root((Humus))\n    Arten\n      Naehrhumus\n      Dauerhumus");
 
-        if (svg == null) {
-            System.out.println("[KNOWN LIMITATION] Mindmap rendering requires fuller DOM/Canvas support in GraalJS shim");
-            return; // gracefully skip — not a regression
-        }
+        assertNotNull(svg, "Mindmap SVG should not be null");
         assertTrue(svg.contains("<svg"), "Output should contain <svg> element");
     }
 

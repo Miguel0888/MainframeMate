@@ -187,24 +187,10 @@ class MermaidSvgDiagnosticTest {
 
     @Test
     @Timeout(value = 180, unit = TimeUnit.SECONDS)
-    @DisplayName("TC10: Mindmap (known limitation)")
+    @DisplayName("TC10: Mindmap")
     void tc10_mindmap() {
-        System.out.println("\n════════════════════════════════════════════════════════════");
-        System.out.println("  tc10_mindmap");
-        System.out.println("════════════════════════════════════════════════════════════");
-
-        String rawSvg = renderer.renderToSvg(
+        renderAndValidate("tc10_mindmap",
                 "mindmap\n  root((Humus))\n    Arten\n      Naehrhumus\n      Dauerhumus");
-        if (rawSvg == null) {
-            System.out.println("[KNOWN LIMITATION] Mindmap requires Canvas 2D text measurement");
-            return;
-        }
-        saveTo("tc10_mindmap_raw.svg", rawSvg);
-        String fixed = MermaidSvgFixup.fixForBatik(MermaidRenderer.postProcessSvg(rawSvg));
-        saveTo("tc10_mindmap_fixed.svg", fixed);
-        String xmlError = tryXmlParse(fixed);
-        System.out.println(xmlError == null ? "RESULT: tc10_mindmap PASSED" : "RESULT: tc10_mindmap FAILED — " + xmlError);
-        assertNull(xmlError, "If mindmap renders, it should be valid XML");
     }
 
     @Test
