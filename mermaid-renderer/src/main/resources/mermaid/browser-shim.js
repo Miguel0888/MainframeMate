@@ -228,8 +228,82 @@ function _serializeNode(node, parentNs) {
 function _estimateTextWidth(el) {
     var text = _collectAllText(el);
     if (!text) return 0;
-    // Average character width ~8px at 16px font, add padding
+
+    // Sanity check: if the "text" is actually CSS or huge markup content, cap it
+    if (text.length > 200 || text.indexOf('{') >= 0 || text.indexOf('}') >= 0) {
+        // This is likely CSS content from a <style> block that leaked into text measurement
+        // Extract only what looks like a label (alphanumeric + common punctuation)
+        var stripped = text.replace(/[^a-zA-Z0-9äöüÄÖÜß\s.,!?:;\-()]/g, '').trim();
+        if (stripped.length === 0) return 0;
+        if (stripped.length > 50) stripped = stripped.substring(0, 50);
+        text = stripped;
+    }
+
+    // Use Java bridge for accurate pixel-level text measurement if available
+    if (typeof javaBridge !== 'undefined' && javaBridge.measureTextWidth) {
+        var fontFamily = _resolveFontFamily(el) || '"trebuchet ms", verdana, arial, sans-serif';
+        var fontSize = _resolveFontSize(el) || 16;
+        try {
+            return javaBridge.measureTextWidth(text, fontFamily, fontSize);
+        } catch (e) {
+            // Fall through to estimation
+        }
+    }
+
+    // Fallback: rough estimation (~8px per character at 16px font)
     return text.length * 8 + 16;
+}
+
+/**
+ * Resolve the effective font-family for an element by checking:
+ * 1. inline style font-family
+ * 2. class-based defaults (Mermaid uses specific classes)
+ * 3. inherited from ancestors
+ * 4. global default
+ */
+function _resolveFontFamily(el) {
+    var current = el;
+    while (current && current.nodeType === 1) {
+        // Check style object
+        if (current.style && current.style.fontFamily) {
+            return current.style.fontFamily;
+        }
+        // Check style attribute string
+        var styleAttr = current._attrs && current._attrs['style'];
+        if (styleAttr) {
+            var match = styleAttr.match(/font-family\s*:\s*([^;]+)/);
+            if (match) return match[1].trim();
+        }
+        // Check font-family attribute (SVG text elements)
+        var ff = current._attrs && current._attrs['font-family'];
+        if (ff) return ff;
+        current = current.parentNode;
+    }
+    return null;
+}
+
+/**
+ * Resolve the effective font-size for an element.
+ */
+function _resolveFontSize(el) {
+    var current = el;
+    while (current && current.nodeType === 1) {
+        // Check style object
+        if (current.style && current.style.fontSize) {
+            return parseFloat(current.style.fontSize) || 16;
+        }
+        // Check style attribute string
+        var styleAttr = current._attrs && current._attrs['style'];
+        if (styleAttr) {
+            var match = styleAttr.match(/font-size\s*:\s*([\d.]+)/);
+            if (match) return parseFloat(match[1]) || 16;
+        }
+        // Check font-size attribute (SVG text elements)
+        var fs = current._attrs && current._attrs['font-size'];
+        if (fs) return parseFloat(fs) || 16;
+        current = current.parentNode;
+    }
+    return null;
 }
 
 /**
@@ -249,9 +323,15 @@ function _collectAllText(el) {
     }
     // Fallback: _textContent property (set via textContent setter)
     if (!text && el._textContent) text = el._textContent;
-    // Fallback: innerHTML raw (strip HTML tags to get text only)
+    // Fallback: innerHTML raw — only use if it looks like a simple label, not full markup/CSS.
+    // Mermaid sets innerHTML to complex structures like <style>...</style><g>...</g> which
+    // after tag-stripping becomes a huge CSS string, producing wildly inflated measurements.
     if (!text && el._innerHTMLRaw) {
-        text = el._innerHTMLRaw.replace(/<[^>]*>/g, '');
+        var raw = el._innerHTMLRaw;
+        // Skip if it contains <style>, <svg>, or lots of CSS-like content
+        if (raw.indexOf('<style') < 0 && raw.indexOf('<svg') < 0 && raw.length < 500) {
+            text = raw.replace(/<[^>]*>/g, '').trim();
+        }
     }
     return text;
 }
@@ -669,19 +749,40 @@ function createDomElement(tagName, namespaceURI) {
     // Canvas 2D context stub (used by Mermaid mindmap for text measurement)
     el.getContext = function(type) {
         if (type === '2d') {
-            return {
+            var ctx = {
+                _font: '16px sans-serif',
                 measureText: function(text) {
-                    // Approximate text measurement: ~7px per character at default font
-                    var w = (text ? text.length : 0) * 7;
+                    // Use Java bridge for accurate measurement
+                    var w, asc = 10, desc = 3;
+                    if (typeof javaBridge !== 'undefined' && javaBridge.measureTextFull) {
+                        try {
+                            // Parse font string: "16px sans-serif" or "bold 14px arial"
+                            var fontSize = 16;
+                            var fontFamily = 'sans-serif';
+                            var fontParts = (ctx._font || '').match(/([\d.]+)px\s+(.*)/);
+                            if (fontParts) {
+                                fontSize = parseFloat(fontParts[1]) || 16;
+                                fontFamily = fontParts[2] || 'sans-serif';
+                            }
+                            var result = javaBridge.measureTextFull(text || '', fontFamily, fontSize);
+                            var parts = ('' + result).split(',');
+                            w = parseFloat(parts[0]) || 0;
+                            asc = parseFloat(parts[1]) || 10;
+                            desc = parseFloat(parts[2]) || 3;
+                        } catch (e) {
+                            w = (text ? text.length : 0) * 7;
+                        }
+                    } else {
+                        w = (text ? text.length : 0) * 7;
+                    }
                     return {
                         width: w,
-                        actualBoundingBoxAscent: 10,
-                        actualBoundingBoxDescent: 3,
-                        fontBoundingBoxAscent: 12,
-                        fontBoundingBoxDescent: 4
+                        actualBoundingBoxAscent: asc,
+                        actualBoundingBoxDescent: desc,
+                        fontBoundingBoxAscent: asc + 2,
+                        fontBoundingBoxDescent: desc + 1
                     };
                 },
-                font: '16px sans-serif',
                 fillStyle: '#000',
                 strokeStyle: '#000',
                 lineWidth: 1,
@@ -710,6 +811,12 @@ function createDomElement(tagName, namespaceURI) {
                 getImageData: function() { return { data: [] }; },
                 putImageData: function() {}
             };
+            Object.defineProperty(ctx, 'font', {
+                get: function() { return ctx._font; },
+                set: function(val) { ctx._font = val; },
+                configurable: true, enumerable: true
+            });
+            return ctx;
         }
         return null;
     };

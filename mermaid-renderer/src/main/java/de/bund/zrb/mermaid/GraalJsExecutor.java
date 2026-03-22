@@ -4,6 +4,13 @@ import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Value;
 
+import org.graalvm.polyglot.HostAccess;
+
+import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.Graphics2D;
+import java.awt.GraphicsEnvironment;
+import java.awt.image.BufferedImage;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -172,12 +179,90 @@ final class GraalJsExecutor {
 
     /**
      * Bridge object exposed to JavaScript as {@code javaBridge}.
+     * <p>
+     * Provides services that cannot be implemented in pure JavaScript,
+     * most importantly <b>accurate text measurement</b> via {@code java.awt.FontMetrics}.
+     * This replaces the crude {@code text.length * 8} estimation in the browser shim
+     * with pixel-accurate font metrics from the Java runtime.
      */
     public static final class JavaBridge {
 
+        /**
+         * Off-screen image used to obtain a Graphics2D context for font metrics.
+         * Created once and reused (thread-confined to the GraalJS executor thread).
+         */
+        private static final BufferedImage MEASURE_IMAGE =
+                new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        private static final Graphics2D MEASURE_GFX = MEASURE_IMAGE.createGraphics();
+
         @SuppressWarnings("unused") // called from JS
+        @HostAccess.Export
         public void log(String message) {
-            // silent in production — override for debug
+            System.err.println("[JS] " + message);
+        }
+
+        /**
+         * Measure the pixel width of the given text using Java's font engine.
+         *
+         * @param text       the text to measure
+         * @param fontFamily CSS font-family string (e.g. "trebuchet ms, verdana, arial, sans-serif")
+         * @param fontSize   font size in pixels (e.g. 16)
+         * @return width in pixels (double)
+         */
+        @SuppressWarnings("unused") // called from JS
+        @HostAccess.Export
+        public double measureTextWidth(String text, String fontFamily, double fontSize) {
+            if (text == null || text.isEmpty()) return 0;
+            Font font = resolveFont(fontFamily, Font.PLAIN, (float) fontSize);
+            FontMetrics fm = MEASURE_GFX.getFontMetrics(font);
+            return fm.stringWidth(text);
+        }
+
+        /**
+         * Measure text and return both width and height.
+         *
+         * @return comma-separated "width,ascent,descent,height"
+         */
+        @SuppressWarnings("unused") // called from JS
+        @HostAccess.Export
+        public String measureTextFull(String text, String fontFamily, double fontSize) {
+            if (text == null || text.isEmpty()) return "0,0,0,0";
+            Font font = resolveFont(fontFamily, Font.PLAIN, (float) fontSize);
+            FontMetrics fm = MEASURE_GFX.getFontMetrics(font);
+            int width = fm.stringWidth(text);
+            int ascent = fm.getAscent();
+            int descent = fm.getDescent();
+            int height = fm.getHeight();
+            return width + "," + ascent + "," + descent + "," + height;
+        }
+
+        /**
+         * Resolve a CSS font-family string to a Java Font.
+         * Tries each comma-separated font name, falls back to SansSerif.
+         */
+        private static Font resolveFont(String fontFamily, int style, float size) {
+            if (fontFamily != null && !fontFamily.isEmpty()) {
+                String[] families = fontFamily.split(",");
+                for (String family : families) {
+                    String name = family.trim()
+                            .replace("\"", "")
+                            .replace("'", "");
+                    if (name.equalsIgnoreCase("sans-serif")) {
+                        name = Font.SANS_SERIF;
+                    } else if (name.equalsIgnoreCase("serif")) {
+                        name = Font.SERIF;
+                    } else if (name.equalsIgnoreCase("monospace")) {
+                        name = Font.MONOSPACED;
+                    }
+                    Font f = new Font(name, style, 1).deriveFont(size);
+                    // Check if the font was actually found (Java substitutes Dialog if not)
+                    if (!f.getFamily().equalsIgnoreCase("Dialog") ||
+                            name.equalsIgnoreCase("Dialog")) {
+                        return f;
+                    }
+                }
+            }
+            return new Font(Font.SANS_SERIF, style, 1).deriveFont(size);
         }
     }
 }
