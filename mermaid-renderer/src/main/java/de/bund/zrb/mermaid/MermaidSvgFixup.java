@@ -59,6 +59,7 @@ public final class MermaidSvgFixup {
             fixGroupZOrder(doc);           // edges paint ON TOP of nodes
             fixNodeZOrder(doc);
             fixLabelCentering(doc);
+            fixMindmapMultilineBoxes(doc);  // expand boxes for multi-line text
             fixEdgeStrokes(doc);
             fixEdgeLabelBackground(doc);
             fixEdgeLabelRect(doc);
@@ -404,6 +405,11 @@ public final class MermaidSvgFixup {
      * {@code <text>} y to 0, dy to 0.35em, and clears inner tspan
      * y/dy attributes so the text is visually centred at the container
      * origin.
+     * <p>
+     * For multi-line text (multiple {@code <tspan class="text-outer-tspan row">}
+     * elements), adds {@code dy="1.2em"} to the 2nd+ row tspans for proper
+     * line breaks, and shifts the text {@code y} upward to keep the block
+     * vertically centred.
      */
     private static void resetTextCentering(Element container) {
         NodeList texts = container.getElementsByTagNameNS("*", "text");
@@ -411,22 +417,168 @@ public final class MermaidSvgFixup {
             Element text = (Element) texts.item(k);
             // Remove dominant-baseline (Batik doesn't handle "central")
             text.removeAttribute("dominant-baseline");
-            // Position text baseline at y=0, then shift down 0.35em
-            // so the visual centre of the glyphs aligns with y=0
-            text.setAttribute("y", "0");
-            text.setAttribute("dy", "0.35em");
             // Ensure horizontal centering
             text.setAttribute("text-anchor", "middle");
 
-            // Clear y/dy on inner <tspan> elements — Mermaid sets these
-            // for browser layout but they cause wrong offsets in Batik
+            // Collect outer row tspans (each represents one line of text)
+            List<Element> rowTspans = new ArrayList<Element>();
             NodeList tspans = text.getElementsByTagNameNS("*", "tspan");
+            for (int t = 0; t < tspans.getLength(); t++) {
+                Element tspan = (Element) tspans.item(t);
+                String cls = attr(tspan, "class");
+                if (cls.contains("text-outer-tspan")) {
+                    rowTspans.add(tspan);
+                }
+            }
+
+            // Clear y/dy on ALL inner <tspan> elements — Mermaid sets these
+            // for browser layout but they cause wrong offsets in Batik
             for (int t = 0; t < tspans.getLength(); t++) {
                 Element tspan = (Element) tspans.item(t);
                 tspan.removeAttribute("y");
                 tspan.removeAttribute("dy");
             }
+
+            int numRows = rowTspans.size();
+            if (numRows > 1) {
+                // Multi-line text: position rows with dy offsets
+                double fontSize = parseFontSizeFromStyle(text);
+                if (fontSize <= 0) fontSize = 16;
+                double lineHeight = fontSize * 1.2;
+
+                // Shift text y up so the multi-line block is centred at y=0
+                // Centre of N rows = first baseline + (N-1) * lineHeight / 2
+                // We want that centre at dy=0.35em, so:
+                // y = -(N-1) * lineHeight / 2
+                double centerOffset = (numRows - 1) * lineHeight / 2.0;
+                text.setAttribute("y", String.valueOf(Math.round(-centerOffset)));
+                text.setAttribute("dy", "0.35em");
+
+                // Add dy="1.2em" on 2nd+ row tspans for line breaks
+                for (int r = 1; r < numRows; r++) {
+                    rowTspans.get(r).setAttribute("dy", "1.2em");
+                }
+            } else {
+                // Single-line: simple centering at y=0
+                text.setAttribute("y", "0");
+                text.setAttribute("dy", "0.35em");
+            }
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix 4b — expand mindmap node boxes for multi-line text
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Mermaid mindmap nodes use a fixed-height box ({@code <path>} with a
+     * rounded-rectangle {@code d} attribute) sized for one line of text.
+     * When the text wraps to multiple lines, the box must be expanded so
+     * the text doesn't overflow.
+     * <p>
+     * The path pattern is:
+     * {@code M-{halfW} {halfH} v-{H} q0,-R R,-R h{W} qR,0 R,R v{H} q0,R -R,R h-{W} q-R,0 -R,-R Z}
+     * <p>
+     * The companion {@code <line>} (underline) at y={halfH+R} is also moved.
+     */
+    private static void fixMindmapMultilineBoxes(Document doc) {
+        NodeList allGs = doc.getElementsByTagNameNS("*", "g");
+        for (int i = 0; i < allGs.getLength(); i++) {
+            Node n = allGs.item(i);
+            if (!(n instanceof Element)) continue;
+            Element g = (Element) n;
+            String cls = attr(g, "class");
+            if (!cls.contains("mindmap-node")) continue;
+
+            // Count row tspans in this node's text
+            int numRows = countRowTspans(g);
+            if (numRows <= 1) continue;
+
+            // Find the <path class="node-bkg ..."> child
+            Element pathEl = null;
+            Element lineEl = null;
+            NodeList children = g.getChildNodes();
+            for (int j = 0; j < children.getLength(); j++) {
+                Node child = children.item(j);
+                if (!(child instanceof Element)) continue;
+                Element ce = (Element) child;
+                if ("path".equals(ce.getLocalName()) && attr(ce, "class").contains("node-bkg")) {
+                    pathEl = ce;
+                } else if ("line".equals(ce.getLocalName()) && attr(ce, "class").contains("node-line")) {
+                    lineEl = ce;
+                }
+            }
+            if (pathEl == null) continue;
+
+            // Parse path d attribute and expand height
+            String d = pathEl.getAttribute("d");
+            if (d == null || d.isEmpty()) continue;
+
+            // Pattern: M-{halfW} {halfH} v-{H} q0,-{R} {R},-{R} h{W} q{R},0 {R},{R} v{H} q0,{R} -{R},{R} h-{W} q-{R},0 -{R},-{R} Z
+            java.util.regex.Pattern pathPattern = java.util.regex.Pattern.compile(
+                    "M\\s*(-?[\\d.]+)\\s+(-?[\\d.]+)"    // M x y  (x = -halfW, y = halfH)
+                    + "\\s+v\\s*(-?[\\d.]+)"              // v -H
+                    + "\\s+q\\s*0\\s*,\\s*(-?[\\d.]+)"    // q 0,-R ...
+            );
+            java.util.regex.Matcher pm = pathPattern.matcher(d);
+            if (!pm.find()) continue;
+
+            try {
+                double halfW = Math.abs(Double.parseDouble(pm.group(1)));
+                double oldHalfH = Double.parseDouble(pm.group(2));
+                double oldH = Math.abs(Double.parseDouble(pm.group(3)));
+                double radius = Math.abs(Double.parseDouble(pm.group(4)));
+
+                // Calculate new height for N rows
+                double fontSize = 16.0;
+                double lineHeight = fontSize * 1.2;
+                double newH = oldH + (numRows - 1) * lineHeight;
+                double newHalfH = newH / 2.0;
+
+                // Build new path d
+                long hw = Math.round(halfW);
+                long hh = Math.round(newHalfH);
+                long h = Math.round(newH);
+                long r = Math.round(radius);
+                String newD = "M-" + hw + " " + hh
+                        + " v-" + h
+                        + " q0,-" + r + " " + r + ",-" + r
+                        + " h" + (hw * 2)
+                        + " q" + r + ",0 " + r + "," + r
+                        + " v" + h
+                        + " q0," + r + " -" + r + "," + r
+                        + " h-" + (hw * 2)
+                        + " q-" + r + ",0 -" + r + ",-" + r
+                        + " Z";
+                pathEl.setAttribute("d", newD);
+
+                // Move the underline to new bottom
+                if (lineEl != null) {
+                    long newLineY = hh + r;
+                    lineEl.setAttribute("y1", String.valueOf(newLineY));
+                    lineEl.setAttribute("y2", String.valueOf(newLineY));
+                }
+            } catch (NumberFormatException ignored) {
+                // Path doesn't match expected pattern — skip
+            }
+        }
+    }
+
+    /**
+     * Count the number of {@code <tspan class="text-outer-tspan ...">}
+     * elements inside the given element (recursively).
+     */
+    private static int countRowTspans(Element container) {
+        int count = 0;
+        NodeList tspans = container.getElementsByTagNameNS("*", "tspan");
+        for (int t = 0; t < tspans.getLength(); t++) {
+            Element tspan = (Element) tspans.item(t);
+            String cls = attr(tspan, "class");
+            if (cls.contains("text-outer-tspan")) {
+                count++;
+            }
+        }
+        return count;
     }
 
     // ═══════════════════════════════════════════════════════════
