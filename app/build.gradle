@@ -156,6 +156,17 @@ task testMermaid(type: JavaExec) {
     errorOutput = System.err
 }
 
+task testBatikSmoke(type: JavaExec) {
+    description = 'Smoke test: single Mermaid SVG rendered via Batik in a Swing window'
+    group = 'verification'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'de.bund.zrb.mermaid.BatikSmokeTest'
+    jvmArgs '-Djava.awt.headless=false'
+    maxHeapSize = '2g'
+    standardOutput = System.out
+    errorOutput = System.err
+}
+
 // ANTLR configuration
 generateGrammarSource {
     arguments += ['-visitor', '-listener', '-package', 'de.bund.zrb.jcl.parser']

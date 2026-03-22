@@ -101,6 +101,18 @@ public final class MermaidSvgFixup {
         // Remove alignment-baseline from CSS (in <style> blocks and inline styles)
         svg = svg.replaceAll("alignment-baseline\\s*:\\s*[^;\"'}<]+[;]?", "");
 
+        // Remove @keyframes blocks (Batik CSS engine cannot parse them → NPE)
+        // Handles nested braces: @keyframes name { from { ... } to { ... } }
+        svg = svg.replaceAll("@keyframes\\s+[^{]+\\{[^}]*\\{[^}]*\\}[^}]*\\{[^}]*\\}[^}]*\\}", "");
+        svg = svg.replaceAll("@keyframes\\s+[^{]+\\{[^}]*\\{[^}]*\\}[^}]*\\}", "");
+        svg = svg.replaceAll("@keyframes\\s+[^{]+\\{[^}]*\\}", "");
+
+        // Remove animation CSS property (depends on @keyframes which is stripped)
+        svg = svg.replaceAll("animation\\s*:\\s*[^;\"'}<]+[;]?", "");
+
+        // Remove stroke-linecap (Batik may choke on certain contexts)
+        svg = svg.replaceAll("stroke-linecap\\s*:\\s*[^;\"'}<]+[;]?", "");
+
         return svg;
     }
 
@@ -129,6 +141,8 @@ public final class MermaidSvgFixup {
         svg = svg.replaceAll("cursor\\s*:\\s*[^;\"]+;?", "");
         svg = svg.replaceAll("text-align\\s*:\\s*[^;\"]+;?", "");
         svg = svg.replaceAll("background-color\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("animation\\s*:\\s*[^;\"]+;?", "");
+        svg = svg.replaceAll("stroke-linecap\\s*:\\s*[^;\"]+;?", "");
 
         // Replace fill="currentColor" with concrete color
         svg = svg.replace("fill=\"currentColor\"", "fill=\"#333333\"");
@@ -639,7 +653,12 @@ public final class MermaidSvgFixup {
             // 2) Convert rgba(...) → hex (drop alpha)
             css = replaceRgbaValues(css);
 
-            // 3) Remove unsupported CSS properties
+            // 3) Remove @keyframes blocks (Batik CSS engine cannot parse them → NPE)
+            css = css.replaceAll("@keyframes\\s+[^{]+\\{[^}]*\\{[^}]*\\}[^}]*\\}", "");
+            // Simpler fallback: @keyframes name { ... } with single-level braces
+            css = css.replaceAll("@keyframes\\s+[^{]+\\{[^}]*\\}", "");
+
+            // 4) Remove unsupported CSS properties
             // Strip entire property declarations: "property-name: value;"
             css = css.replaceAll("position\\s*:\\s*[^;\"]+;?", "");
             css = css.replaceAll("box-shadow\\s*:\\s*[^;\"]+;?", "");
@@ -650,6 +669,8 @@ public final class MermaidSvgFixup {
             css = css.replaceAll("text-align\\s*:\\s*[^;\"]+;?", "");
             css = css.replaceAll("background-color\\s*:\\s*[^;\"]+;?", "");
             css = css.replaceAll("alignment-baseline\\s*:\\s*[^;\"]+;?", "");
+            css = css.replaceAll("animation\\s*:\\s*[^;\"]+;?", "");
+            css = css.replaceAll("stroke-linecap\\s*:\\s*[^;\"]+;?", "");
 
             styleNode.setTextContent(css);
         }
