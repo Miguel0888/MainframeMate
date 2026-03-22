@@ -100,6 +100,33 @@ public final class SvgRenderer {
         }
     }
 
+    /**
+     * Render an SVG document to a {@link BufferedImage} at an <b>exact</b> pixel width.
+     * <p>
+     * Unlike {@link #renderToBufferedImage(byte[], float, float)} which uses
+     * {@code KEY_MAX_WIDTH} (only shrinks, never enlarges), this method uses
+     * {@code KEY_WIDTH} which <b>forces</b> the output to the requested width,
+     * scaling the SVG content up or down as needed.  Height is determined
+     * automatically from the SVG's aspect ratio.
+     *
+     * @param svgData raw SVG bytes (UTF-8 XML)
+     * @param width   exact output width in pixels
+     * @return rasterised image, or {@code null} on failure
+     */
+    public static BufferedImage renderToBufferedImageForced(byte[] svgData, float width) {
+        if (svgData == null || svgData.length == 0) return null;
+        try {
+            BufferedImageTranscoder transcoder = new BufferedImageTranscoder();
+            transcoder.addTranscodingHint(ImageTranscoder.KEY_WIDTH, width);
+            TranscoderInput input = new TranscoderInput(new ByteArrayInputStream(svgData));
+            transcoder.transcode(input, new TranscoderOutput());
+            return transcoder.getImage();
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[SvgRenderer] Failed to render SVG (forced width=" + width + ")", e);
+            return null;
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  Internal Batik transcoder that captures the BufferedImage
     // ═══════════════════════════════════════════════════════════

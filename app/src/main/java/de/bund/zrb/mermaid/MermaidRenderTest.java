@@ -40,7 +40,11 @@ public final class MermaidRenderTest {
     /** Test time limit in seconds. */
     private static final int COUNTDOWN_SECONDS = 10 * 60;   // 10 minutes
 
+    /** Forced rasterisation width in pixels — Batik scales the SVG to exactly this. */
+    private static final float RENDER_WIDTH = 1400f;
+
     private MermaidRenderTest() {}
+
 
     // ═══════════════════════════════════════════════════════════
     //  Data model — serialised to JSON
@@ -107,102 +111,214 @@ public final class MermaidRenderTest {
     private static List<DiagramSpec> buildSpecs() {
         List<DiagramSpec> s = new ArrayList<DiagramSpec>();
 
-        // 1 — Arrowhead test
-        s.add(new DiagramSpec("arrowhead",
-                "1 \u2014 Pfeilspitze",
-                "Zwei Rechtecke \"A\" und \"B\" verbunden durch eine Linie. "
-                        + "Am Ende bei B muss eine ausgef\u00fcllte DREIECKIGE PFEILSPITZE sichtbar sein.",
-                "graph LR\n    A --> B",
+        // ═══════════════════════════════════════════════════════
+        //  RUNDE 6 — Komplexe Diagramme
+        // ═══════════════════════════════════════════════════════
+
+        // 1 — Pizzabestellung: Komplexer Entscheidungsfluss mit vielen Knotentypen
+        s.add(new DiagramSpec("pizza-flow",
+                "1 \u2014 Pizzabestellung",
+                "Ein Flussdiagramm von oben nach unten:\n"
+                        + "Oben: Stadion-Knoten \"Hunger\" (abgerundete Seiten).\n"
+                        + "Darunter: Raute \"Geld?\" mit zwei Ausg\u00e4ngen: links \"Nein\" zu \"Nudeln\" (Rechteck), "
+                        + "rechts \"Ja\" zu Raute \"Lust auf Pizza?\".\n"
+                        + "\"Lust auf Pizza?\" hat zwei Ausg\u00e4nge: \"Ja\" zu \"Mario\" (Stadion) und \"Nein\" zu \"Sushi\" (Rechteck).\n"
+                        + "Sowohl \"Mario\" als auch \"Sushi\" f\u00fchren zu \"Satt\" (Stadion) ganz unten.\n"
+                        + "ALLE Kanten haben beschriftete Labels (Ja/Nein).",
+                "graph TD\n"
+                        + "    Hunger([Hunger]) -->|Check| Geld{Geld?}\n"
+                        + "    Geld -->|Nein| Nudeln[Nudeln kochen]\n"
+                        + "    Geld -->|Ja| Pizza{Lust auf Pizza?}\n"
+                        + "    Pizza -->|Ja| Mario([Mario anrufen])\n"
+                        + "    Pizza -->|Nein| Sushi[Sushi bestellen]\n"
+                        + "    Mario --> Satt([Satt])\n"
+                        + "    Sushi --> Satt\n"
+                        + "    Nudeln --> Satt",
                 new String[][] {
-                        {"arrow-visible", "Ist eine dreieckige Pfeilspitze am Ende der Linie (bei B) sichtbar?"},
-                        {"arrow-filled", "Ist die Pfeilspitze ausgef\u00fcllt (dunkel), nicht nur ein Umriss?"}
+                        {"hunger-shape", "Hat \"Hunger\" ganz oben abgerundete Seiten (Stadion-Form)?"},
+                        {"geld-diamond", "Ist \"Geld?\" eine Raute (auf der Spitze stehendes Quadrat)?"},
+                        {"pizza-diamond", "Ist \"Lust auf Pizza?\" ebenfalls eine Raute?"},
+                        {"labels-visible", "Sind die Kantenlabels \"Ja\", \"Nein\" und \"Check\" lesbar?"},
+                        {"satt-reached", "F\u00fchren alle drei Wege (Nudeln, Mario, Sushi) am Ende zu \"Satt\"?"},
+                        {"no-overlap", "Sind Knoten und Labels \u00fcberschneidungsfrei lesbar?"}
                 }));
 
-        // 2 — Text inside box
-        s.add(new DiagramSpec("text-in-box",
-                "2 \u2014 Text im Kasten",
-                "Ein Rechteck mit dem Text \"Hallo\" darin. "
-                        + "Der Text muss ZENTRIERT INNERHALB des Kastens stehen, nicht daneben oder darunter.",
-                "graph LR\n    A[Hallo]",
+        // 2 — B\u00fcro-Meeting: Sequenzdiagramm mit Loop, Alt und Note
+        s.add(new DiagramSpec("meeting-seq",
+                "2 \u2014 B\u00fcro-Meeting (Sequenz)",
+                "Drei Akteure: \"Chef\", \"Alice\", \"Bob\" (in dieser Reihenfolge von links nach rechts).\n"
+                        + "1) Chef sendet \"Agenda\" an Alice und Bob (je ein Pfeil).\n"
+                        + "2) Ein LOOP-Block (beschriftet \"Diskussion\") enth\u00e4lt: Alice sendet \"Vorschlag\" an Bob, "
+                        + "Bob antwortet gestrichelt \"Feedback\" an Alice.\n"
+                        + "3) Eine NOTE rechts neben Bob mit dem Text \"Deadline Fr\".\n"
+                        + "4) Alice sendet \"Ergebnis\" an Chef.\n"
+                        + "Lebenslinien m\u00fcssen bis zu den unteren Actor-Boxen reichen.",
+                "sequenceDiagram\n"
+                        + "    participant Chef\n"
+                        + "    participant Alice\n"
+                        + "    participant Bob\n"
+                        + "    Chef->>Alice: Agenda\n"
+                        + "    Chef->>Bob: Agenda\n"
+                        + "    loop Diskussion\n"
+                        + "        Alice->>Bob: Vorschlag\n"
+                        + "        Bob-->>Alice: Feedback\n"
+                        + "    end\n"
+                        + "    Note right of Bob: Deadline Fr\n"
+                        + "    Alice->>Chef: Ergebnis",
                 new String[][] {
-                        {"text-inside", "Steht der Text \"Hallo\" INNERHALB des Rechtecks?"},
-                        {"text-centered", "Ist der Text horizontal und vertikal zentriert im Kasten?"}
+                        {"three-actors", "Sind drei Akteure (Chef, Alice, Bob) mit lesbaren Namen sichtbar?"},
+                        {"loop-box", "Gibt es einen umrandeten Block mit der Beschriftung \"Diskussion\" (Loop)?"},
+                        {"note-visible", "Ist eine gelbe/helle Notiz mit \"Deadline Fr\" rechts neben Bob sichtbar?"},
+                        {"all-arrows", "Sind mindestens 5 Pfeile sichtbar (Agenda x2, Vorschlag, Feedback, Ergebnis)?"},
+                        {"lifelines-ok", "Reichen die Lebenslinien bis zu den unteren Actor-Boxen?"}
                 }));
 
-        // 3 — Line visibility
-        s.add(new DiagramSpec("line-visible",
-                "3 \u2014 Linie sichtbar",
-                "Drei Rechtecke \"X\", \"Y\", \"Z\" in einer Reihe. "
-                        + "Zwischen X\u2192Y und Y\u2192Z muss je eine sichtbare Verbindungslinie sein.",
-                "graph LR\n    X --> Y --> Z",
+        // 3 — Verschachtelte Subgraphs: Subgraph in Subgraph
+        s.add(new DiagramSpec("nested-sub",
+                "3 \u2014 Verschachtelte Teams",
+                "Drei verschachtelte Ebenen:\n"
+                        + "- \u00c4u\u00dferer Rahmen \"Firma\" enth\u00e4lt:\n"
+                        + "  - Innerer Rahmen \"Dev\" mit Knoten \"Anna\" und \"Tom\" (Pfeil Anna\u2192Tom)\n"
+                        + "  - Innerer Rahmen \"Ops\" mit Knoten \"Lisa\" und \"Max\" (Pfeil Lisa\u2192Max)\n"
+                        + "- Au\u00dferhalb der Firma: Knoten \"Kunde\" mit Pfeil zu Anna.\n"
+                        + "- Pfeil von Tom zu Lisa (Verbindung zwischen den inneren Subgraphs).\n"
+                        + "Die Rahmen sollen beschriftet sein und sich NICHT \u00fcberlappen.",
+                "graph TD\n"
+                        + "    subgraph Firma\n"
+                        + "        subgraph Dev\n"
+                        + "            Anna --> Tom\n"
+                        + "        end\n"
+                        + "        subgraph Ops\n"
+                        + "            Lisa --> Max\n"
+                        + "        end\n"
+                        + "        Tom --> Lisa\n"
+                        + "    end\n"
+                        + "    Kunde --> Anna",
                 new String[][] {
-                        {"lines-visible", "Sind die Verbindungslinien zwischen den Bl\u00f6cken sichtbar?"},
-                        {"three-boxes", "Sind genau drei separate Bl\u00f6cke (Rechtecke) sichtbar?"}
+                        {"firma-border", "Gibt es einen \u00e4u\u00dferen Rahmen \"Firma\"?"},
+                        {"dev-inside", "Ist ein Rahmen \"Dev\" mit \"Anna\" und \"Tom\" INNERHALB von Firma?"},
+                        {"ops-inside", "Ist ein Rahmen \"Ops\" mit \"Lisa\" und \"Max\" INNERHALB von Firma?"},
+                        {"kunde-outside", "Ist \"Kunde\" AUSSERHALB des Firma-Rahmens?"},
+                        {"cross-link", "Gibt es eine sichtbare Verbindung von Tom zu Lisa (zwischen Dev und Ops)?"}
                 }));
 
-        // 4 — Diamond shape
-        s.add(new DiagramSpec("diamond",
-                "4 \u2014 Rautenform",
-                "Ein einzelner Knoten in RAUTENFORM (auf der Spitze stehendes Quadrat, 45\u00b0 gedreht) "
-                        + "mit dem Text \"Ja?\" darin. Mermaid erzeugt Rauten als gedrehte Quadrate mit 90\u00b0-Ecken \u2014 "
-                        + "das ist KORREKT.",
-                "graph TD\n    D{Ja?}",
+        // 4 — Viele Pfeiltypen: durchgezogen, gestrichelt, dick, mit/ohne Label
+        s.add(new DiagramSpec("arrow-types",
+                "4 \u2014 Pfeiltypen-Sammlung",
+                "Sechs Knoten in zwei Spalten (links A-C, rechts D-F):\n"
+                        + "- \"Alpha\" ---> \"Delta\" : DURCHGEZOGENE Linie mit Pfeilspitze\n"
+                        + "- \"Beta\" -.-> \"Echo\" : GESTRICHELTE Linie mit Pfeilspitze, Label \"dashed\"\n"
+                        + "- \"Gamma\" ==> \"Foxtrot\" : DICKE Linie mit Pfeilspitze, Label \"thick\"\n"
+                        + "Alle sechs Knoten-Texte und beide Labels m\u00fcssen lesbar sein.",
+                "graph LR\n"
+                        + "    Alpha --> Delta\n"
+                        + "    Beta -.->|dashed| Echo\n"
+                        + "    Gamma ==>|thick| Foxtrot",
                 new String[][] {
-                        {"is-diamond", "Ist die Form auf der Spitze stehend (gedrehtes Quadrat / Raute), NICHT ein normales achsenparalleles Rechteck?"},
-                        {"text-in-diamond", "Steht der Text \"Ja?\" innerhalb der Raute?"}
+                        {"solid-arrow", "Hat die Linie Alpha\u2192Delta eine durchgezogene Linie mit Pfeilspitze?"},
+                        {"dashed-arrow", "Hat die Linie Beta\u2192Echo eine GESTRICHELTE Linie (keine durchgezogene)?"},
+                        {"thick-arrow", "Ist die Linie Gamma\u2192Foxtrot DICKER als die anderen beiden?"},
+                        {"labels-read", "Sind die Labels \"dashed\" und \"thick\" lesbar?"},
+                        {"six-nodes", "Sind alle 6 Knoten-Texte (Alpha, Beta, Gamma, Delta, Echo, Foxtrot) lesbar?"}
                 }));
 
-        // 5 — Edge label
-        s.add(new DiagramSpec("edge-label",
-                "5 \u2014 Kantenbeschriftung",
-                "Zwei Rechtecke \"X\" und \"Y\" mit einer Linie dazwischen. "
-                        + "AUF oder NEBEN der Linie steht das Wort \"Label\". "
-                        + "Das Label soll einen sichtbaren Hintergrund haben und die Linie NICHT durch den Text laufen.",
-                "graph LR\n    X -->|Label| Y",
+        // 5 — Gro\u00dfer Flowchart mit vielen Knotenformen
+        s.add(new DiagramSpec("shape-zoo",
+                "5 \u2014 Formen-Zoo",
+                "Ein Diagramm mit 6 verschiedenen Knotenformen, alle mit Namen beschriftet:\n"
+                        + "- \"Rechteck\" = normales Rechteck (eckig)\n"
+                        + "- \"Rund\" = Stadion (abgerundete Seiten)\n"
+                        + "- \"Kreis\" = Kreis\n"
+                        + "- \"Raute\" = Raute/Diamant\n"
+                        + "- \"Sechseck\" = Sechseck (hexagonal)\n"
+                        + "- \"Trapez\" = Trapezoid\n"
+                        + "Alle durch Pfeile verbunden: Rechteck\u2192Rund\u2192Kreis\u2192Raute\u2192Sechseck\u2192Trapez.",
+                "graph LR\n"
+                        + "    Rechteck[Rechteck] --> Rund([Rund])\n"
+                        + "    Rund --> Kreis((Kreis))\n"
+                        + "    Kreis --> Raute{Raute}\n"
+                        + "    Raute --> Sechseck{{Sechseck}}\n"
+                        + "    Sechseck --> Trapez[/Trapez/]",
                 new String[][] {
-                        {"label-visible", "Ist das Wort \"Label\" auf oder neben der Verbindungslinie sichtbar?"},
-                        {"label-background", "Hat das Label einen Hintergrund (nicht direkt auf der Linie ohne Hintergrund)?"},
-                        {"line-not-through-text", "L\u00e4uft die Linie um das Label herum oder stoppt davor (statt durch den Text)?"}
+                        {"rect-shape", "Ist \"Rechteck\" ein normales Rechteck mit Ecken?"},
+                        {"stadium-shape", "Hat \"Rund\" abgerundete Seiten (Stadion-Form)?"},
+                        {"circle-shape", "Ist \"Kreis\" ein Kreis (nicht Rechteck)?"},
+                        {"diamond-shape", "Ist \"Raute\" rautenf\u00f6rmig (auf Spitze stehendes Quadrat)?"},
+                        {"hexagon-shape", "Hat \"Sechseck\" eine hexagonale/sechseckige Form (mehr als 4 Ecken)?"},
+                        {"trapez-shape", "Hat \"Trapez\" eine Trapezoid-Form (schr\u00e4ge Seiten)?"},
+                        {"all-connected", "Sind alle 6 Formen durch Pfeile verbunden?"}
                 }));
 
-        // 6 — Subgraph border
-        s.add(new DiagramSpec("subgraph",
-                "6 \u2014 Subgraph-Rahmen",
-                "Ein umrandeter Bereich (Rechteck-Rahmen) mit der \u00dcberschrift \"Gruppe\". "
-                        + "Innerhalb des Rahmens zwei Bl\u00f6cke \"G1\" und \"G2\" mit Pfeil. "
-                        + "Ausserhalb ein Block \"Aussen\" mit Pfeil zu G1.",
-                "graph TD\n    subgraph Gruppe\n        G1 --> G2\n    end\n    Aussen --> G1",
+        // 6 — Komplexe Sequenz: Activation Boxes + Parallele Nachrichten
+        s.add(new DiagramSpec("seq-activate",
+                "6 \u2014 Server-Anfrage (Sequenz mit Aktivierung)",
+                "Drei Akteure: \"Browser\", \"Server\", \"DB\".\n"
+                        + "1) Browser sendet \"GET /api\" an Server. Server wird AKTIVIERT (schmales Rechteck auf Lebenslinie).\n"
+                        + "2) Server sendet \"SELECT\" an DB. DB wird AKTIVIERT.\n"
+                        + "3) DB antwortet gestrichelt \"Rows\" an Server. DB wird DEAKTIVIERT.\n"
+                        + "4) Server antwortet gestrichelt \"JSON\" an Browser. Server wird DEAKTIVIERT.\n"
+                        + "Aktivierte Bereiche sollen als schmale Rechtecke auf den Lebenslinien sichtbar sein.",
+                "sequenceDiagram\n"
+                        + "    participant Browser\n"
+                        + "    participant Server\n"
+                        + "    participant DB\n"
+                        + "    Browser->>+Server: GET /api\n"
+                        + "    Server->>+DB: SELECT\n"
+                        + "    DB-->>-Server: Rows\n"
+                        + "    Server-->>-Browser: JSON",
                 new String[][] {
-                        {"border-visible", "Ist ein umrandeter Bereich (Rahmen) mit \u00dcberschrift \"Gruppe\" sichtbar?"},
-                        {"inside-nodes", "Sind G1 und G2 innerhalb des Rahmens?"},
-                        {"outside-node", "Ist \"Aussen\" ausserhalb des Rahmens?"}
+                        {"three-actors", "Sind drei Akteure (Browser, Server, DB) mit lesbaren Namen sichtbar?"},
+                        {"arrows-visible", "Sind die 4 Pfeile (GET, SELECT, Rows, JSON) mit lesbarem Text sichtbar?"},
+                        {"activation-boxes", "Sind schmale Aktivierungs-Rechtecke auf den Lebenslinien von Server und/oder DB sichtbar?"},
+                        {"lifelines-ok", "Reichen die Lebenslinien bis zu den unteren Actor-Boxen?"}
                 }));
 
-        // 7 — Sequence diagram
-        s.add(new DiagramSpec("sequence",
-                "7 \u2014 Sequenzdiagramm",
-                "Zwei senkrechte Lebenslinien mit den Namen \"Alice\" (links) und \"Bob\" (rechts). "
-                        + "Ein Pfeil von Alice nach Bob mit dem Text \"Hallo\". "
-                        + "Ein gestrichelter R\u00fcckpfeil von Bob nach Alice mit \"Hi\". "
-                        + "Unten wiederholen sich die Actor-Boxen. Die Lebenslinien m\u00fcssen BIS zu den unteren Boxen reichen.",
-                "sequenceDiagram\n    Alice->>Bob: Hallo\n    Bob-->>Alice: Hi",
+        // 7 — Bottom-Up Flowchart mit R\u00fcckw\u00e4rtspfeil (Zyklus)
+        s.add(new DiagramSpec("cycle-flow",
+                "7 \u2014 Endlosschleife (Zyklus)",
+                "Ein Bottom-Up-Flowchart (BT = unten nach oben):\n"
+                        + "Unten: \"Start\" (Stadion). Dar\u00fcber \"Arbeiten\" (Rechteck). Dar\u00fcber Raute \"Fertig?\".\n"
+                        + "Von \"Fertig?\" geht \"Ja\" nach oben zu \"Ende\" (Stadion).\n"
+                        + "Von \"Fertig?\" geht \"Nein\" ZUR\u00dcCK nach unten zu \"Arbeiten\" \u2014 das ist ein R\u00fcckw\u00e4rtspfeil!\n"
+                        + "Der R\u00fcckpfeil zu \"Arbeiten\" muss als GEBOGENE oder UMGELEITETE Linie sichtbar sein (kein gerader \u00dcberlapp).",
+                "graph BT\n"
+                        + "    Start([Start]) --> Arbeiten[Arbeiten]\n"
+                        + "    Arbeiten --> Fertig{Fertig?}\n"
+                        + "    Fertig -->|Ja| Ende([Ende])\n"
+                        + "    Fertig -->|Nein| Arbeiten",
                 new String[][] {
-                        {"rendered", "Wird das Diagramm \u00fcberhaupt angezeigt (kein roter Fehler)?"},
-                        {"names-visible", "Sind die Namen \"Alice\" und \"Bob\" lesbar?"},
-                        {"arrows-visible", "Sind Pfeile zwischen den Lebenslinien sichtbar?"},
-                        {"lifelines-reach-bottom", "Reichen die Lebenslinien bis zu den UNTEREN Actor-Boxen?"}
+                        {"bottom-up", "Flie\u00dft das Diagramm grob von UNTEN nach OBEN (Start unten, Ende oben)?"},
+                        {"fertig-diamond", "Ist \"Fertig?\" eine Raute?"},
+                        {"cycle-arrow", "Gibt es einen R\u00fcckw\u00e4rtspfeil von \"Fertig?\" ZUR\u00dcCK zu \"Arbeiten\" (Zyklus)?"},
+                        {"labels-ja-nein", "Sind die Labels \"Ja\" und \"Nein\" an der Raute lesbar?"},
+                        {"no-overlap", "Sind alle Knoten und Pfeile \u00fcberschneidungsfrei lesbar?"}
                 }));
 
-        // 8 — Stadium node shape
-        s.add(new DiagramSpec("stadium",
-                "8 \u2014 Stadion-Knoten",
-                "Links ein Knoten mit abgerundeten Seiten (\"Stadion\"-Form) mit Text \"Rund\". "
-                        + "Rechts ein normales Rechteck \"Eckig\". Pfeil dazwischen.",
-                "graph LR\n    A([Rund]) --> B[Eckig]",
+        // 8 — Sequenzdiagramm mit Alt-Block (if/else)
+        s.add(new DiagramSpec("seq-alt",
+                "8 \u2014 Wetter-Check (Sequenz mit Alt)",
+                "Zwei Akteure: \"Mensch\" und \"App\".\n"
+                        + "1) Mensch sendet \"Wie wird das Wetter?\" an App.\n"
+                        + "2) Ein ALT-Block (beschriftet \"Sonne\" oben) zeigt: App antwortet \"Ab an den See!\".\n"
+                        + "   Darunter ein ELSE-Abschnitt: App antwortet \"Regenschirm mitnehmen\".\n"
+                        + "3) Mensch sendet \"Danke\" an App.\n"
+                        + "Der Alt/Else-Block soll als umrandeter Bereich mit den Beschriftungen sichtbar sein.",
+                "sequenceDiagram\n"
+                        + "    participant Mensch\n"
+                        + "    participant App\n"
+                        + "    Mensch->>App: Wie wird das Wetter?\n"
+                        + "    alt Sonne\n"
+                        + "        App-->>Mensch: Ab an den See!\n"
+                        + "    else Regen\n"
+                        + "        App-->>Mensch: Regenschirm mitnehmen\n"
+                        + "    end\n"
+                        + "    Mensch->>App: Danke",
                 new String[][] {
-                        {"stadium-shape", "Hat der linke Knoten abgerundete Seiten (nicht rechteckig)?"},
-                        {"rect-shape", "Ist der rechte Knoten ein normales Rechteck?"},
-                        {"arrow-between", "Gibt es einen Pfeil (mit Spitze) zwischen beiden Knoten?"}
+                        {"two-actors", "Sind zwei Akteure (Mensch, App) mit lesbaren Namen sichtbar?"},
+                        {"alt-box", "Gibt es einen umrandeten Block f\u00fcr den Alt-Bereich (m\u00f6glicherweise mit \"Sonne\" beschriftet)?"},
+                        {"else-section", "Gibt es eine Trennlinie oder Markierung f\u00fcr den Else-Bereich (\"Regen\")?"},
+                        {"messages-readable", "Sind die Nachrichtentexte (Wetter?, See!, Regenschirm, Danke) lesbar?"},
+                        {"lifelines-ok", "Reichen die Lebenslinien bis zu den unteren Actor-Boxen?"}
                 }));
 
         return s;
@@ -242,7 +358,7 @@ public final class MermaidRenderTest {
             try { w.write(svg); } finally { w.close(); }
 
             byte[] svgBytes = svg.getBytes("UTF-8");
-            BufferedImage img = SvgRenderer.renderToBufferedImage(svgBytes, 600f, 400f);
+            BufferedImage img = SvgRenderer.renderToBufferedImageForced(svgBytes, RENDER_WIDTH);
             rendered.add(new RenderedCase(spec, img, svg, false, img == null));
         }
 
@@ -349,48 +465,170 @@ public final class MermaidRenderTest {
             descArea.setEditable(false);
             descArea.setLineWrap(true);
             descArea.setWrapStyleWord(true);
-            descArea.setRows(4);
+            descArea.setRows(6);
             descArea.setBackground(new Color(255, 255, 220));
             descArea.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
             descArea.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(new Color(200, 200, 150)),
                     BorderFactory.createEmptyBorder(4, 6, 4, 6)));
-            descArea.setMaximumSize(new Dimension(Integer.MAX_VALUE, 100));
+            descArea.setMaximumSize(new Dimension(Integer.MAX_VALUE, 140));
             card.add(descArea);
             card.add(Box.createVerticalStrut(4));
 
-            // ── Rendered image ──
-            JPanel imgPanel;
+            // ── Rendered image — zoomable + pannable ──
+            JPanel imgContainer;
             if (rc.image != null) {
                 final BufferedImage img = rc.image;
-                imgPanel = new JPanel() {
+
+                // Zoomable panel with drag-pan + wheel-zoom
+                final double[] zoom = {1.0};
+                final double[] offX = {0}, offY = {0};
+                final Point[] dragStart = {null};
+
+                final JPanel zoomPanel = new JPanel() {
                     @Override protected void paintComponent(Graphics g) {
                         super.paintComponent(g);
-                        int pw = getWidth(), ph = getHeight();
-                        int iw = img.getWidth(), ih = img.getHeight();
-                        double scale = Math.min((double) pw / iw, (double) ph / ih);
-                        if (scale > 1.5) scale = 1.5;
-                        int dw = (int) (iw * scale), dh = (int) (ih * scale);
-                        g.drawImage(img, (pw - dw) / 2, (ph - dh) / 2, dw, dh, null);
+                        Graphics2D g2 = (Graphics2D) g.create();
+                        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                                zoom[0] < 1.0 ? RenderingHints.VALUE_INTERPOLATION_BILINEAR
+                                               : RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+                        int dw = (int) Math.round(img.getWidth() * zoom[0]);
+                        int dh = (int) Math.round(img.getHeight() * zoom[0]);
+                        g2.drawImage(img, (int) Math.round(offX[0]), (int) Math.round(offY[0]), dw, dh, null);
+                        g2.dispose();
                     }
                 };
-                imgPanel.setBackground(Color.WHITE);
+                zoomPanel.setBackground(Color.WHITE);
+
+                // Fit-to-panel on first layout
+                zoomPanel.addComponentListener(new java.awt.event.ComponentAdapter() {
+                    boolean first = true;
+                    @Override public void componentResized(java.awt.event.ComponentEvent e) {
+                        if (first && zoomPanel.getWidth() > 0 && zoomPanel.getHeight() > 0) {
+                            first = false;
+                            double sx = (double) zoomPanel.getWidth() / img.getWidth();
+                            double sy = (double) zoomPanel.getHeight() / img.getHeight();
+                            zoom[0] = Math.min(sx, sy);
+                            double dw = img.getWidth() * zoom[0];
+                            double dh = img.getHeight() * zoom[0];
+                            offX[0] = (zoomPanel.getWidth() - dw) / 2.0;
+                            offY[0] = (zoomPanel.getHeight() - dh) / 2.0;
+                            zoomPanel.repaint();
+                        }
+                    }
+                });
+
+                // Mouse-wheel zoom (centered on cursor)
+                zoomPanel.addMouseWheelListener(new java.awt.event.MouseWheelListener() {
+                    @Override public void mouseWheelMoved(java.awt.event.MouseWheelEvent e) {
+                        double factor = e.getWheelRotation() < 0 ? 1.25 : 1.0 / 1.25;
+                        double oldZ = zoom[0];
+                        zoom[0] *= factor;
+                        zoom[0] = Math.max(0.05, Math.min(zoom[0], 30.0));
+                        double px = e.getX(), py = e.getY();
+                        offX[0] = px - (px - offX[0]) * (zoom[0] / oldZ);
+                        offY[0] = py - (py - offY[0]) * (zoom[0] / oldZ);
+                        zoomPanel.repaint();
+                    }
+                });
+
+                // Drag to pan
+                zoomPanel.addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override public void mousePressed(java.awt.event.MouseEvent e) {
+                        dragStart[0] = e.getPoint();
+                        zoomPanel.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                    }
+                    @Override public void mouseReleased(java.awt.event.MouseEvent e) {
+                        dragStart[0] = null;
+                        zoomPanel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
+                    }
+                });
+                zoomPanel.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+                    @Override public void mouseDragged(java.awt.event.MouseEvent e) {
+                        if (dragStart[0] != null) {
+                            offX[0] += e.getX() - dragStart[0].x;
+                            offY[0] += e.getY() - dragStart[0].y;
+                            dragStart[0] = e.getPoint();
+                            zoomPanel.repaint();
+                        }
+                    }
+                });
+
+                // Zoom buttons bar
+                JPanel zoomBar = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 2));
+                zoomBar.setBackground(new Color(240, 240, 240));
+                JButton btnZoomIn = new JButton("\u2795");
+                JButton btnZoomOut = new JButton("\u2796");
+                JButton btnFit = new JButton("\uD83D\uDD04 Einpassen");
+                btnZoomIn.setToolTipText("Vergr\u00f6\u00dfern (+)");
+                btnZoomOut.setToolTipText("Verkleinern (-)");
+                btnFit.setToolTipText("An Panel anpassen (0)");
+                btnZoomIn.setMargin(new Insets(2, 6, 2, 6));
+                btnZoomOut.setMargin(new Insets(2, 6, 2, 6));
+                btnFit.setMargin(new Insets(2, 6, 2, 6));
+                btnZoomIn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
+                btnZoomOut.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
+
+                btnZoomIn.addActionListener(new ActionListener() {
+                    @Override public void actionPerformed(ActionEvent e) {
+                        double oldZ = zoom[0];
+                        zoom[0] = Math.min(zoom[0] * 1.4, 30.0);
+                        double cx = zoomPanel.getWidth() / 2.0, cy = zoomPanel.getHeight() / 2.0;
+                        offX[0] = cx - (cx - offX[0]) * (zoom[0] / oldZ);
+                        offY[0] = cy - (cy - offY[0]) * (zoom[0] / oldZ);
+                        zoomPanel.repaint();
+                    }
+                });
+                btnZoomOut.addActionListener(new ActionListener() {
+                    @Override public void actionPerformed(ActionEvent e) {
+                        double oldZ = zoom[0];
+                        zoom[0] = Math.max(zoom[0] / 1.4, 0.05);
+                        double cx = zoomPanel.getWidth() / 2.0, cy = zoomPanel.getHeight() / 2.0;
+                        offX[0] = cx - (cx - offX[0]) * (zoom[0] / oldZ);
+                        offY[0] = cy - (cy - offY[0]) * (zoom[0] / oldZ);
+                        zoomPanel.repaint();
+                    }
+                });
+                btnFit.addActionListener(new ActionListener() {
+                    @Override public void actionPerformed(ActionEvent e) {
+                        if (zoomPanel.getWidth() > 0 && zoomPanel.getHeight() > 0) {
+                            double sx = (double) zoomPanel.getWidth() / img.getWidth();
+                            double sy = (double) zoomPanel.getHeight() / img.getHeight();
+                            zoom[0] = Math.min(sx, sy);
+                            double dw = img.getWidth() * zoom[0];
+                            double dh = img.getHeight() * zoom[0];
+                            offX[0] = (zoomPanel.getWidth() - dw) / 2.0;
+                            offY[0] = (zoomPanel.getHeight() - dh) / 2.0;
+                            zoomPanel.repaint();
+                        }
+                    }
+                });
+
+                zoomBar.add(btnZoomOut);
+                zoomBar.add(btnFit);
+                zoomBar.add(btnZoomIn);
+                zoomBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+
+                imgContainer = new JPanel(new BorderLayout());
+                imgContainer.add(zoomPanel, BorderLayout.CENTER);
+                imgContainer.add(zoomBar, BorderLayout.SOUTH);
+                imgContainer.setBackground(Color.WHITE);
             } else {
-                imgPanel = new JPanel(new BorderLayout());
+                imgContainer = new JPanel(new BorderLayout());
                 String errMsg = rc.renderError
                         ? "\u274C SVG-Rendering fehlgeschlagen"
                         : "\u274C Batik-Rasterisierung fehlgeschlagen";
                 JLabel errLabel = new JLabel(errMsg, SwingConstants.CENTER);
                 errLabel.setForeground(Color.RED);
                 errLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
-                imgPanel.add(errLabel, BorderLayout.CENTER);
-                imgPanel.setBackground(new Color(255, 230, 230));
+                imgContainer.add(errLabel, BorderLayout.CENTER);
+                imgContainer.setBackground(new Color(255, 230, 230));
             }
-            imgPanel.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
-            imgPanel.setPreferredSize(new Dimension(420, 300));
-            imgPanel.setMinimumSize(new Dimension(300, 200));
-            imgPanel.setMaximumSize(new Dimension(500, 400));
-            card.add(imgPanel);
+            imgContainer.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
+            imgContainer.setPreferredSize(new Dimension(580, 700));
+            imgContainer.setMinimumSize(new Dimension(480, 500));
+            imgContainer.setMaximumSize(new Dimension(640, 900));
+            card.add(imgContainer);
             card.add(Box.createVerticalStrut(4));
 
             // ── Annotation text area (for user guidance) ──
@@ -483,13 +721,13 @@ public final class MermaidRenderTest {
                 qIdx++;
             }
 
-            questionsPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40 * rc.spec.questions.size() + 30));
+            questionsPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 50 * rc.spec.questions.size() + 40));
             card.add(questionsPanel);
 
-            // Fixed card width
-            card.setPreferredSize(new Dimension(460, 750));
-            card.setMinimumSize(new Dimension(380, 600));
-            card.setMaximumSize(new Dimension(540, 900));
+            // Fixed card width — sized for 5120×1440 ultrawide
+            card.setPreferredSize(new Dimension(600, 1300));
+            card.setMinimumSize(new Dimension(500, 1000));
+            card.setMaximumSize(new Dimension(640, 1400));
 
             cardRow.add(card);
             if (idx < cases.size() - 1) {
