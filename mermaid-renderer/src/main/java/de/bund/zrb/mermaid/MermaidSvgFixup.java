@@ -118,6 +118,32 @@ public final class MermaidSvgFixup {
         // Replace orient="auto-start-reverse" with orient="auto" (SVG 2 → 1.1)
         svg = svg.replace("orient=\"auto-start-reverse\"", "orient=\"auto\"");
 
+        // Fix negative stroke-width values in CSS (Mermaid mindmap generates
+        // edge-depth-N classes with negative stroke-widths for deep nesting levels,
+        // e.g. stroke-width:-1.  Batik's BasicStroke throws IllegalArgumentException
+        // for negative widths).  Replace any negative value with 0.
+        {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "stroke-width\\s*:\\s*(-\\d+(?:\\.\\d+)?)");
+            java.util.regex.Matcher m = p.matcher(svg);
+            StringBuffer sb = new StringBuffer(svg.length());
+            while (m.find()) {
+                m.appendReplacement(sb, "stroke-width:0");
+            }
+            m.appendTail(sb);
+            svg = sb.toString();
+        }
+
+        // Remove style attributes containing "undefined" (browser shim artefact:
+        // Mermaid mindmap edges get style="undefined;;;undefined" when the shim
+        // returns undefined for CSS property lookups)
+        svg = svg.replaceAll("\\s+style\\s*=\\s*\"[^\"]*undefined[^\"]*\"", "");
+        svg = svg.replaceAll("\\s+style\\s*=\\s*'[^']*undefined[^']*'", "");
+
+        // Remove dominant-baseline from CSS and inline styles
+        // (Batik may choke on certain values like "middle", "central")
+        svg = svg.replaceAll("dominant-baseline\\s*:\\s*[^;\"'}<]+[;]?", "");
+
         return svg;
     }
 
@@ -874,11 +900,25 @@ public final class MermaidSvgFixup {
             String[] unsupported = {
                 "position", "box-shadow", "filter", "z-index",
                 "pointer-events", "cursor", "text-align", "background-color",
-                "alignment-baseline", "animation", "stroke-linecap",
+                "alignment-baseline", "dominant-baseline", "animation", "stroke-linecap",
                 "vertical-align", "display", "overflow", "padding", "margin"
             };
             for (String prop : unsupported) {
                 css = css.replaceAll(prop + "\\s*:\\s*[^;}\"]+[;]?", "");
+            }
+
+            // 4b) Fix negative stroke-width values (Mermaid mindmap generates them
+            //     for deep edge-depth-N classes; Batik throws IllegalArgumentException)
+            {
+                java.util.regex.Pattern swp = java.util.regex.Pattern.compile(
+                        "stroke-width\\s*:\\s*(-\\d+(?:\\.\\d+)?)");
+                java.util.regex.Matcher swm = swp.matcher(css);
+                StringBuffer swsb = new StringBuffer(css.length());
+                while (swm.find()) {
+                    swm.appendReplacement(swsb, "stroke-width:0");
+                }
+                swm.appendTail(swsb);
+                css = swsb.toString();
             }
 
             // 5) Replace currentColor
@@ -902,11 +942,18 @@ public final class MermaidSvgFixup {
             Element el = (Element) n;
             String style = el.getAttribute("style");
             if (style != null && !style.isEmpty()) {
-                String fixed = replaceHslValues(style);
-                fixed = replaceRgbaValues(fixed);
-                fixed = fixed.replace("currentColor", "#333333");
-                if (!fixed.equals(style)) {
-                    el.setAttribute("style", fixed);
+                // Remove style attributes containing "undefined" (browser shim artefact)
+                if (style.contains("undefined")) {
+                    el.removeAttribute("style");
+                } else {
+                    String fixed = replaceHslValues(style);
+                    fixed = replaceRgbaValues(fixed);
+                    fixed = fixed.replace("currentColor", "#333333");
+                    // Fix negative stroke-width in inline styles
+                    fixed = fixed.replaceAll("stroke-width\\s*:\\s*-\\d+(?:\\.\\d+)?", "stroke-width:0");
+                    if (!fixed.equals(style)) {
+                        el.setAttribute("style", fixed);
+                    }
                 }
             }
             // Fix fill/stroke attributes with unsupported values

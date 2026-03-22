@@ -544,12 +544,26 @@ public final class MermaidRenderer {
             String[] unsupported = {
                 "position", "z-index", "pointer-events", "cursor",
                 "text-align", "background-color", "box-shadow", "filter",
-                "alignment-baseline", "vertical-align", "display",
+                "alignment-baseline", "dominant-baseline", "vertical-align", "display",
                 "overflow", "padding", "margin"
             };
             for (String prop : unsupported) {
                 cssContent = cssContent.replaceAll(
                     prop + "\\s*:\\s*[^;}\"]+(;|(?=\\}))", "");
+            }
+
+            // 6b) Fix negative stroke-width values (Mermaid mindmap generates them
+            //     for deep edge-depth-N classes; Batik throws IllegalArgumentException)
+            {
+                java.util.regex.Pattern swp = java.util.regex.Pattern.compile(
+                        "stroke-width\\s*:\\s*(-\\d+(?:\\.\\d+)?)");
+                java.util.regex.Matcher swm = swp.matcher(cssContent);
+                StringBuffer swsb = new StringBuffer(cssContent.length());
+                while (swm.find()) {
+                    swm.appendReplacement(swsb, "stroke-width:0");
+                }
+                swm.appendTail(swsb);
+                cssContent = swsb.toString();
             }
 
             // 7) Replace currentColor with concrete value
@@ -574,6 +588,10 @@ public final class MermaidRenderer {
         // Phase 2: Also strip @keyframes and animation from outside <style> (inline styles)
         String output = result.toString();
         output = output.replaceAll("\\s+alignment-baseline\\s*=\\s*\"[^\"]*\"", "");
+        // Remove style attributes containing "undefined" (browser shim artefact)
+        output = output.replaceAll("\\s+style\\s*=\\s*\"[^\"]*undefined[^\"]*\"", "");
+        // Fix negative stroke-width in inline styles
+        output = output.replaceAll("stroke-width\\s*:\\s*-\\d+(?:\\.\\d+)?", "stroke-width:0");
         return output;
     }
 
