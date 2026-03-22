@@ -399,8 +399,9 @@ public final class MermaidSvgFixup {
                 if (!rect.hasAttribute("fill")) {
                     rect.setAttribute("fill", "#e8e8e8");
                 }
-                // Force full opacity so the edge line is hidden behind the label
-                rect.setAttribute("style", "opacity:1");
+                // Almost-opaque so the line is mostly hidden but line style
+                // (dashed, thick) remains faintly visible
+                rect.setAttribute("style", "opacity:0.85");
             }
         }
     }
@@ -505,7 +506,7 @@ public final class MermaidSvgFixup {
             rect.setAttribute("width", String.valueOf(width));
             rect.setAttribute("height", String.valueOf(height));
             rect.setAttribute("fill", "#e8e8e8");
-            rect.setAttribute("style", "opacity:1");
+            rect.setAttribute("style", "opacity:0.85");
             rect.setAttribute("rx", "3");
             rect.setAttribute("ry", "3");
 

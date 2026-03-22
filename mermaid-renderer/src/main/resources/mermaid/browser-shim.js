@@ -210,18 +210,177 @@ function _serializeNode(node, parentNs) {
 
 // ── Text width estimation (for layout without a real rendering engine) ──────
 function _estimateTextWidth(el) {
-    // Get text content from this element and immediate text-node children
-    var text = '';
-    if (el.childNodes && el.childNodes.length > 0) {
-        for (var i = 0; i < el.childNodes.length; i++) {
-            var child = el.childNodes[i];
-            if (child.nodeType === 3) text += child.textContent || '';
-        }
-    }
-    if (!text && el._textContent) text = el._textContent;
+    var text = _collectAllText(el);
     if (!text) return 0;
     // Average character width ~8px at 16px font, add padding
     return text.length * 8 + 16;
+}
+
+/**
+ * Recursively collect all text content from an element and its descendants.
+ * This handles: direct text nodes, <tspan>, <span>, <div>, foreignObject, innerHTML.
+ */
+function _collectAllText(el) {
+    if (!el) return '';
+    // Text node
+    if (el.nodeType === 3) return el.textContent || '';
+    // Element node — collect from children recursively
+    var text = '';
+    if (el.childNodes && el.childNodes.length > 0) {
+        for (var i = 0; i < el.childNodes.length; i++) {
+            text += _collectAllText(el.childNodes[i]);
+        }
+    }
+    // Fallback: _textContent property (set via textContent setter)
+    if (!text && el._textContent) text = el._textContent;
+    // Fallback: innerHTML raw (strip HTML tags to get text only)
+    if (!text && el._innerHTMLRaw) {
+        text = el._innerHTMLRaw.replace(/<[^>]*>/g, '');
+    }
+    return text;
+}
+
+// ── Dimension computation for getBBox / getBoundingClientRect ────────────────
+function _computeElementDims(el) {
+    var tag = (el.tagName || '').toLowerCase();
+    var attrs = el._attrs || {};
+
+    // Helper to read numeric attribute
+    function num(name) {
+        var v = attrs[name];
+        if (v === undefined || v === null || v === '') return NaN;
+        return parseFloat(v);
+    }
+
+    // 1) rect — explicit width/height
+    if (tag === 'rect') {
+        var rw = num('width'), rh = num('height'), rx = num('x'), ry = num('y');
+        if (!isNaN(rw) && !isNaN(rh)) {
+            return { x: isNaN(rx) ? 0 : rx, y: isNaN(ry) ? 0 : ry, w: rw, h: rh };
+        }
+    }
+
+    // 2) circle — use r
+    if (tag === 'circle') {
+        var r = num('r'), cx = num('cx'), cy = num('cy');
+        if (!isNaN(r)) {
+            cx = isNaN(cx) ? 0 : cx; cy = isNaN(cy) ? 0 : cy;
+            return { x: cx - r, y: cy - r, w: 2 * r, h: 2 * r };
+        }
+    }
+
+    // 3) ellipse — use rx, ry
+    if (tag === 'ellipse') {
+        var erx = num('rx'), ery = num('ry'), ecx = num('cx'), ecy = num('cy');
+        if (!isNaN(erx) && !isNaN(ery)) {
+            ecx = isNaN(ecx) ? 0 : ecx; ecy = isNaN(ecy) ? 0 : ecy;
+            return { x: ecx - erx, y: ecy - ery, w: 2 * erx, h: 2 * ery };
+        }
+    }
+
+    // 4) polygon — parse points attribute
+    if (tag === 'polygon' || tag === 'polyline') {
+        var pts = attrs['points'];
+        if (pts) {
+            var coords = pts.trim().split(/[\s,]+/);
+            var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (var i = 0; i + 1 < coords.length; i += 2) {
+                var px = parseFloat(coords[i]), py = parseFloat(coords[i + 1]);
+                if (!isNaN(px) && !isNaN(py)) {
+                    if (px < minX) minX = px; if (px > maxX) maxX = px;
+                    if (py < minY) minY = py; if (py > maxY) maxY = py;
+                }
+            }
+            if (minX < Infinity) {
+                // Also account for transform on this element
+                var tw = maxX - minX, th = maxY - minY;
+                var tOff = _parseTranslate(el);
+                return { x: minX + tOff[0], y: minY + tOff[1], w: tw, h: th };
+            }
+        }
+    }
+
+    // 5) line — x1,y1,x2,y2
+    if (tag === 'line') {
+        var x1 = num('x1'), y1 = num('y1'), x2 = num('x2'), y2 = num('y2');
+        if (!isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
+            return { x: Math.min(x1, x2), y: Math.min(y1, y2),
+                     w: Math.abs(x2 - x1) || 1, h: Math.abs(y2 - y1) || 1 };
+        }
+    }
+
+    // 6) text — estimate from content
+    if (tag === 'text' || tag === 'tspan') {
+        var tw = _estimateTextWidth(el);
+        if (tw > 0) {
+            var tx = num('x'), ty = num('y');
+            return { x: isNaN(tx) ? 0 : tx - tw / 2, y: isNaN(ty) ? -12 : ty - 12, w: tw, h: 24 };
+        }
+    }
+
+    // 7) foreignObject — explicit width/height, or estimate from text content
+    if (tag === 'foreignobject') {
+        var fw = num('width'), fh = num('height'), fx = num('x'), fy = num('y');
+        if (!isNaN(fw) && !isNaN(fh) && fw > 0 && fh > 0) {
+            return { x: isNaN(fx) ? 0 : fx, y: isNaN(fy) ? 0 : fy, w: fw, h: fh };
+        }
+        // No dimensions set yet — estimate from text content (Mermaid measures before setting w/h)
+        var foText = _estimateTextWidth(el);
+        if (foText > 0) {
+            return { x: isNaN(fx) ? 0 : fx, y: isNaN(fy) ? 0 : fy, w: foText, h: 24 };
+        }
+    }
+
+    // 7b) HTML elements (div, span, p, label, etc.) — used inside foreignObject
+    if (tag === 'div' || tag === 'span' || tag === 'p' || tag === 'label' || tag === 'b' || tag === 'i') {
+        var htw = _estimateTextWidth(el);
+        if (htw > 0) {
+            return { x: 0, y: 0, w: htw, h: 24 };
+        }
+    }
+
+    // 8) g / svg / other containers — aggregate child bboxes with proper min/max
+    if (el.childNodes && el.childNodes.length > 0) {
+        var cMinX = Infinity, cMinY = Infinity, cMaxX = -Infinity, cMaxY = -Infinity;
+        var found = false;
+        for (var i = 0; i < el.childNodes.length; i++) {
+            var child = el.childNodes[i];
+            if (child.getBBox) {
+                var cb = child.getBBox();
+                if (cb.w === undefined) { cb.w = cb.width; cb.h = cb.height; }
+                if (cb.w > 0 || cb.h > 0) {
+                    // Account for child's transform
+                    var cOff = _parseTranslate(child);
+                    var cx1 = cb.x + cOff[0], cy1 = cb.y + cOff[1];
+                    var cx2 = cx1 + cb.w, cy2 = cy1 + cb.h;
+                    if (cx1 < cMinX) cMinX = cx1;
+                    if (cy1 < cMinY) cMinY = cy1;
+                    if (cx2 > cMaxX) cMaxX = cx2;
+                    if (cy2 > cMaxY) cMaxY = cy2;
+                    found = true;
+                }
+            }
+        }
+        if (found && cMaxX > cMinX && cMaxY > cMinY) {
+            return { x: cMinX, y: cMinY, w: cMaxX - cMinX, h: cMaxY - cMinY };
+        }
+    }
+
+    // Fallback: text-based estimate
+    var textLen = _estimateTextWidth(el);
+    var w = Math.max(textLen, 20);
+    var h = textLen > 0 ? 24 : 20;
+    return { x: 0, y: 0, w: w, h: h };
+}
+
+// Parse translate(x, y) from an element's transform attribute
+function _parseTranslate(el) {
+    var t = el._attrs && el._attrs['transform'];
+    if (!t && el.getAttribute) t = el.getAttribute('transform');
+    if (!t) return [0, 0];
+    var m = t.match(/translate\(\s*(-?[\d.]+)\s*[,\s]\s*(-?[\d.]+)\s*\)/);
+    if (m) return [parseFloat(m[1]), parseFloat(m[2])];
+    return [0, 0];
 }
 
 // ── DOM Element factory ─────────────────────────────────────────────────────
@@ -420,48 +579,16 @@ function createDomElement(tagName, namespaceURI) {
         return null;
     };
     el.getBoundingClientRect = function() {
-        // Estimate dimensions based on text content and children
-        var textLen = _estimateTextWidth(el);
-        var w = Math.max(textLen, 20);
-        var h = textLen > 0 ? 24 : 20;
-        // For SVG containers, aggregate children
-        if (el.childNodes && el.childNodes.length > 0 && textLen === 0) {
-            var maxW = 0, maxH = 0;
-            for (var i = 0; i < el.childNodes.length; i++) {
-                var child = el.childNodes[i];
-                if (child.getBoundingClientRect) {
-                    var cr = child.getBoundingClientRect();
-                    if (cr.width > maxW) maxW = cr.width;
-                    maxH += cr.height;
-                }
-            }
-            if (maxW > 0) w = maxW;
-            if (maxH > 0) h = maxH;
-        }
-        return { x: 0, y: 0, width: w, height: h, top: 0, right: w, bottom: h, left: 0 };
+        var dims = _computeElementDims(el);
+        return { x: dims.x, y: dims.y, width: dims.w, height: dims.h,
+                 top: dims.y, right: dims.x + dims.w, bottom: dims.y + dims.h, left: dims.x };
     };
     el.getComputedTextLength = function() {
         return _estimateTextWidth(el);
     };
     el.getBBox = function() {
-        var textLen = _estimateTextWidth(el);
-        var w = Math.max(textLen, 20);
-        var h = textLen > 0 ? 24 : 20;
-        // For group elements, aggregate child bboxes
-        if (el.childNodes && el.childNodes.length > 0 && textLen === 0) {
-            var maxW = 0, totalH = 0;
-            for (var i = 0; i < el.childNodes.length; i++) {
-                var child = el.childNodes[i];
-                if (child.getBBox) {
-                    var cb = child.getBBox();
-                    if (cb.width > maxW) maxW = cb.width;
-                    totalH += cb.height;
-                }
-            }
-            if (maxW > 0) w = maxW;
-            if (totalH > 0) h = totalH;
-        }
-        return { x: 0, y: 0, width: w, height: h };
+        var dims = _computeElementDims(el);
+        return { x: dims.x, y: dims.y, width: dims.w, height: dims.h };
     };
     el.getTotalLength = function() { return 0; };
     el.getPointAtLength = function(len) { return { x: 0, y: 0 }; };

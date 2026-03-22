@@ -75,8 +75,24 @@ wendet folgende DOM-Level-Fixes an:
 
 Das `app`-Modul enthält `MermaidRenderTest` — ein interaktives Swing-Tool:
 
-- **8 fokussierte Micro-Tests** (Pfeilspitze, Text-im-Kasten, Linie, Raute, Edge-Label, Subgraph, Sequenz, Stadium)
+- **8 fokussierte Micro-Tests** mit Zoom+Pan pro Diagramm (Mausrad, Drag, +/−/Einpassen-Buttons)
 - **Erwartungsbeschreibung** über jedem Bild
 - **Anmerkungsfeld** für Feedback (optional)
 - **Spezifische Ja/Nein/Teilweise-Fragen** pro Testcase
 - Ergebnis als JSON → `mermaid-test-result.json`
+
+### Browser-Shim — `_computeElementDims`
+
+Mermaid verwendet `getBBox()` zur Layout-Berechnung (Knotengrößen, Pfadendpunkte).
+Der Browser-Shim implementiert `_computeElementDims()` für genaue Dimensionen:
+
+| SVG-Element | Dimensionsquelle |
+|-------------|-----------------|
+| `rect` | `width`/`height` Attribute |
+| `circle` | `r` × 2 |
+| `ellipse` | `rx` × 2, `ry` × 2 |
+| `polygon` | `points` parsen → min/max Bounding Box |
+| `line` | `x1`/`y1`/`x2`/`y2` |
+| `text` | `_estimateTextWidth()` (char × 8px + 16px) |
+| `g`/Container | Kinder-BBoxes aggregieren (min/max, mit Transform-Offset) |
+
