@@ -295,15 +295,22 @@ public final class MermaidSvgFixup {
         // Convert negative width to absolute value and shift x position accordingly.
         {
             java.util.regex.Pattern negWP = java.util.regex.Pattern.compile(
-                    "<rect([^>]*)\\bwidth\\s*=\\s*\"(-[\\d.]+)\"([^>]*)(/?)>");
+                    "<rect([^>]*)\\bwidth\\s*=\\s*\"(-[\\d.]+)\"([^>]*)>");
             java.util.regex.Matcher negWM = negWP.matcher(svg);
             StringBuffer negWSb = new StringBuffer(svg.length());
             while (negWM.find()) {
                 String before = negWM.group(1);
                 double negW = Double.parseDouble(negWM.group(2));
                 String after = negWM.group(3);
-                String selfClose = negWM.group(4);
                 double posW = Math.abs(negW);
+
+                // Detect and strip self-closing '/' that [^>]* consumed from '/>'
+                boolean selfClosing = after.endsWith("/");
+                if (selfClosing) {
+                    after = after.substring(0, after.length() - 1);
+                }
+                String closeTag = selfClosing ? "/>" : ">";
+
                 // Try to adjust x position: x = x + negW (shift left by absolute width)
                 String combined = before + after;
                 java.util.regex.Matcher xM = java.util.regex.Pattern.compile(
@@ -318,13 +325,13 @@ public final class MermaidSvgFixup {
                             java.util.regex.Matcher.quoteReplacement(
                                     "<rect" + fixedAttrs + " width=\""
                                     + String.format(java.util.Locale.US, "%.1f", posW)
-                                    + "\"" + selfClose + ">"));
+                                    + "\"" + closeTag));
                 } else {
                     negWM.appendReplacement(negWSb,
                             java.util.regex.Matcher.quoteReplacement(
                                     "<rect" + before + "width=\""
                                     + String.format(java.util.Locale.US, "%.1f", posW)
-                                    + "\"" + after + selfClose + ">"));
+                                    + "\"" + after + closeTag));
                 }
             }
             negWM.appendTail(negWSb);

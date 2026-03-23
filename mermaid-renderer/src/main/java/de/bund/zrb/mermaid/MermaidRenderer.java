@@ -305,6 +305,14 @@ public final class MermaidRenderer {
                 double negW = Double.parseDouble(negWM.group(2));
                 String after = negWM.group(3);
                 double posW = Math.abs(negW);
+
+                // Detect and strip self-closing '/' that [^>]* consumed from '/>'
+                boolean selfClosing = after.endsWith("/");
+                if (selfClosing) {
+                    after = after.substring(0, after.length() - 1);
+                }
+                String closeTag = selfClosing ? "/>" : ">";
+
                 // Try to adjust x position: x = x + negW (shift left by absolute width)
                 String combined = before + after;
                 java.util.regex.Matcher xM = java.util.regex.Pattern.compile(
@@ -318,13 +326,12 @@ public final class MermaidRenderer {
                     negWM.appendReplacement(negWSb,
                             java.util.regex.Matcher.quoteReplacement(
                                     "<rect" + fixedAttrs + " width=\""
-                                    + String.format(java.util.Locale.US, "%.1f", posW) + "\">"));
+                                    + String.format(java.util.Locale.US, "%.1f", posW) + "\"" + closeTag));
                 } else {
-                    // No x attribute — just use absolute width
                     negWM.appendReplacement(negWSb,
                             java.util.regex.Matcher.quoteReplacement(
                                     "<rect" + before + "width=\""
-                                    + String.format(java.util.Locale.US, "%.1f", posW) + "\"" + after + ">"));
+                                    + String.format(java.util.Locale.US, "%.1f", posW) + "\"" + after + closeTag));
                 }
             }
             negWM.appendTail(negWSb);
