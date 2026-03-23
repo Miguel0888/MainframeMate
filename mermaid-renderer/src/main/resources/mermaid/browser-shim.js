@@ -700,13 +700,14 @@ function _computeElementDims(el) {
     //    - <tspan dy="D"> shifts vertically relative to current
     //    - em units are relative to the element's font-size
     if (tag === 'text') {
-        // ── Batik-based accurate BBox (preferred path) ──────────────────
-        // Serialize this text element to SVG XML and let Batik's GVT tree
-        // compute the exact bounding box using Java2D font layout.
-        // This replaces hundreds of lines of heuristic JS positioning logic.
-        var batikBBox = _computeBBoxViaBatik(el);
-        if (batikBBox) return batikBBox;
-        // ── Fallback: JS heuristic (if Batik fails or is unavailable) ───
+        // ── NOTE: Batik BBox is available via _computeBBoxViaBatik(el) but
+        //    currently DISABLED for <text> elements because the serialized
+        //    SVG fragment loses inherited styles from parent elements
+        //    (text-anchor, font-family, font-size).  This causes text to
+        //    shift right when text-anchor:middle is inherited from a <g>.
+        //    TODO: Re-enable once _computeBBoxViaBatik enriches fragments
+        //          with resolved inherited styles before sending to Batik.
+        // ── JS heuristic (correctly walks DOM tree for inherited styles) ─
 
         // Collect tspan children (direct children only, per SVG spec)
         var tspans = [];

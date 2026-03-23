@@ -1833,10 +1833,136 @@ public final class MermaidSvgFixup {
         }
 
         if (hasMermaidVb) {
-            // Mermaid set a viewBox — TRUST it.
-            // Only apply setDimensions() to scale to our target resolution.
-            // Do NOT re-scan elements with rough heuristics (len*9 for text etc.)
-            // which would inflate the viewBox and make the actual content appear tiny.
+            // Mermaid set a viewBox — use it as baseline.
+            // However, Mermaid computes the viewBox using headless text metrics
+            // (our JavaBridge measureTextWidth).  These can differ slightly from
+            // what Batik actually renders, especially for axis labels and titles
+            // that sit at the very edge of the viewport.  We therefore do a
+            // lightweight text-element scan to detect overflow and expand the
+            // viewBox where needed.  This fixes Y-axis label clipping in
+            // Quadrant Chart (TC7), XY Chart (TC11), and title clipping (TC7).
+            double eMinX = cvbX, eMinY = cvbY;
+            double eMaxX = cvbX + cvbW, eMaxY = cvbY + cvbH;
+            boolean expanded = false;
+
+            NodeList textNodes = doc.getElementsByTagNameNS("*", "text");
+            for (int i = 0; i < textNodes.getLength(); i++) {
+                Node n = textNodes.item(i);
+                if (!(n instanceof Element)) continue;
+                Element tel = (Element) n;
+                if (isInsideTag(tel, "defs") || isInsideTag(tel, "marker")) continue;
+
+                String content = tel.getTextContent();
+                int len = (content != null) ? content.trim().length() : 0;
+                if (len == 0) continue;
+
+                // Read x/y attributes (often 0 for chart text)
+                double tx = parseDouble(tel, "x", 0);
+                double ty = parseDouble(tel, "y", 0);
+
+                // Parse the element's OWN transform — chart text elements
+                // use x="0" y="0" with transform="translate(X,Y) rotate(A)"
+                double[] selfTranslate = parseElementTranslate(tel);
+                tx += selfTranslate[0];
+                ty += selfTranslate[1];
+
+                // Resolve through parent transforms
+                double[] abs = resolveAbsolutePosition(tel, tx, ty);
+                double ax = abs[0], ay = abs[1];
+
+                // Determine font size (from attribute or default 16)
+                double fontSize = 16;
+                String fsAttr = tel.getAttribute("font-size");
+                if (fsAttr != null && !fsAttr.isEmpty()) {
+                    try { fontSize = Double.parseDouble(fsAttr.replaceAll("[^\\d.]", "")); }
+                    catch (NumberFormatException ignored) {}
+                }
+                double charWidth = fontSize * 0.55;  // avg char width relative to font size
+                double tw = len * charWidth;
+                double ascent = fontSize * 0.85;
+                double descent = fontSize * 0.25;
+
+                // Determine text-anchor
+                String anchor = tel.getAttribute("text-anchor");
+                if (anchor == null || anchor.isEmpty()) {
+                    String style = tel.getAttribute("style");
+                    if (style != null) {
+                        java.util.regex.Matcher am = java.util.regex.Pattern
+                                .compile("text-anchor\\s*:\\s*(\\w+)")
+                                .matcher(style);
+                        if (am.find()) anchor = am.group(1);
+                    }
+                }
+
+                // Check for rotation in the element's own transform
+                String transform = tel.getAttribute("transform");
+                double rotationDeg = 0;
+                if (transform != null) {
+                    java.util.regex.Matcher rm = java.util.regex.Pattern
+                            .compile("rotate\\(\\s*(-?[\\d.]+)")
+                            .matcher(transform);
+                    if (rm.find()) {
+                        try { rotationDeg = Double.parseDouble(rm.group(1)); }
+                        catch (NumberFormatException ignored) {}
+                    }
+                }
+                boolean isRotated = (rotationDeg % 180 != 0);
+
+                double textLeft, textRight, textTop, textBottom;
+
+                if (isRotated) {
+                    // Rotated text (e.g. Y-axis labels rotated ±90°/270°):
+                    // Width and height swap.  The ascent/descent become
+                    // horizontal extent; the text width becomes vertical extent.
+                    double halfTextWidth = tw / 2;  // becomes vertical extent
+                    // Ascent/descent become horizontal extent after rotation
+                    textLeft = ax - ascent;
+                    textRight = ax + descent;
+                    if ("middle".equals(anchor)) {
+                        textTop = ay - halfTextWidth;
+                        textBottom = ay + halfTextWidth;
+                    } else if ("end".equals(anchor)) {
+                        textTop = ay - tw;
+                        textBottom = ay;
+                    } else {
+                        textTop = ay;
+                        textBottom = ay + tw;
+                    }
+                } else if ("middle".equals(anchor)) {
+                    textLeft = ax - tw / 2;
+                    textRight = ax + tw / 2;
+                    textTop = ay - ascent;
+                    textBottom = ay + descent;
+                } else if ("end".equals(anchor)) {
+                    textLeft = ax - tw;
+                    textRight = ax;
+                    textTop = ay - ascent;
+                    textBottom = ay + descent;
+                } else {
+                    // start (default)
+                    textLeft = ax;
+                    textRight = ax + tw;
+                    textTop = ay - ascent;
+                    textBottom = ay + descent;
+                }
+
+                if (textLeft < eMinX) { eMinX = textLeft; expanded = true; }
+                if (textTop < eMinY) { eMinY = textTop; expanded = true; }
+                if (textRight > eMaxX) { eMaxX = textRight; expanded = true; }
+                if (textBottom > eMaxY) { eMaxY = textBottom; expanded = true; }
+            }
+
+            if (expanded) {
+                // Add a small margin around the expanded area
+                double margin = 8;
+                int newVbX = (int) Math.floor(eMinX - margin);
+                int newVbY = (int) Math.floor(eMinY - margin);
+                int newVbW = (int) Math.ceil(eMaxX + margin) - newVbX;
+                int newVbH = (int) Math.ceil(eMaxY + margin) - newVbY;
+                svgRoot.setAttribute("viewBox",
+                        newVbX + " " + newVbY + " " + newVbW + " " + newVbH);
+            }
+
             setDimensions(svgRoot);
             return;
         }
