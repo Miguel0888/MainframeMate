@@ -160,6 +160,9 @@ public class TerminalConnectionTab implements ConnectionTab {
             // ── Action delay ──
             actionDelayMs = Math.max(s.tn3270ActionDelayMs, 0);
 
+            // ── EBCDIC codepage (takes effect immediately for the running session) ──
+            patchEbcdicCodePage();
+
             // ── F-key overlay opacity ──
             int newOpacity = Math.max(0, Math.min(100, s.tn3270FkeyOverlayOpacity));
             if (newOpacity != fkeyOverlayOpacity) {
@@ -261,10 +264,71 @@ public class TerminalConnectionTab implements ConnectionTab {
     }
 
     /**
+     * Patch the EBCDIC↔Unicode translation tables in {@code Tn3270StreamParser}
+     * to match the configured codepage (e.g. Cp273 for German).
+     * <p>
+     * OpenTerm ships with a hardcoded US EBCDIC (CP037) table.  German mainframes
+     * use CP273 where, for example, EBCDIC 0xC0 = ä (not '{'), 0xD0 = ö (not '}'),
+     * and 0x5A = Ü (not '!').  This method replaces the static {@code ebc2asc} and
+     * {@code asc2ebc} arrays at runtime using Java's built-in Charset support.
+     */
+    private void patchEbcdicCodePage() {
+        String cpName = "Cp273"; // default
+        try {
+            de.bund.zrb.model.Settings s = de.bund.zrb.helper.SettingsHelper.load();
+            if (s.tn3270CodePage != null && !s.tn3270CodePage.trim().isEmpty()) {
+                cpName = s.tn3270CodePage.trim();
+            }
+        } catch (Exception ignored) { }
+
+        try {
+            java.nio.charset.Charset cs = java.nio.charset.Charset.forName(cpName);
+
+            // Build ebc2asc: for each EBCDIC byte 0x00..0xFF, decode to Unicode
+            int[] newEbc2Asc = new int[256];
+            for (int i = 0; i < 256; i++) {
+                byte[] b = { (byte) i };
+                String decoded = new String(b, cs);
+                newEbc2Asc[i] = decoded.charAt(0);
+            }
+
+            // Build asc2ebc: for each Unicode code point 0x00..0xFF, encode to EBCDIC
+            int[] newAsc2Ebc = new int[256];
+            java.nio.charset.CharsetEncoder enc = cs.newEncoder()
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPLACE)
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPLACE);
+            for (int i = 0; i < 256; i++) {
+                char c = (char) i;
+                try {
+                    java.nio.ByteBuffer bb = enc.encode(java.nio.CharBuffer.wrap(new char[]{c}));
+                    newAsc2Ebc[i] = bb.get(0) & 0xFF;
+                } catch (Exception e) {
+                    newAsc2Ebc[i] = 0; // unmappable → null
+                }
+            }
+
+            // Patch the static arrays in Tn3270StreamParser
+            int[] ebc2asc = com.ascert.open.term.i3270.Tn3270StreamParser.ebc2asc;
+            int[] asc2ebc = com.ascert.open.term.i3270.Tn3270StreamParser.asc2ebc;
+            System.arraycopy(newEbc2Asc, 0, ebc2asc, 0, 256);
+            System.arraycopy(newAsc2Ebc, 0, asc2ebc, 0, 256);
+
+            LOG.info("[3270] EBCDIC codepage patched to " + cpName);
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[3270] Failed to patch EBCDIC codepage '" + cpName + "', "
+                    + "falling back to built-in CP037 tables", e);
+        }
+    }
+
+    /**
      * Create a Terminal via the factory, build the JTerminalScreen on the EDT,
      * then connect. Must be called on a background thread.
      */
     public void connect() throws Exception {
+        // Patch EBCDIC translation tables BEFORE creating the terminal, so
+        // the parser uses the correct codepage for display and keyboard input.
+        patchEbcdicCodePage();
+
         final Host terminalHost = new Host(host, port, termType, tls, keepAliveTimeout);
         final Terminal createdTerminal = TerminalFactoryRegistrar.createTerminal(terminalHost);
         final AtomicReference<JTerminalScreen> screenRef = new AtomicReference<JTerminalScreen>();
@@ -437,8 +501,13 @@ public class TerminalConnectionTab implements ConnectionTab {
                         if (fnum > 0) {
                             JButton btn = fkeyButtons.get(fnum);
                             if (btn != null) {
-                                btn.getModel().setPressed(false);
+                                // IMPORTANT: disarm BEFORE unpress!
+                                // DefaultButtonModel.setPressed(false) fires the ActionListener
+                                // if the button is still armed.  That would send the F-key to
+                                // the host a second time (OpenTerm already handles the keyboard
+                                // F-key event itself).
                                 btn.getModel().setArmed(false);
+                                btn.getModel().setPressed(false);
                             }
                         }
                     }
@@ -1810,8 +1879,9 @@ public class TerminalConnectionTab implements ConnectionTab {
             btn.getModel().setArmed(true);
             btn.getModel().setPressed(true);
             Timer release = new Timer(120, e -> {
-                btn.getModel().setPressed(false);
+                // Disarm BEFORE unpress so the ActionListener is not fired again
                 btn.getModel().setArmed(false);
+                btn.getModel().setPressed(false);
             });
             release.setRepeats(false);
             release.start();

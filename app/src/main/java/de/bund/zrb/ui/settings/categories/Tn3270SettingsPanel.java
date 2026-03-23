@@ -27,6 +27,7 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
     private final JTextField autoCommandField;
     private final JSpinner actionDelaySpinner;
     private final JSpinner fkeyOpacitySpinner;
+    private final JComboBox<String> codePageCombo;
     private final JCheckBox cosmicClockCheckBox;
     private final JSpinner cosmicClockFactorSpinner;
     private final JCheckBox germanNamesCheckBox;
@@ -54,6 +55,14 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         keepAliveSpinner = new JSpinner(new SpinnerNumberModel(settings.tn3270KeepAliveTimeout, 0, 3600, 10));
         keepAliveSpinner.setToolTipText("KeepAlive-Intervall in Sekunden (0 = deaktiviert)");
         fb.addRow("KeepAlive (Sek.):", keepAliveSpinner);
+
+        String[] codePages = {"Cp273", "Cp037", "Cp500", "Cp1047", "Cp297", "Cp285", "Cp284"};
+        codePageCombo = new JComboBox<>(codePages);
+        codePageCombo.setEditable(true); // allow custom codepages
+        String currentCp = settings.tn3270CodePage != null ? settings.tn3270CodePage : "Cp273";
+        codePageCombo.setSelectedItem(currentCp);
+        codePageCombo.setToolTipText("EBCDIC-Zeichensatz: Cp273=Deutsch, Cp037=US, Cp500=International, Cp1047=Latin-1");
+        fb.addRow("EBCDIC Codepage:", codePageCombo);
 
         fb.addSection("Automatisierung");
 
@@ -188,6 +197,7 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         s.tn3270AutoCommandText = autoCommandField.getText();
         s.tn3270ActionDelayMs = ((Number) actionDelaySpinner.getValue()).intValue();
         s.tn3270FkeyOverlayOpacity = ((Number) fkeyOpacitySpinner.getValue()).intValue();
+        s.tn3270CodePage = (String) codePageCombo.getSelectedItem();
         s.cosmicClockEnabled = cosmicClockCheckBox.isSelected();
         s.cosmicClockTimeFactor = ((Number) cosmicClockFactorSpinner.getValue()).doubleValue();
         s.cosmicClockGermanNames = germanNamesCheckBox.isSelected();
