@@ -35,8 +35,7 @@ public final class MermaidRenderer {
             "{ startOnLoad: false, securityLevel: 'loose',"
             + " htmlLabels: false,"
             + " flowchart: { htmlLabels: false },"
-            + " sequence: { htmlLabels: false },"
-            + " gantt: { useWidth: 1200 } }";
+            + " sequence: { htmlLabels: false } }";
 
     private static final MermaidRenderer INSTANCE = new MermaidRenderer();
 

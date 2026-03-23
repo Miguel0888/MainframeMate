@@ -2030,7 +2030,7 @@ window.getComputedStyle = function(el) {
         'font-size': '16px', 'font-family': 'sans-serif', 'font-weight': '400', 'font-style': 'normal',
         'line-height': '1.2', 'color': 'rgb(0, 0, 0)', 'background-color': 'rgba(0, 0, 0, 0)',
         'fill': 'rgb(0, 0, 0)', 'stroke': 'none', 'stroke-width': '1',
-        'width': '800px', 'height': '600px',
+        'width': '1600px', 'height': '900px',
         'margin': '0px', 'margin-top': '0px', 'margin-right': '0px', 'margin-bottom': '0px', 'margin-left': '0px',
         'padding': '0px', 'padding-top': '0px', 'padding-right': '0px', 'padding-bottom': '0px', 'padding-left': '0px',
         'border': '0px none rgb(0, 0, 0)', 'border-width': '0px',

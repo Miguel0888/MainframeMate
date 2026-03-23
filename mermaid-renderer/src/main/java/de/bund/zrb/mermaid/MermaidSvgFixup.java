@@ -1806,8 +1806,9 @@ public final class MermaidSvgFixup {
         Element svgRoot = doc.getDocumentElement();
         if (svgRoot == null) return;
 
-        // Parse Mermaid's original viewBox FIRST — it is always our baseline.
-        // We ONLY expand, never shrink.
+        // Parse Mermaid's original viewBox — it is always our baseline.
+        // Mermaid computes its viewBox from its own layout engine, which has
+        // much better knowledge of the diagram geometry than our post-processor.
         String currentVb = svgRoot.getAttribute("viewBox");
         double cvbX = 0, cvbY = 0, cvbW = 0, cvbH = 0;
         boolean hasMermaidVb = false;
@@ -1824,19 +1825,21 @@ public final class MermaidSvgFixup {
             }
         }
 
-        // Initialise bounds from Mermaid's viewBox (our minimum)
         if (hasMermaidVb) {
-            _minX = cvbX;
-            _minY = cvbY;
-            _maxX = cvbX + cvbW;
-            _maxY = cvbY + cvbH;
-        } else {
-            _minX = Double.MAX_VALUE;  _minY = Double.MAX_VALUE;
-            _maxX = -Double.MAX_VALUE; _maxY = -Double.MAX_VALUE;
+            // Mermaid set a viewBox — TRUST it.
+            // Only apply setDimensions() to scale to our target resolution.
+            // Do NOT re-scan elements with rough heuristics (len*9 for text etc.)
+            // which would inflate the viewBox and make the actual content appear tiny.
+            setDimensions(svgRoot);
+            return;
         }
-        boolean found = hasMermaidVb;
 
-        // Scan all elements to find content that extends beyond Mermaid's viewBox
+        // No Mermaid viewBox — compute bounds from scratch by scanning all elements
+        _minX = Double.MAX_VALUE;  _minY = Double.MAX_VALUE;
+        _maxX = -Double.MAX_VALUE; _maxY = -Double.MAX_VALUE;
+        boolean found = false;
+
+        // Scan all elements to find content bounds
         NodeList all = doc.getElementsByTagNameNS("*", "*");
         for (int i = 0; i < all.getLength(); i++) {
             Node n = all.item(i);
@@ -1953,8 +1956,6 @@ public final class MermaidSvgFixup {
             return;
         }
 
-        // Parse Mermaid's original viewBox (our safety boundary)
-        // Already parsed at the top of this method — bounds include it.
 
         // Apply padding and set the new viewBox
         double pad = 20;
