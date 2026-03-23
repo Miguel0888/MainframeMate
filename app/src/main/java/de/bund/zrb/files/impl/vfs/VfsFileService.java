@@ -200,8 +200,24 @@ public class VfsFileService implements FileService {
                 try {
                     FileType type = child.getType();
                     boolean isDir = type == FileType.FOLDER || type == FileType.FILE_OR_FOLDER;
-                    long size = isDir ? 0L : child.getContent().getSize();
-                    long lastModified = child.getContent().getLastModifiedTime();
+
+                    // Size and lastModified may not be available on all FTP servers
+                    // (e.g. MVS/z/OS uses non-standard listing formats)
+                    long size = 0L;
+                    long lastModified = 0L;
+                    try {
+                        if (!isDir) {
+                            size = child.getContent().getSize();
+                        }
+                    } catch (Exception ignore) {
+                        // size not available — keep default 0
+                    }
+                    try {
+                        lastModified = child.getContent().getLastModifiedTime();
+                    } catch (Exception ignore) {
+                        // timestamp not available — keep default 0
+                    }
+
                     String name = child.getName().getBaseName();
                     String path = sanitizeUri(child.getName().getURI());
 
