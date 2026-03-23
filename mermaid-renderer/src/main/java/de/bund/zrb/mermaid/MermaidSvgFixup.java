@@ -96,6 +96,8 @@ public final class MermaidSvgFixup {
             fixLabelCentering(doc);
             fixErEntityLabels(doc);        // reposition ER entity labels into correct cells
             fixMindmapMultilineBoxes(doc);  // expand boxes for multi-line text
+            fixRequirementLabels(doc);     // vertically distribute overlapping labels in requirement boxes
+            fixImageHref(doc);             // SVG 2 href → xlink:href for Batik
             fixEdgeStrokes(doc);
             fixEdgeLabelBackground(doc);
             fixEdgeLabelRect(doc);
@@ -1073,6 +1075,192 @@ public final class MermaidSvgFixup {
             }
         }
         return count;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix 4c — vertically distribute Requirement diagram labels
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Mermaid's requirement diagram places each row label (type, name,
+     * ID, Text, Risk, Verification) in its own {@code <g class="label">}
+     * group — but the browser-shim's getBBox() doesn't return correct
+     * heights during layout, so Mermaid sets <em>all</em> label groups
+     * to {@code translate(0, 0)}.  Result: all 6 rows overlap on a
+     * single line.
+     * <p>
+     * This fix identifies requirement node groups by matching the SVG's
+     * {@code aria-roledescription="requirement"} attribute, then distributes
+     * the label groups vertically based on their row position within each
+     * box.  The first divider line separates the title area (row 0 + 1)
+     * from the attribute area (rows 2–5).
+     * <p>
+     * Structure per requirement node:
+     * <pre>
+     *   &lt;g class="node default" transform="translate(X, Y)"&gt;
+     *     &lt;g class="basic label-container"&gt;&lt;path/&gt;&lt;path/&gt;&lt;/g&gt;  ← box + divider
+     *     &lt;g class="label" transform="translate(0, 0)"&gt;…&lt;/g&gt;  ← row 0: &lt;&lt;Requirement&gt;&gt;
+     *     &lt;g class="label" transform="translate(0, 0)"&gt;…&lt;/g&gt;  ← row 1: name (bold)
+     *     &lt;g class="label" transform="translate(0, 0)"&gt;…&lt;/g&gt;  ← row 2: ID
+     *     &lt;g class="label" transform="translate(0, 0)"&gt;…&lt;/g&gt;  ← row 3: Text
+     *     &lt;g class="label" transform="translate(0, 0)"&gt;…&lt;/g&gt;  ← row 4: Risk
+     *     &lt;g class="label" transform="translate(0, 0)"&gt;…&lt;/g&gt;  ← row 5: Verification
+     *   &lt;/g&gt;
+     * </pre>
+     * The element node (type=system) has only 4 label rows (type, name, + 2 attributes).
+     */
+    private static void fixRequirementLabels(Document doc) {
+        // Only apply to requirement diagrams
+        Element root = doc.getDocumentElement();
+        if (root == null) return;
+        String roleDesc = attr(root, "aria-roledescription");
+        if (!"requirement".equals(roleDesc)) return;
+
+        NodeList allGs = doc.getElementsByTagNameNS("*", "g");
+        for (int i = 0; i < allGs.getLength(); i++) {
+            Node n = allGs.item(i);
+            if (!(n instanceof Element)) continue;
+            Element nodeG = (Element) n;
+            String cls = attr(nodeG, "class");
+            if (!cls.contains("node")) continue;
+            // Must have a transform (positioned node)
+            String nodeTrans = nodeG.getAttribute("transform");
+            if (nodeTrans == null || !nodeTrans.contains("translate")) continue;
+
+            // ── Collect child label groups and the label-container ──
+            List<Element> labelGroups = new ArrayList<Element>();
+            Element containerG = null;
+            NodeList children = nodeG.getChildNodes();
+            for (int j = 0; j < children.getLength(); j++) {
+                Node child = children.item(j);
+                if (!(child instanceof Element)) continue;
+                Element ce = (Element) child;
+                if (!"g".equals(ce.getLocalName())) continue;
+                String childCls = attr(ce, "class");
+                if (childCls.contains("label-container")) {
+                    containerG = ce;
+                } else if (childCls.contains("label")) {
+                    labelGroups.add(ce);
+                }
+            }
+            if (labelGroups.size() < 3 || containerG == null) continue;
+
+            // ── Parse box bounds from the first <path> in label-container ──
+            double boxMinX = 0, boxMinY = 0, boxMaxX = 0, boxMaxY = 0;
+            boolean foundBox = false;
+            NodeList containerPaths = containerG.getElementsByTagNameNS("*", "path");
+            if (containerPaths.getLength() > 0) {
+                String d = ((Element) containerPaths.item(0)).getAttribute("d");
+                if (d != null && !d.isEmpty()) {
+                    double[] bounds = parsePathBounds(d);
+                    if (bounds != null) {
+                        boxMinX = bounds[0]; boxMinY = bounds[1];
+                        boxMaxX = bounds[2]; boxMaxY = bounds[3];
+                        foundBox = true;
+                    }
+                }
+            }
+            if (!foundBox) continue;
+
+            // ── Find divider y-coordinate (separates title rows from attribute rows) ──
+            double dividerY = Double.NaN;
+            if (containerPaths.getLength() > 1) {
+                String d2 = ((Element) containerPaths.item(1)).getAttribute("d");
+                if (d2 != null && !d2.isEmpty()) {
+                    double[] divBounds = parsePathBounds(d2);
+                    if (divBounds != null) {
+                        dividerY = (divBounds[1] + divBounds[3]) / 2.0;
+                    }
+                }
+            }
+
+            int numLabels = labelGroups.size();
+
+            // ── Resolve font size from first text element ──
+            double fontSize = DEFAULT_FONT_SIZE;
+            NodeList textNodes = nodeG.getElementsByTagNameNS("*", "text");
+            if (textNodes.getLength() > 0) {
+                double parsed = parseFontSizeFromStyle((Element) textNodes.item(0));
+                if (parsed > 0) fontSize = parsed;
+            }
+            double lineHeight = fontSize * LINE_HEIGHT_FACTOR;
+
+            if (!Double.isNaN(dividerY) && numLabels >= 4) {
+                // ── Requirement box with divider: title area + attribute area ──
+                // Title rows (0, 1): center in [boxMinY, dividerY]
+                // Attribute rows (2..n): distribute in [dividerY, boxMaxY]
+
+                // Title area
+                int titleRows = 2;
+                double titleAreaH = dividerY - boxMinY;
+                double titleRowH = titleAreaH / titleRows;
+                for (int r = 0; r < titleRows && r < numLabels; r++) {
+                    double cy = boxMinY + titleRowH * r + titleRowH / 2.0;
+                    labelGroups.get(r).setAttribute("transform",
+                            "translate(0, " + fmt(cy) + ")");
+                }
+
+                // Attribute area
+                int attrRows = numLabels - titleRows;
+                double attrAreaH = boxMaxY - dividerY;
+                double attrRowH = attrAreaH / attrRows;
+                for (int r = 0; r < attrRows; r++) {
+                    double cy = dividerY + attrRowH * r + attrRowH / 2.0;
+                    labelGroups.get(titleRows + r).setAttribute("transform",
+                            "translate(0, " + fmt(cy) + ")");
+                }
+            } else {
+                // ── Simple box without divider (e.g. element node) ──
+                double totalH = boxMaxY - boxMinY;
+                double rowH = totalH / numLabels;
+                for (int r = 0; r < numLabels; r++) {
+                    double cy = boxMinY + rowH * r + rowH / 2.0;
+                    labelGroups.get(r).setAttribute("transform",
+                            "translate(0, " + fmt(cy) + ")");
+                }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix 4d — SVG 2 <image href> → xlink:href for Batik
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * SVG 2 introduced plain {@code href} on {@code <image>} elements,
+     * but Batik only supports the SVG 1.1 {@code xlink:href} attribute.
+     * C4 diagrams include embedded base64 person icons via
+     * {@code <image href="data:image/png;base64,...">}.
+     * This fix copies {@code href} to {@code xlink:href} and ensures
+     * the xlink namespace is declared on the SVG root element.
+     */
+    private static void fixImageHref(Document doc) {
+        String XLINK_NS = "http://www.w3.org/1999/xlink";
+
+        NodeList images = doc.getElementsByTagNameNS("*", "image");
+        if (images.getLength() == 0) return;
+
+        // Ensure xlink namespace is declared on root
+        Element root = doc.getDocumentElement();
+        if (root != null && !root.hasAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:xlink")) {
+            root.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:xlink", XLINK_NS);
+        }
+
+        for (int i = 0; i < images.getLength(); i++) {
+            Node n = images.item(i);
+            if (!(n instanceof Element)) continue;
+            Element img = (Element) n;
+
+            // Check for plain href (no namespace)
+            String href = img.getAttribute("href");
+            if (href != null && !href.isEmpty()) {
+                // Set xlink:href if not already present
+                String existing = img.getAttributeNS(XLINK_NS, "href");
+                if (existing == null || existing.isEmpty()) {
+                    img.setAttributeNS(XLINK_NS, "xlink:href", href);
+                }
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
