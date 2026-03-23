@@ -234,7 +234,7 @@ public final class MermaidRenderer {
 
         // 6) Replace width="100%" with a temporary pixel width
         //    (MermaidSvgFixup.fixViewBoxFromAttributes will set the final proportional width)
-        svg = svg.replaceFirst("width=\"100%\"", "width=\"800\"");
+        svg = svg.replaceFirst("width=\"100%\"", "width=\"1600\"");
 
         // 7) Remove max-width from inline style (confuses Batik)
         svg = svg.replaceAll("max-width:\\s*[^;\"]+;?\\s*", "");

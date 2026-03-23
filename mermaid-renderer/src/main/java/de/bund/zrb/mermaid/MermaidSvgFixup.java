@@ -94,6 +94,7 @@ public final class MermaidSvgFixup {
             fixGroupZOrder(doc);           // edges paint ON TOP of nodes
             fixNodeZOrder(doc);
             fixLabelCentering(doc);
+            fixErEntityLabels(doc);        // reposition ER entity labels into correct cells
             fixMindmapMultilineBoxes(doc);  // expand boxes for multi-line text
             fixEdgeStrokes(doc);
             fixEdgeLabelBackground(doc);
@@ -569,6 +570,15 @@ public final class MermaidSvgFixup {
             String cls = attr(g, "class");
             if (!cls.contains("node")) continue;
 
+            // Skip ER entity nodes — their labels are positioned in cells,
+            // not centered.  fixErEntityLabels() handles them separately.
+            String id = attr(g, "id");
+            if (id.startsWith("entity-")) continue;
+
+            // Skip class diagram nodes — they have specific annotation/member/method
+            // positioning that should not be overridden.
+            if (id.startsWith("classId-")) continue;
+
             // Find child <g class="label"> groups
             NodeList children = g.getChildNodes();
             for (int j = 0; j < children.getLength(); j++) {
@@ -652,6 +662,192 @@ public final class MermaidSvgFixup {
                 text.setAttribute("dy", BASELINE_SHIFT_EM);
             }
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix 4a — reposition ER entity labels into correct cells
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Mermaid's ER diagram renderer positions entity attribute labels using
+     * {@code getBBox()} measurements which return wrong values in our
+     * headless browser shim.  As a result, all label {@code <g>} elements
+     * end up at {@code translate(0, 0)}, overlapping each other.
+     * <p>
+     * This fix parses the entity box structure (outer path + horizontal/vertical
+     * dividers) to determine cell boundaries, then repositions each label
+     * {@code <g>} to the centre of its correct cell.
+     * <p>
+     * Label order per entity:
+     * <ol>
+     *   <li>{@code <g class="label name">} — entity name, centered in the header row</li>
+     *   <li>For each attribute row: type, name, keys, comment (4 labels per row)</li>
+     * </ol>
+     */
+    private static void fixErEntityLabels(Document doc) {
+        NodeList allGs = doc.getElementsByTagNameNS("*", "g");
+        for (int i = 0; i < allGs.getLength(); i++) {
+            Node n = allGs.item(i);
+            if (!(n instanceof Element)) continue;
+            Element g = (Element) n;
+            String id = attr(g, "id");
+            if (!id.startsWith("entity-")) continue;
+
+            // ── Parse entity box bounds from the first <path> child ──
+            double boxMinX = 0, boxMaxX = 0, boxMinY = 0, boxMaxY = 0;
+            boolean foundBox = false;
+            NodeList children = g.getChildNodes();
+            for (int j = 0; j < children.getLength(); j++) {
+                Node child = children.item(j);
+                if (!(child instanceof Element)) continue;
+                Element ce = (Element) child;
+                if (!"g".equals(ce.getLocalName()) && !"path".equals(ce.getLocalName())) continue;
+                // First child <g> contains the entity box path
+                if ("g".equals(ce.getLocalName()) && !foundBox) {
+                    NodeList paths = ce.getElementsByTagNameNS("*", "path");
+                    if (paths.getLength() > 0) {
+                        Element firstPath = (Element) paths.item(0);
+                        String d = firstPath.getAttribute("d");
+                        if (d != null && !d.isEmpty()) {
+                            // Extract bounds from M commands: M-81 -75.5 L81 -75.5 L81 75.5 L-81 75.5
+                            double[] bounds = parsePathBounds(d);
+                            if (bounds != null) {
+                                boxMinX = bounds[0]; boxMinY = bounds[1];
+                                boxMaxX = bounds[2]; boxMaxY = bounds[3];
+                                foundBox = true;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+            if (!foundBox) continue;
+
+            // ── Parse dividers to find row and column boundaries ──
+            List<Double> hDividers = new ArrayList<Double>(); // horizontal y values
+            List<Double> vDividers = new ArrayList<Double>(); // vertical x values
+            for (int j = 0; j < children.getLength(); j++) {
+                Node child = children.item(j);
+                if (!(child instanceof Element)) continue;
+                Element ce = (Element) child;
+                if (!attr(ce, "class").contains("divider")) continue;
+                NodeList divPaths = ce.getElementsByTagNameNS("*", "path");
+                if (divPaths.getLength() == 0) continue;
+                String d = ((Element) divPaths.item(0)).getAttribute("d");
+                if (d == null || d.isEmpty()) continue;
+                double[] db = parsePathBounds(d);
+                if (db == null) continue;
+                double dw = db[2] - db[0]; // width of divider path
+                double dh = db[3] - db[1]; // height of divider path
+                if (dw > dh * 3) {
+                    // Horizontal divider — spans most of the box width
+                    double y = (db[1] + db[3]) / 2.0;
+                    if (!containsApprox(hDividers, y, 2)) hDividers.add(y);
+                } else if (dh > dw * 3) {
+                    // Vertical divider — spans most of the box height
+                    double x = (db[0] + db[2]) / 2.0;
+                    if (!containsApprox(vDividers, x, 2)) vDividers.add(x);
+                }
+            }
+            java.util.Collections.sort(hDividers);
+            java.util.Collections.sort(vDividers);
+
+            // If no horizontal divider found, there's only the name row and no attributes
+            if (hDividers.isEmpty()) continue;
+
+            // ── Build cell grid ──
+            // Rows: [boxMinY, hDiv1] = name row, then attribute rows below.
+            double nameRowTop = boxMinY;
+            double nameRowBottom = hDividers.get(0);
+            // Column boundaries for attributes: [boxMinX, vDiv1, vDiv2, ..., boxMaxX]
+            List<Double> colBounds = new ArrayList<Double>();
+            colBounds.add(boxMinX);
+            for (Double vd : vDividers) colBounds.add(vd);
+            colBounds.add(boxMaxX);
+            int visibleCols = colBounds.size() - 1;
+
+            // ── Collect label <g> elements in order ──
+            List<Element> labels = new ArrayList<Element>();
+            for (int j = 0; j < children.getLength(); j++) {
+                Node child = children.item(j);
+                if (!(child instanceof Element)) continue;
+                Element ce = (Element) child;
+                if (!"g".equals(ce.getLocalName())) continue;
+                String cls = attr(ce, "class");
+                if (cls.contains("label")) labels.add(ce);
+            }
+            if (labels.isEmpty()) continue;
+
+            // ── Position entity name ──
+            // First label is the entity name — center it in the name row
+            Element nameLabel = labels.get(0);
+            double nameCenterX = 0; // already centered horizontally
+            double nameCenterY = (nameRowTop + nameRowBottom) / 2.0;
+            nameLabel.setAttribute("transform",
+                    "translate(" + fmt(nameCenterX) + ", " + fmt(nameCenterY) + ")");
+
+            // ── Position attribute labels ──
+            // Mermaid ER uses exactly 4 labels per attribute row:
+            //   attribute-type, attribute-name, attribute-keys, attribute-comment
+            // But only 3 visible columns exist (comment shares the keys column).
+            int LABELS_PER_ROW = 4;
+            int attrLabels = labels.size() - 1;
+            int numAttrRows = attrLabels / LABELS_PER_ROW;
+            if (numAttrRows <= 0) continue;
+
+            double attrTop = hDividers.get(0);
+            double attrBottom = boxMaxY;
+            double rowHeight = (attrBottom - attrTop) / numAttrRows;
+
+            for (int a = 0; a < attrLabels; a++) {
+                int row = a / LABELS_PER_ROW;
+                int col = a % LABELS_PER_ROW;
+                if (row >= numAttrRows) break;
+
+                double cellTop = attrTop + row * rowHeight;
+                double cellBottom = cellTop + rowHeight;
+
+                // Map 4-column label index to visible column bounds (3 columns)
+                // col 0 = type, col 1 = name, col 2 = keys, col 3 = comment
+                // Comment (col 3) shares the keys column (col 2)
+                int visCol = Math.min(col, visibleCols - 1);
+                double cellLeft = colBounds.get(visCol);
+                double cellRight = colBounds.get(visCol + 1);
+
+                double cx = (cellLeft + cellRight) / 2.0;
+                double cy = (cellTop + cellBottom) / 2.0;
+
+                Element label = labels.get(1 + a);
+
+                // For comment labels (col 3) that share the keys column,
+                // hide them to avoid overlap with the keys label
+                if (col == 3) {
+                    label.setAttribute("transform", "translate(" + fmt(cx) + ", " + fmt(cy) + ")");
+                    label.setAttribute("visibility", "hidden");
+                } else {
+                    label.setAttribute("transform", "translate(" + fmt(cx) + ", " + fmt(cy) + ")");
+                }
+                // Set text-anchor to middle for proper centering
+                NodeList texts = label.getElementsByTagNameNS("*", "text");
+                for (int t = 0; t < texts.getLength(); t++) {
+                    ((Element) texts.item(t)).setAttribute("text-anchor", "middle");
+                }
+            }
+        }
+    }
+
+    /** Format a double as a compact string (no trailing zeros). */
+    private static String fmt(double v) {
+        if (v == Math.floor(v)) return String.valueOf((long) v);
+        return String.format("%.1f", v);
+    }
+
+    /** Check if a list already contains a value within tolerance. */
+    private static boolean containsApprox(List<Double> list, double value, double tolerance) {
+        for (Double d : list) {
+            if (Math.abs(d - value) < tolerance) return true;
+        }
+        return false;
     }
 
     // ═══════════════════════════════════════════════════════════

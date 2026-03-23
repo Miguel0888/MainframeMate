@@ -744,11 +744,13 @@ function _computeElementDims(el) {
         return { x: 0, y: 0, w: textLen, h: Math.round(fallbackFs * 1.2) };
     }
     // Container elements and SVG roots get large defaults
-    // so Mermaid can compute proper layout bounds (especially Gantt charts)
+    // so Mermaid can compute proper layout bounds (especially Gantt charts).
+    // 1600×900 prevents D3 scale inversion on Gantt charts where long
+    // task labels eat up horizontal margin space.
     if (tag === 'div' || tag === 'body' || tag === 'html' || tag === 'canvas' || tag === 'section'
         || tag === 'svg' || tag === 'article' || tag === 'main' || tag === 'nav' || tag === 'header'
         || tag === 'footer' || tag === 'aside') {
-        return { x: 0, y: 0, w: 800, h: 600 };
+        return { x: 0, y: 0, w: 1600, h: 900 };
     }
     // g (group) elements with no children — small default
     if (tag === 'g') {
