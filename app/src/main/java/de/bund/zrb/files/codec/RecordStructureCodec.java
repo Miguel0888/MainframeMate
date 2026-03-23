@@ -21,11 +21,14 @@ import java.util.Arrays;
  * 2. Replace all record markers (FF01) with newlines
  * 3. Remove EOF marker (FF02) if present at end
  * 4. Optionally remove final newline
+ * 5. Strip trailing whitespace/control chars from each line (removes space padding,
+ *    stray \r, null chars that survived earlier stages)
  *
  * Transformation order (Editor → Server):
  * 1. Split text by newlines
- * 2. Append record marker after each line
- * 3. Append EOF marker at the end
+ * 2. Strip trailing whitespace/control chars from each line
+ * 3. Append record marker after each line
+ * 4. Append EOF marker at the end
  */
 public final class RecordStructureCodec {
 
@@ -41,6 +44,8 @@ public final class RecordStructureCodec {
      * 2. Replace all occurrences of recordMarker (default FF01) with newline
      * 3. Remove EOF marker (default FF02) if present at end
      * 4. Optionally remove final newline if settings.removeFinalNewline is true
+     * 5. Strip trailing whitespace/control chars from each line (removes space padding
+     *    from MVS FB records, stray \r, residual null bytes, etc.)
      *
      * @param remoteBytes the raw bytes from the FTP server (padding already removed)
      * @param charset the character encoding
@@ -75,7 +80,17 @@ public final class RecordStructureCodec {
             }
         }
 
-        return new String(transformed, charset);
+        String text = new String(transformed, charset);
+
+        // Step 4: Strip trailing whitespace/control chars from each line.
+        // MVS FB records are padded to LRECL with spaces (0x20) or nulls (0x00).
+        // readAllBytes() removes null bytes, but space padding survives.
+        // Without stripping, each line is LRECL chars long; inserting one character
+        // would exceed LRECL and cause an FTP write error.
+        // Also strips stray \r (0x0D) from CRLF artifacts.
+        text = stripTrailingWhitespacePerLine(text);
+
+        return text;
     }
 
 
@@ -84,8 +99,10 @@ public final class RecordStructureCodec {
      *
      * Transformation (matching original FileContentService.transformToRemote):
      * 1. Split text by newlines (including trailing empty lines via split("\n", -1))
-     * 2. Append recordMarker after EACH line (including the last one)
-     * 3. Append EOF marker at the end if configured
+     * 2. Strip trailing whitespace/control chars from each line (safety net — prevents
+     *    invisible chars from bloating records beyond LRECL)
+     * 3. Append recordMarker after EACH line (including the last one)
+     * 4. Append EOF marker at the end if configured
      *
      * Note: Padding is NOT added back. The mainframe/FTP handles that.
      *
@@ -112,7 +129,12 @@ public final class RecordStructureCodec {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
         for (int i = 0; i < lines.length; i++) {
-            byte[] lineBytes = lines[i].getBytes(charset);
+            // Strip trailing whitespace/control chars from each line.
+            // MVS FB records have a fixed LRECL; the FTP server pads short records.
+            // Sending trailing spaces would waste LRECL capacity and could push
+            // user-added characters beyond the record length limit.
+            String line = rtrim(lines[i]);
+            byte[] lineBytes = line.getBytes(charset);
             out.write(lineBytes, 0, lineBytes.length);
 
             // Append record marker after each line (except possibly the last if removeFinalNewline is relevant)
@@ -167,6 +189,40 @@ public final class RecordStructureCodec {
             result[i] = (byte) ((high << 4) | low);
         }
         return result;
+    }
+
+    /**
+     * Strip trailing whitespace and control characters from each line.
+     * Handles space padding (0x20), null bytes (0x00), \r (0x0D), tabs, etc.
+     */
+    private static String stripTrailingWhitespacePerLine(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        String[] lines = text.split("\n", -1);
+        StringBuilder sb = new StringBuilder(text.length());
+        for (int i = 0; i < lines.length; i++) {
+            if (i > 0) {
+                sb.append('\n');
+            }
+            sb.append(rtrim(lines[i]));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Right-trim: remove trailing characters where {@code ch <= ' '}.
+     * This covers space (0x20), null (0x00), \r (0x0D), \t (0x09), and other control chars.
+     */
+    static String rtrim(String s) {
+        if (s == null || s.isEmpty()) {
+            return s;
+        }
+        int end = s.length();
+        while (end > 0 && s.charAt(end - 1) <= ' ') {
+            end--;
+        }
+        return s.substring(0, end);
     }
 
     /**

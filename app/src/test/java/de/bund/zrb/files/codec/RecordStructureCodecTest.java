@@ -92,9 +92,10 @@ class RecordStructureCodecTest {
     @Test
     void roundtripPreservesContent() {
         Settings settings = createDefaultSettings();
-        settings.removeFinalNewline = false; // For exact roundtrip
+        // removeFinalNewline=true (default) is required for exact roundtrip:
+        // encode adds FF01 after each line, decode replaces FF01→\n, then removes final \n
 
-        String originalText = "LINE1\nLINE2\nLINE3\n";
+        String originalText = "LINE1\nLINE2\nLINE3";
 
         // Editor -> Remote
         byte[] remote = RecordStructureCodec.encodeForRemote(originalText, ISO_8859_1, settings);
@@ -175,6 +176,173 @@ class RecordStructureCodecTest {
 
         // Final 0x0A should be removed
         assertEquals("LINE1", result);
+    }
+
+    // ========================================================================
+    // Tests for trailing whitespace/padding stripping (MVS FB record padding fix)
+    // ========================================================================
+
+    @Test
+    void decodeStripsTrailingSpacePaddingFromEachLine() {
+        Settings settings = createDefaultSettings();
+
+        // Simulate MVS FB LRECL=10: each record padded with spaces to 10 chars
+        // "HELLO     <FF01>WORLD     <FF01><FF02>"
+        byte[] remote = new byte[] {
+            'H', 'E', 'L', 'L', 'O', ' ', ' ', ' ', ' ', ' ', (byte)0xFF, 0x01,
+            'W', 'O', 'R', 'L', 'D', ' ', ' ', ' ', ' ', ' ', (byte)0xFF, 0x01,
+            (byte)0xFF, 0x02
+        };
+
+        String result = RecordStructureCodec.decodeForEditor(remote, ISO_8859_1, settings);
+
+        // Trailing spaces must be stripped from each line
+        assertEquals("HELLO\nWORLD", result);
+    }
+
+    @Test
+    void decodeStripsTrailingCRFromLines() {
+        Settings settings = createDefaultSettings();
+
+        // Records with \r before record marker (CRLF artifact)
+        // "LINE1\r<FF01>LINE2\r<FF01><FF02>"
+        byte[] remote = new byte[] {
+            'L', 'I', 'N', 'E', '1', 0x0D, (byte)0xFF, 0x01,
+            'L', 'I', 'N', 'E', '2', 0x0D, (byte)0xFF, 0x01,
+            (byte)0xFF, 0x02
+        };
+
+        String result = RecordStructureCodec.decodeForEditor(remote, ISO_8859_1, settings);
+
+        // Trailing \r must be stripped
+        assertEquals("LINE1\nLINE2", result);
+    }
+
+    @Test
+    void decodeStripsTrailingNullsFromLines() {
+        Settings settings = createDefaultSettings();
+
+        // Records with residual null bytes (in case readAllBytes didn't catch all)
+        byte[] remote = new byte[] {
+            'A', 'B', 'C', 0x00, 0x00, (byte)0xFF, 0x01,
+            'D', 'E', 'F', 0x00, (byte)0xFF, 0x01,
+            (byte)0xFF, 0x02
+        };
+
+        String result = RecordStructureCodec.decodeForEditor(remote, ISO_8859_1, settings);
+
+        // Trailing nulls stripped
+        assertEquals("ABC\nDEF", result);
+    }
+
+    @Test
+    void decodeStripsMixedTrailingPadding() {
+        Settings settings = createDefaultSettings();
+
+        // Record with mixed trailing padding: spaces + \r + null
+        byte[] remote = new byte[] {
+            'T', 'E', 'S', 'T', ' ', ' ', 0x0D, 0x00, (byte)0xFF, 0x01,
+            (byte)0xFF, 0x02
+        };
+
+        String result = RecordStructureCodec.decodeForEditor(remote, ISO_8859_1, settings);
+
+        assertEquals("TEST", result);
+    }
+
+    @Test
+    void decodePreservesInternalSpaces() {
+        Settings settings = createDefaultSettings();
+
+        // "HELLO WORLD     <FF01><FF02>" — internal space must be preserved
+        byte[] remote = new byte[] {
+            'H', 'E', 'L', 'L', 'O', ' ', 'W', 'O', 'R', 'L', 'D', ' ', ' ', ' ', (byte)0xFF, 0x01,
+            (byte)0xFF, 0x02
+        };
+
+        String result = RecordStructureCodec.decodeForEditor(remote, ISO_8859_1, settings);
+
+        // Only trailing spaces stripped; internal space between HELLO and WORLD preserved
+        assertEquals("HELLO WORLD", result);
+    }
+
+    @Test
+    void encodeStripsTrailingSpacesBeforeMarker() {
+        Settings settings = createDefaultSettings();
+
+        // Simulate user text with accidental trailing spaces
+        String editorText = "LINE1   \nLINE2  ";
+
+        byte[] result = RecordStructureCodec.encodeForRemote(editorText, ISO_8859_1, settings);
+
+        // Expected: "LINE1<FF01>LINE2<FF01><FF02>" — trailing spaces stripped
+        byte[] expected = new byte[] {
+            'L', 'I', 'N', 'E', '1', (byte)0xFF, 0x01,
+            'L', 'I', 'N', 'E', '2', (byte)0xFF, 0x01,
+            (byte)0xFF, 0x02
+        };
+
+        assertArrayEquals(expected, result);
+    }
+
+    @Test
+    void encodeStripsTrailingCRBeforeMarker() {
+        Settings settings = createDefaultSettings();
+
+        // Text with stray \r characters
+        String editorText = "LINE1\r\nLINE2\r";
+
+        byte[] result = RecordStructureCodec.encodeForRemote(editorText, ISO_8859_1, settings);
+
+        // Expected: "LINE1<FF01>LINE2<FF01><FF02>" — \r stripped from each line
+        byte[] expected = new byte[] {
+            'L', 'I', 'N', 'E', '1', (byte)0xFF, 0x01,
+            'L', 'I', 'N', 'E', '2', (byte)0xFF, 0x01,
+            (byte)0xFF, 0x02
+        };
+
+        assertArrayEquals(expected, result);
+    }
+
+    @Test
+    void roundtripWithSpacePaddedRecords() {
+        Settings settings = createDefaultSettings();
+
+        // Simulate MVS FB LRECL=10: records padded with spaces
+        byte[] originalRemote = new byte[] {
+            'H', 'E', 'L', 'L', 'O', ' ', ' ', ' ', ' ', ' ', (byte)0xFF, 0x01,
+            'W', 'O', 'R', 'L', 'D', ' ', ' ', ' ', ' ', ' ', (byte)0xFF, 0x01,
+            (byte)0xFF, 0x02
+        };
+
+        // Decode strips trailing spaces
+        String editorText = RecordStructureCodec.decodeForEditor(originalRemote, ISO_8859_1, settings);
+        assertEquals("HELLO\nWORLD", editorText);
+
+        // User adds a character to first line
+        editorText = "HELLOX\nWORLD";
+
+        // Encode back — records are shorter than original (no padding, just content)
+        byte[] encoded = RecordStructureCodec.encodeForRemote(editorText, ISO_8859_1, settings);
+
+        byte[] expected = new byte[] {
+            'H', 'E', 'L', 'L', 'O', 'X', (byte)0xFF, 0x01,
+            'W', 'O', 'R', 'L', 'D', (byte)0xFF, 0x01,
+            (byte)0xFF, 0x02
+        };
+        assertArrayEquals(expected, encoded);
+    }
+
+    @Test
+    void rtrimHelperTests() {
+        assertEquals("HELLO", RecordStructureCodec.rtrim("HELLO   "));
+        assertEquals("HELLO", RecordStructureCodec.rtrim("HELLO\r"));
+        assertEquals("HELLO", RecordStructureCodec.rtrim("HELLO\r  "));
+        assertEquals("HELLO", RecordStructureCodec.rtrim("HELLO\0\0"));
+        assertEquals("", RecordStructureCodec.rtrim("   "));
+        assertEquals("", RecordStructureCodec.rtrim(""));
+        assertNull(RecordStructureCodec.rtrim(null));
+        assertEquals("HELLO WORLD", RecordStructureCodec.rtrim("HELLO WORLD  "));
     }
 }
 
