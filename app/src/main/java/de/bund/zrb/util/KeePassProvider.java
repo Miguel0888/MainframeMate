@@ -370,7 +370,7 @@ final class KeePassProvider {
 
 
         // PowerShell mode: create the entry with both username and password
-        createEntry(settings, entryTitle, user, pass, "", null, null, false, false, false, "");
+        createEntry(settings, entryTitle, user, pass, "", null, null, false, false, false, "", true, false);
         LOG.info("[KeePass] Entry \"" + entryTitle + "\" created for user \"" + user + "\"");
         return pass;
     }
@@ -381,12 +381,12 @@ final class KeePassProvider {
     private static void createEntry(Settings settings, String title, String userName, String password,
                                     String url, String displayName, String category,
                                     boolean requiresLogin, boolean useProxy, boolean autoIndex,
-                                    String certAlias) {
+                                    String certAlias, boolean savePassword, boolean sessionCache) {
         String urlLine = "";
         if (url != null && !url.isEmpty()) {
             urlLine = "$ne.Strings.Set('URL', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(url) + "')))\n";
         }
-        String mmLines = buildMmCreateScript(displayName, category, requiresLogin, useProxy, autoIndex, certAlias);
+        String mmLines = buildMmCreateScript(displayName, category, requiresLogin, useProxy, autoIndex, certAlias, savePassword, sessionCache);
 
         String script = preamble(settings)
                 + "$ne = New-Object KeePassLib.PwEntry($db.RootGroup, $true, $true)\n"
@@ -412,7 +412,7 @@ final class KeePassProvider {
      */
     private static String buildMmUpdateScript(String displayName, String category,
                                               boolean requiresLogin, boolean useProxy, boolean autoIndex,
-                                              String certAlias) {
+                                              String certAlias, boolean savePassword, boolean sessionCache) {
         StringBuilder sb = new StringBuilder();
         sb.append("    $e.Strings.Set('MM_DisplayName', (New-Object KeePassLib.Security.ProtectedString($false, '")
                 .append(esc(displayName != null ? displayName : "")).append("')))\n");
@@ -426,6 +426,10 @@ final class KeePassProvider {
                 .append(autoIndex).append("')))\n");
         sb.append("    $e.Strings.Set('MM_CertAlias', (New-Object KeePassLib.Security.ProtectedString($false, '")
                 .append(esc(certAlias != null ? certAlias : "")).append("')))\n");
+        sb.append("    $e.Strings.Set('MM_SavePassword', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(savePassword).append("')))\n");
+        sb.append("    $e.Strings.Set('MM_SessionCache', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(sessionCache).append("')))\n");
         return sb.toString();
     }
 
@@ -434,7 +438,7 @@ final class KeePassProvider {
      */
     private static String buildMmCreateScript(String displayName, String category,
                                               boolean requiresLogin, boolean useProxy, boolean autoIndex,
-                                              String certAlias) {
+                                              String certAlias, boolean savePassword, boolean sessionCache) {
         StringBuilder sb = new StringBuilder();
         sb.append("  $ne.Strings.Set('MM_DisplayName', (New-Object KeePassLib.Security.ProtectedString($false, '")
                 .append(esc(displayName != null ? displayName : "")).append("')))\n");
@@ -448,6 +452,10 @@ final class KeePassProvider {
                 .append(autoIndex).append("')))\n");
         sb.append("  $ne.Strings.Set('MM_CertAlias', (New-Object KeePassLib.Security.ProtectedString($false, '")
                 .append(esc(certAlias != null ? certAlias : "")).append("')))\n");
+        sb.append("  $ne.Strings.Set('MM_SavePassword', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(savePassword).append("')))\n");
+        sb.append("  $ne.Strings.Set('MM_SessionCache', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(sessionCache).append("')))\n");
         return sb.toString();
     }
 
@@ -689,7 +697,7 @@ final class KeePassProvider {
     static void rpcAddEntry(String title, String userName, String password, String url,
                             String displayName, String category,
                             boolean requiresLogin, boolean useProxy, boolean autoIndex,
-                            String certAlias) {
+                            String certAlias, boolean savePassword, boolean sessionCache) {
         Settings settings = SettingsHelper.load();
         validateRpcConfig(settings);
         KeePassRpcClient client = new KeePassRpcClient(
@@ -699,7 +707,7 @@ final class KeePassProvider {
         try {
             client.connect();
             client.addLogin(title, userName, password, url, displayName, category,
-                    requiresLogin, useProxy, autoIndex, certAlias);
+                    requiresLogin, useProxy, autoIndex, certAlias, savePassword, sessionCache);
         } finally {
             client.close();
         }
@@ -711,7 +719,7 @@ final class KeePassProvider {
     static void rpcUpdateEntry(String title, String userName, String password, String url,
                                String displayName, String category,
                                boolean requiresLogin, boolean useProxy, boolean autoIndex,
-                               String certAlias) {
+                               String certAlias, boolean savePassword, boolean sessionCache) {
         Settings settings = SettingsHelper.load();
         validateRpcConfig(settings);
         KeePassRpcClient client = new KeePassRpcClient(
@@ -721,7 +729,7 @@ final class KeePassProvider {
         try {
             client.connect();
             client.updateLogin(title, userName, password, url, displayName, category,
-                    requiresLogin, useProxy, autoIndex, certAlias);
+                    requiresLogin, useProxy, autoIndex, certAlias, savePassword, sessionCache);
         } finally {
             client.close();
         }
@@ -766,11 +774,11 @@ final class KeePassProvider {
     static void psAddEntry(String title, String userName, String password, String url,
                            String displayName, String category,
                            boolean requiresLogin, boolean useProxy, boolean autoIndex,
-                           String certAlias) {
+                           String certAlias, boolean savePassword, boolean sessionCache) {
         Settings settings = SettingsHelper.load();
         validateConfig(settings);
         createEntry(settings, title, userName, password, url,
-                displayName, category, requiresLogin, useProxy, autoIndex, certAlias);
+                displayName, category, requiresLogin, useProxy, autoIndex, certAlias, savePassword, sessionCache);
     }
 
     /**
@@ -780,13 +788,13 @@ final class KeePassProvider {
     static void psUpdateEntry(String title, String userName, String password, String url,
                               String displayName, String category,
                               boolean requiresLogin, boolean useProxy, boolean autoIndex,
-                              String certAlias) {
+                              String certAlias, boolean savePassword, boolean sessionCache) {
         Settings settings = SettingsHelper.load();
         validateConfig(settings);
 
         // Build inline PS snippets for MM_* Advanced String Fields
-        String mmUpdate = buildMmUpdateScript(displayName, category, requiresLogin, useProxy, autoIndex, certAlias);
-        String mmCreate = buildMmCreateScript(displayName, category, requiresLogin, useProxy, autoIndex, certAlias);
+        String mmUpdate = buildMmUpdateScript(displayName, category, requiresLogin, useProxy, autoIndex, certAlias, savePassword, sessionCache);
+        String mmCreate = buildMmCreateScript(displayName, category, requiresLogin, useProxy, autoIndex, certAlias, savePassword, sessionCache);
 
         String urlLine = (url != null && !url.isEmpty())
                 ? "    $e.Strings.Set('URL', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(url) + "')))\n"

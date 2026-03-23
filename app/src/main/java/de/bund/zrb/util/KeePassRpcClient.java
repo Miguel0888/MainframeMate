@@ -239,6 +239,22 @@ final class KeePassRpcClient {
                   String displayName, String category,
                   boolean requiresLogin, boolean useProxy, boolean autoIndex,
                   String certAlias) {
+        addLogin(title, userName, password, url, displayName, category,
+                requiresLogin, useProxy, autoIndex, certAlias, false, false);
+    }
+
+    /**
+     * Create a new login entry in KeePass via the {@code AddLogin} V1 RPC call,
+     * storing metadata as custom form fields (Advanced String Fields via formFieldList).
+     * <p>
+     * KeePassRPC v1 does NOT support {@code notes} or {@code tags} in the DTO,
+     * so we use custom {@code FFTtext} entries in {@code formFieldList} with
+     * {@code MM_*} prefixed names instead.
+     */
+    void addLogin(String title, String userName, String password, String url,
+                  String displayName, String category,
+                  boolean requiresLogin, boolean useProxy, boolean autoIndex,
+                  String certAlias, boolean savePassword, boolean sessionCache) {
         // Build form field list (V1 DTO)
         JsonArray formFields = new JsonArray();
 
@@ -266,8 +282,8 @@ final class KeePassRpcClient {
         addCustomFormField(formFields, "MM_RequiresLogin", String.valueOf(requiresLogin));
         addCustomFormField(formFields, "MM_UseProxy", String.valueOf(useProxy));
         addCustomFormField(formFields, "MM_AutoIndex", String.valueOf(autoIndex));
-        addCustomFormField(formFields, "MM_SavePassword", "false");
-        addCustomFormField(formFields, "MM_SessionCache", "false");
+        addCustomFormField(formFields, "MM_SavePassword", String.valueOf(savePassword));
+        addCustomFormField(formFields, "MM_SessionCache", String.valueOf(sessionCache));
         addCustomFormField(formFields, "MM_CertAlias", certAlias);
 
         // Build login object
@@ -309,7 +325,7 @@ final class KeePassRpcClient {
      * Update an existing login entry in KeePass via the {@code UpdateLogin} V1 RPC call.
      */
     void updateLogin(String title, String userName, String password) {
-        updateLogin(title, userName, password, (String) null, null, null, false, false, false, "");
+        updateLogin(title, userName, password, (String) null, null, null, false, false, false, "", false, false);
     }
 
     /**
@@ -320,7 +336,7 @@ final class KeePassRpcClient {
                      String displayName, String category,
                      boolean requiresLogin, boolean useProxy, boolean autoIndex) {
         updateLogin(title, userName, password, url, displayName, category,
-                requiresLogin, useProxy, autoIndex, "");
+                requiresLogin, useProxy, autoIndex, "", false, false);
     }
 
     /**
@@ -330,13 +346,13 @@ final class KeePassRpcClient {
     void updateLogin(String title, String userName, String password, String url,
                      String displayName, String category,
                      boolean requiresLogin, boolean useProxy, boolean autoIndex,
-                     String certAlias) {
+                     String certAlias, boolean savePassword, boolean sessionCache) {
         // First find the existing entry to get its uniqueID
         JsonArray entries = findLoginsByTitle(title);
         if (entries == null || entries.size() == 0) {
             // Entry doesn't exist yet — create it
             addLogin(title, userName, password, url != null ? url : "", displayName, category,
-                    requiresLogin, useProxy, autoIndex);
+                    requiresLogin, useProxy, autoIndex, certAlias, savePassword, sessionCache);
             return;
         }
 
@@ -370,8 +386,8 @@ final class KeePassRpcClient {
         addCustomFormField(formFields, "MM_RequiresLogin", String.valueOf(requiresLogin));
         addCustomFormField(formFields, "MM_UseProxy", String.valueOf(useProxy));
         addCustomFormField(formFields, "MM_AutoIndex", String.valueOf(autoIndex));
-        addCustomFormField(formFields, "MM_SavePassword", "false");
-        addCustomFormField(formFields, "MM_SessionCache", "false");
+        addCustomFormField(formFields, "MM_SavePassword", String.valueOf(savePassword));
+        addCustomFormField(formFields, "MM_SessionCache", String.valueOf(sessionCache));
         addCustomFormField(formFields, "MM_CertAlias", certAlias);
 
         JsonObject login = new JsonObject();

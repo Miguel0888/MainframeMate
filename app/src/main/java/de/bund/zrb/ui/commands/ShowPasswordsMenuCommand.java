@@ -23,8 +23,10 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -1408,12 +1410,40 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         String raw = CredentialStore.listKeePassEntries();
         List<KeePassEntry> entries = parseKeePassOutput(raw);
 
+        // Merge savePassword/sessionCache flags from existing settings, because
+        // older KeePass entries may not yet have MM_SavePassword/MM_SessionCache fields.
+        // Without this, opening the dialog would reset the flags to false.
+        Settings settings = SettingsHelper.load();
+        Map<String, Settings.PasswordEntryMeta> existingMeta = new HashMap<String, Settings.PasswordEntryMeta>();
+        for (Settings.PasswordEntryMeta meta : settings.passwordEntries) {
+            existingMeta.put(meta.id, meta);
+        }
+        List<KeePassEntry> merged = new ArrayList<KeePassEntry>(entries.size());
+        for (KeePassEntry e : entries) {
+            Settings.PasswordEntryMeta prev = existingMeta.get(e.title);
+            if (prev != null && !e.savePassword && prev.savePassword) {
+                // KeePass entry doesn't have MM_SavePassword yet — use value from settings
+                e = new KeePassEntry(e.category, e.title, e.displayName, e.userName,
+                        e.password, e.url, e.uniqueID, e.certAlias, e.networkZone,
+                        e.requiresLogin, e.useProxy, e.autoIndex,
+                        prev.savePassword, e.sessionCache);
+            }
+            if (prev != null && !e.sessionCache && prev.sessionCache) {
+                // KeePass entry doesn't have MM_SessionCache yet — use value from settings
+                e = new KeePassEntry(e.category, e.title, e.displayName, e.userName,
+                        e.password, e.url, e.uniqueID, e.certAlias, e.networkZone,
+                        e.requiresLogin, e.useProxy, e.autoIndex,
+                        e.savePassword, prev.sessionCache);
+            }
+            merged.add(e);
+        }
+
         // Sync metadata into settings.passwordEntries so other components
         // (parseWikiSites, WikiSettingsPanel, etc.) can discover entries
         // even if they were created before this sync mechanism existed.
-        syncMetadataToSettings(entries);
+        syncMetadataToSettings(merged);
 
-        return entries;
+        return merged;
     }
 
     /**
@@ -1513,14 +1543,14 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                     entry.title, entry.userName, entry.password, entry.url,
                     entry.displayName, entry.category,
                     entry.requiresLogin, entry.useProxy, entry.autoIndex,
-                    entry.certAlias);
+                    entry.certAlias, entry.savePassword, entry.sessionCache);
         } else {
             // Save metadata to KeePass but with empty password
             CredentialStore.updateKeePassEntry(
                     entry.title, entry.userName, "", entry.url,
                     entry.displayName, entry.category,
                     entry.requiresLogin, entry.useProxy, entry.autoIndex,
-                    entry.certAlias);
+                    entry.certAlias, entry.savePassword, entry.sessionCache);
 
             if (entry.sessionCache && entry.password != null && !entry.password.isEmpty()) {
                 // Store in RAM-only session cache (lost on app exit)
