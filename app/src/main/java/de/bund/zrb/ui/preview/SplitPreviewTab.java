@@ -445,11 +445,13 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         area.setText(rawContent);
         area.setCaretPosition(0);
 
-        // Track changes
+        // Track changes — only insertUpdate/removeUpdate represent actual text changes.
+        // changedUpdate fires on attribute changes (e.g., syntax highlighting style switch)
+        // and must NOT set hasUnsavedChanges.
         area.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             public void insertUpdate(javax.swing.event.DocumentEvent e) { onRawContentChanged(); }
             public void removeUpdate(javax.swing.event.DocumentEvent e) { onRawContentChanged(); }
-            public void changedUpdate(javax.swing.event.DocumentEvent e) { onRawContentChanged(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { /* attribute-only, ignore */ }
         });
 
         return area;
@@ -570,11 +572,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         area.setText(rawContent);
         area.setCaretPosition(0);
 
-        // Sync changes back to rawContent and rawPane
+        // Sync changes back to rawContent and rawPane — only on actual text changes.
+        // changedUpdate fires on attribute changes (syntax highlighting) and must be ignored.
         area.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             public void insertUpdate(javax.swing.event.DocumentEvent e) { syncFromHighlighted(area); }
             public void removeUpdate(javax.swing.event.DocumentEvent e) { syncFromHighlighted(area); }
-            public void changedUpdate(javax.swing.event.DocumentEvent e) { syncFromHighlighted(area); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { /* attribute-only, ignore */ }
         });
 
         return area;
@@ -1379,6 +1382,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         this.rawContent = content != null ? content : "";
         rawPane.setText(this.rawContent);
         rawPane.setCaretPosition(0);
+        hasUnsavedChanges = false; // programmatic content set is not a user change
         if (needsHtmlRendering) {
             renderHtmlContent();
         }

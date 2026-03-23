@@ -643,6 +643,7 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                 }
 
                 model.resetChanged();
+                hasUnsavedChanges = false;
                 tabbedPaneManager.updateTitleFor(this);
 
                 // Re-index saved content in RAG
