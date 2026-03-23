@@ -1,5 +1,8 @@
 package de.bund.zrb.mermaid;
 
+import com.aresstack.mermaid.JsExecutionResult;
+import com.aresstack.mermaid.MermaidRenderer;
+import com.aresstack.mermaid.MermaidSvgFixup;
 import de.bund.zrb.wiki.ui.SvgRenderer;
 import org.junit.jupiter.api.Test;
 
@@ -92,8 +95,8 @@ class MindmapBatikTest {
         outDir.mkdirs();
         save(new File(outDir, "1-raw.svg"), raw);
 
-        // Step 2: Apply postProcessSvg
-        String postProcessed = MermaidRenderer.postProcessSvg(raw);
+        // Step 2: Apply renderToSvg (includes post-processing)
+        String postProcessed = renderer.renderToSvg(MINDMAP);
         System.out.println("\n=== POST-PROCESSED SVG length: " + postProcessed.length() + " ===");
         save(new File(outDir, "2-postprocessed.svg"), postProcessed);
 

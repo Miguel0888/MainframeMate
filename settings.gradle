@@ -16,6 +16,3 @@ include 'dosbox'
 
 include 'onnx'
 include 'winml-java'
-
-include 'mermaid-renderer'
-

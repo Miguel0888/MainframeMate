@@ -113,7 +113,7 @@ dependencies {
     implementation 'org.commonmark:commonmark-ext-gfm-tables:0.21.0'
 
     // Mermaid diagram rendering (JS → SVG via GraalJS)
-    implementation project(':mermaid-renderer')
+    implementation 'com.aresstack:mermaid-java:0.1.0-beta.1'
 
     // Lucene for lexical search (RAG) - 8.11.x is Java 8 compatible
     implementation 'org.apache.lucene:lucene-core:8.11.3'

@@ -1,5 +1,8 @@
 package de.bund.zrb.mermaid;
 
+import com.aresstack.mermaid.JsExecutionResult;
+import com.aresstack.mermaid.MermaidRenderer;
+import com.aresstack.mermaid.MermaidSvgFixup;
 import de.bund.zrb.wiki.ui.SvgRenderer;
 
 import javax.swing.*;
@@ -109,15 +112,15 @@ public final class BatikSmokeTest {
         BufferedImage a2img = tryBatik("A2", minimal);
         report("A2 (minimal fixes)", a2img);
 
-        // ── A3: postProcessSvg only ──
-        System.out.println("\n── A3: postProcessSvg() only ──");
-        String postProcessed = MermaidRenderer.postProcessSvg(trulyRaw);
+        // ── A3: renderToSvg (includes post-processing) ──
+        System.out.println("\n── A3: renderToSvg() (post-processed) ──");
+        String postProcessed = renderer.renderToSvg(DIAGRAM);
         save("postprocessed.svg", postProcessed);
         System.out.println("  Post-processed SVG: " + postProcessed.length() + " chars");
         System.out.println("  Nested <svg> count: " + countOccurrences(postProcessed, "<svg"));
         System.out.println("  <g class=\"node\"> count: " + countOccurrences(postProcessed, "class=\"node"));
         BufferedImage a3img = tryBatik("A3", postProcessed);
-        report("A3 (postProcessSvg)", a3img);
+        report("A3 (renderToSvg)", a3img);
 
         // ── A4: Full pipeline ──
         System.out.println("\n── A4: Full pipeline (postProcessSvg + fixForBatik) ──");
@@ -135,7 +138,7 @@ public final class BatikSmokeTest {
         System.out.println("║ A0 Hand-crafted SVG    : " + (a0img != null ? "✅ OK " : "❌ FAIL") + "                       ║");
         System.out.println("║ A1 Truly raw           : " + (a1img != null ? "✅ OK " : "❌ FAIL") + "                       ║");
         System.out.println("║ A2 Minimal fixes       : " + (a2img != null ? "✅ OK " : "❌ FAIL") + "                       ║");
-        System.out.println("║ A3 postProcessSvg      : " + (a3img != null ? "✅ OK " : "❌ FAIL") + "                       ║");
+        System.out.println("║ A3 renderToSvg         : " + (a3img != null ? "✅ OK " : "❌ FAIL") + "                       ║");
         System.out.println("║ A4 Full pipeline       : " + (a4img != null ? "✅ OK " : "❌ FAIL") + "                       ║");
         System.out.println("╚══════════════════════════════════════════════════════════╝");
 
@@ -144,7 +147,7 @@ public final class BatikSmokeTest {
         if (a0img != null) results.put("A0: Hand-crafted", a0img);
         if (a1img != null) results.put("A1: Truly raw", a1img);
         if (a2img != null) results.put("A2: Minimal fixes", a2img);
-        if (a3img != null) results.put("A3: postProcessSvg", a3img);
+        if (a3img != null) results.put("A3: renderToSvg", a3img);
         if (a4img != null) results.put("A4: Full pipeline", a4img);
 
         if (!results.isEmpty()) {
@@ -193,9 +196,10 @@ public final class BatikSmokeTest {
         // Remove stroke-linecap
         svg = svg.replaceAll("stroke-linecap\\s*:\\s*[^;\"'}<]+[;]?", "");
 
-        // Convert hsl()/rgba() to hex
-        svg = MermaidSvgFixup.replaceHslValues(svg);
-        svg = MermaidSvgFixup.replaceRgbaValues(svg);
+        // Convert hsl()/rgba() to simple fallback values (library-internal methods not public)
+        svg = svg.replaceAll("hsl\\([^)]*\\)", "#888888");
+        svg = svg.replaceAll("hsla\\([^)]*\\)", "#888888");
+        svg = svg.replaceAll("rgba\\([^)]*\\)", "#888888");
 
         // Remove unsupported CSS properties
         svg = svg.replaceAll("position\\s*:\\s*[^;\"]+;?", "");
