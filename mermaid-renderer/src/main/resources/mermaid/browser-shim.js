@@ -875,10 +875,10 @@ function _computeElementDims(el) {
                 var cb = child.getBBox();
                 if (cb.w === undefined) { cb.w = cb.width; cb.h = cb.height; }
                 if (cb.w > 0 || cb.h > 0) {
-                    // Account for child's transform
-                    var cOff = _parseTranslate(child);
-                    var cx1 = cb.x + cOff[0], cy1 = cb.y + cOff[1];
-                    var cx2 = cx1 + cb.w, cy2 = cy1 + cb.h;
+                    // Apply child's full transform (translate + rotate + scale)
+                    var tb = _transformBBox(cb, child);
+                    var cx1 = tb.x, cy1 = tb.y;
+                    var cx2 = cx1 + tb.w, cy2 = cy1 + tb.h;
                     if (cx1 < cMinX) cMinX = cx1;
                     if (cy1 < cMinY) cMinY = cy1;
                     if (cx2 > cMaxX) cMaxX = cx2;
@@ -941,9 +941,10 @@ function _computeSvgContentBBox(el) {
             var cb = child.getBBox();
             if (cb.w === undefined) { cb.w = cb.width; cb.h = cb.height; }
             if (cb.w > 0 || cb.h > 0) {
-                var cOff = _parseTranslate(child);
-                var cx1 = cb.x + cOff[0], cy1 = cb.y + cOff[1];
-                var cx2 = cx1 + cb.w, cy2 = cy1 + cb.h;
+                // Apply child's full transform (translate + rotate + scale)
+                var tb = _transformBBox(cb, child);
+                var cx1 = tb.x, cy1 = tb.y;
+                var cx2 = cx1 + tb.w, cy2 = cy1 + tb.h;
                 if (cx1 < cMinX) cMinX = cx1;
                 if (cy1 < cMinY) cMinY = cy1;
                 if (cx2 > cMaxX) cMaxX = cx2;
@@ -1120,6 +1121,85 @@ function _parseTransform(el) {
 
 // Backwards-compatible alias
 function _parseTranslate(el) { return _parseTransform(el); }
+
+/**
+ * Transform a local bounding box through an element's full transform attribute
+ * (translate, rotate, scale, matrix) and return the axis-aligned bounding box
+ * of the transformed rectangle.
+ *
+ * This is used when aggregating child bboxes in parent containers (<g>, <svg>).
+ * Unlike _parseTranslate which only extracts translation, this correctly handles
+ * rotation (e.g. rotated Y-axis labels) and scale by transforming all 4 corners
+ * of the bbox and computing their AABB.
+ *
+ * @param {{x:number, y:number, w:number, h:number}} box  Local bounding box
+ * @param {Object} el  DOM element whose transform to apply
+ * @returns {{x:number, y:number, w:number, h:number}} Transformed AABB
+ */
+function _transformBBox(box, el) {
+    var t = el._attrs && el._attrs['transform'];
+    if (!t && el.getAttribute) t = el.getAttribute('transform');
+    if (!t) return box;  // no transform → return as-is
+
+    // Build a 2D affine transform matrix [a,b,c,d,tx,ty] (identity start)
+    var a = 1, b = 0, c = 0, d = 1, tx = 0, ty = 0;
+
+    var re = /(translate|matrix|scale|rotate)\s*\(([^)]*)\)/gi;
+    var m;
+    while ((m = re.exec(t)) !== null) {
+        var fn = m[1].toLowerCase();
+        var args = m[2].replace(/,/g, ' ').trim().split(/\s+/).map(parseFloat);
+        var na, nb, nc, nd, ntx, nty;
+
+        if (fn === 'translate') {
+            na = 1; nb = 0; nc = 0; nd = 1;
+            ntx = args[0] || 0;
+            nty = args.length > 1 ? (args[1] || 0) : 0;
+        } else if (fn === 'scale') {
+            var sx = args[0] || 1;
+            var sy = args.length > 1 ? (args[1] || sx) : sx;
+            na = sx; nb = 0; nc = 0; nd = sy; ntx = 0; nty = 0;
+        } else if (fn === 'rotate') {
+            var rad = (args[0] || 0) * Math.PI / 180;
+            var cosA = Math.cos(rad), sinA = Math.sin(rad);
+            na = cosA; nb = sinA; nc = -sinA; nd = cosA; ntx = 0; nty = 0;
+        } else if (fn === 'matrix') {
+            na = args[0] || 1; nb = args[1] || 0;
+            nc = args[2] || 0; nd = args[3] || 1;
+            ntx = args[4] || 0; nty = args[5] || 0;
+        } else { continue; }
+
+        // Compose: current = current * new
+        var ra = a * na + c * nb,  rb = b * na + d * nb;
+        var rc = a * nc + c * nd,  rd = b * nc + d * nd;
+        var rtx = a * ntx + c * nty + tx, rty = b * ntx + d * nty + ty;
+        a = ra; b = rb; c = rc; d = rd; tx = rtx; ty = rty;
+    }
+
+    // Fast path: pure translation (no rotation/scale)
+    if (a === 1 && b === 0 && c === 0 && d === 1) {
+        return { x: box.x + tx, y: box.y + ty, w: box.w, h: box.h };
+    }
+
+    // Transform the 4 corners and find their axis-aligned bounding box
+    var corners = [
+        [box.x,         box.y],
+        [box.x + box.w, box.y],
+        [box.x + box.w, box.y + box.h],
+        [box.x,         box.y + box.h]
+    ];
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (var i = 0; i < 4; i++) {
+        var px = corners[i][0], py = corners[i][1];
+        var rx = a * px + c * py + tx;
+        var ry = b * px + d * py + ty;
+        if (rx < minX) minX = rx;
+        if (ry < minY) minY = ry;
+        if (rx > maxX) maxX = rx;
+        if (ry > maxY) maxY = ry;
+    }
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
 
 // ── Minimal HTML/SVG parser for innerHTML ───────────────────────────────────
 // DOMPurify sets innerHTML on a document's body and then walks the DOM tree
