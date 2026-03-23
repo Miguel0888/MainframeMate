@@ -522,6 +522,59 @@ function _collectAllText(el) {
 // ── Dimension computation for getBBox / getBoundingClientRect ────────────────
 
 /**
+ * Attempt to compute the bounding box of an SVG element using Apache Batik (via Java bridge).
+ *
+ * Serializes the element to SVG XML (using outerHTML), sends it to the Java-side
+ * BatikBBoxService which parses it with Batik's GVT tree, and returns accurate
+ * geometry bounds computed by Java2D's text layout engine.
+ *
+ * This is the preferred path for <text> elements (with <tspan> children), where
+ * JavaScript-side heuristics are error-prone (em units, absolute tspan positioning,
+ * font metrics, text-anchor).
+ *
+ * @param {Object} el  Shim DOM element
+ * @returns {{x:number, y:number, w:number, h:number}|null}  BBox or null if Batik fails
+ */
+function _computeBBoxViaBatik(el) {
+    if (typeof javaBridge === 'undefined' || !javaBridge.computeSvgBBox) return null;
+
+    try {
+        // Serialize element to SVG XML via outerHTML
+        var svgXml = el.outerHTML;
+        if (!svgXml || svgXml.length < 5) return null;
+
+        // Skip very large fragments (groups with many children) — too expensive for Batik
+        // and the fragment might reference external defs/styles that Batik can't resolve.
+        if (svgXml.length > 5000) return null;
+
+        var result = javaBridge.computeSvgBBox(svgXml);
+        if (!result || result === '') return null;
+
+        var parts = ('' + result).split(',');
+        if (parts.length < 4) return null;
+
+        var bx = parseFloat(parts[0]);
+        var by = parseFloat(parts[1]);
+        var bw = parseFloat(parts[2]);
+        var bh = parseFloat(parts[3]);
+
+        // Sanity check: Batik must return reasonable values
+        if (isNaN(bw) || isNaN(bh) || bw <= 0 || bh <= 0) return null;
+        if (isNaN(bx)) bx = 0;
+        if (isNaN(by)) by = 0;
+
+        // Reject clearly wrong results (e.g. negative dimensions or huge offsets
+        // that indicate Batik failed to parse the fragment correctly)
+        if (bw > 10000 || bh > 10000) return null;
+
+        return { x: bx, y: by, w: bw, h: bh };
+    } catch (e) {
+        // Batik failed — fall through to JS heuristic
+        return null;
+    }
+}
+
+/**
  * Resolve an SVG length value to pixels.
  * Handles raw numbers, 'px', 'em', and '%' units.
  * @param {string|number} val  The attribute value (e.g. "12", "1.1em", "50%", "16px")
@@ -647,6 +700,14 @@ function _computeElementDims(el) {
     //    - <tspan dy="D"> shifts vertically relative to current
     //    - em units are relative to the element's font-size
     if (tag === 'text') {
+        // ── Batik-based accurate BBox (preferred path) ──────────────────
+        // Serialize this text element to SVG XML and let Batik's GVT tree
+        // compute the exact bounding box using Java2D font layout.
+        // This replaces hundreds of lines of heuristic JS positioning logic.
+        var batikBBox = _computeBBoxViaBatik(el);
+        if (batikBBox) return batikBBox;
+        // ── Fallback: JS heuristic (if Batik fails or is unavailable) ───
+
         // Collect tspan children (direct children only, per SVG spec)
         var tspans = [];
         if (el.childNodes) {

@@ -14,6 +14,11 @@ dependencies {
     implementation 'org.graalvm.sdk:graal-sdk:21.2.0'
     implementation 'org.graalvm.js:js:21.2.0'
 
+    // Apache Batik — SVG DOM + GVT tree for accurate getBBox() computation.
+    // Only batik-bridge is needed (pulls in batik-gvt, batik-dom, batik-css, batik-svg-dom).
+    // This replaces heuristic JS-side BBox estimation with Batik's real SVG text layout engine.
+    implementation 'org.apache.xmlgraphics:batik-bridge:1.17'
+
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 }
 

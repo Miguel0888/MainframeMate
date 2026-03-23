@@ -36,8 +36,40 @@ Visueller Test (im `app`-Modul):
 | `MermaidRenderer` | Singleton-Fassade — `renderToSvg(diagramCode)` |
 | `MermaidSvgFixup` | Post-Processing: Batik-Kompatibilitäts-Fixes für SVG |
 | `GraalJsExecutor` | Interner GraalJS Polyglot-Context Wrapper |
+| `GraalJsExecutor.JavaBridge` | Java↔JS Brücke: Textmessung (Java2D) + BBox (Batik) |
+| `BatikBBoxService` | **NEU** — Exakte SVG-BBox-Berechnung via Batik GVT-Tree |
 | `JsExecutionResult` | Immutables Ergebnisobjekt (success/failure) |
 | `MermaidRendererMain` | Standalone-Main zum manuellen Testen |
+
+### BatikBBoxService — Akkurate getBBox()-Berechnung
+
+Der Browser-Shim muss `getBBox()` für SVG-Elemente implementieren, damit
+Mermaid korrekte Layouts berechnen kann. Besonders bei `<text>` mit `<tspan>`-
+Kindern (em-Einheiten, absolute/relative Positionierung, font-family-Auflösung)
+versagen rein heuristische JS-Berechnungen.
+
+**Lösung:** Der `BatikBBoxService` nutzt Apache Batik's GVT (Graphics Vector Toolkit)
+für pixelgenaue BBox-Berechnung:
+
+1. Das SVG-Element wird per `outerHTML` serialisiert
+2. `javaBridge.computeSvgBBox(svgXml)` schickt den Fragment-String nach Java
+3. Batik parsed das Fragment in ein SVG-DOM → baut GVT-Tree → nutzt Java2D Fonts
+4. `GraphicsNode.getGeometryBounds()` liefert die exakte Bounding Box zurück
+
+| Komponente | Rolle |
+|------------|-------|
+| `BatikBBoxService` | Batik GVT-Builder + LRU-Cache (512 Einträge) |
+| `JavaBridge.computeSvgBBox()` | JS→Java Brücke via GraalJS HostAccess |
+| `_computeBBoxViaBatik()` (JS) | Serialisierung + Aufruf, Fallback auf JS-Heuristik |
+
+**Wann wird Batik genutzt?**
+- `<text>` Elemente (mit/ohne `<tspan>`) — die fehleranfälligste Kategorie
+- Fragments ≤ 5000 Zeichen (größere Fragmente nutzen weiterhin JS-Heuristik)
+
+**Wann wird JS-Heuristik genutzt?**
+- Einfache Shapes (rect, circle, ellipse, line, polygon, path) — trivial korrekt in JS
+- SVG-Root und Container (svg, g, div) — aggregieren Kind-BBoxen
+- Fallback wenn Batik fehlschlägt (z.B. unvollständiges SVG während der Rendering-Phase)
 
 ### MermaidSvgFixup — Batik-Kompatibilität
 

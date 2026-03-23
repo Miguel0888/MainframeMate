@@ -180,10 +180,13 @@ final class GraalJsExecutor {
     /**
      * Bridge object exposed to JavaScript as {@code javaBridge}.
      * <p>
-     * Provides services that cannot be implemented in pure JavaScript,
-     * most importantly <b>accurate text measurement</b> via {@code java.awt.FontMetrics}.
-     * This replaces the crude {@code text.length * 8} estimation in the browser shim
-     * with pixel-accurate font metrics from the Java runtime.
+     * Provides services that cannot be implemented in pure JavaScript:
+     * <ul>
+     *   <li><b>Accurate text measurement</b> via {@code java.awt.FontMetrics}</li>
+     *   <li><b>Accurate SVG bounding box computation</b> via Apache Batik's GVT tree —
+     *       replaces the heuristic JS-side {@code _computeElementDims()} for complex
+     *       elements (text with tspan, groups with transforms)</li>
+     * </ul>
      */
     public static final class JavaBridge {
 
@@ -194,6 +197,12 @@ final class GraalJsExecutor {
         private static final BufferedImage MEASURE_IMAGE =
                 new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
         private static final Graphics2D MEASURE_GFX = MEASURE_IMAGE.createGraphics();
+
+        /**
+         * Batik-based BBox service for accurate SVG geometry computation.
+         * Lazily initialized on first use.
+         */
+        private BatikBBoxService bboxService;
 
         @SuppressWarnings("unused") // called from JS
         @HostAccess.Export
@@ -234,6 +243,44 @@ final class GraalJsExecutor {
             int descent = fm.getDescent();
             int height = fm.getHeight();
             return width + "," + ascent + "," + descent + "," + height;
+        }
+
+        /**
+         * Compute the accurate bounding box of an SVG fragment using Apache Batik's
+         * GVT (Graphics Vector Toolkit) tree.
+         * <p>
+         * This is the key method that replaces the heuristic JavaScript-side
+         * {@code _computeElementDims()} for elements where accurate layout matters
+         * (especially {@code <text>} with {@code <tspan>} children).
+         * <p>
+         * The fragment is wrapped in a minimal {@code <svg>} document, parsed by
+         * Batik, and the resulting GVT tree's geometry bounds are returned.
+         *
+         * @param svgFragment well-formed SVG markup
+         *                    (e.g. {@code <text x="10" y="20"><tspan dy="1.2em">Hello</tspan></text>})
+         * @return comma-separated "x,y,width,height" string, or empty string if computation fails
+         */
+        @SuppressWarnings("unused") // called from JS
+        @HostAccess.Export
+        public String computeSvgBBox(String svgFragment) {
+            if (svgFragment == null || svgFragment.isEmpty()) return "";
+            if (bboxService == null) {
+                bboxService = new BatikBBoxService();
+            }
+            String result = bboxService.computeBBox(svgFragment);
+            return result != null ? result : "";
+        }
+
+        /**
+         * Clear the Batik BBox cache. Should be called between diagram renders
+         * to prevent stale results.
+         */
+        @SuppressWarnings("unused") // called from JS
+        @HostAccess.Export
+        public void clearBBoxCache() {
+            if (bboxService != null) {
+                bboxService.clearCache();
+            }
         }
 
         /**
