@@ -125,8 +125,17 @@ public class VirtualResourceResolver {
             } catch (Exception ignored) {
                 // Not a directory -> fall through
             }
-            fs.readFile(ftpPath);
-            return VirtualResourceKind.FILE;
+            try {
+                fs.readFile(ftpPath);
+                return VirtualResourceKind.FILE;
+            } catch (Exception readEx) {
+                // If readFile failed because it IS a directory, treat as directory
+                String msg = readEx.getMessage();
+                if (msg != null && msg.toLowerCase().contains("is a directory")) {
+                    return VirtualResourceKind.DIRECTORY;
+                }
+                throw readEx;
+            }
         } catch (de.bund.zrb.files.auth.AuthCancelledException e) {
             // Benutzer hat abgebrochen - als AUTH_CANCELLED weiterleiten
             throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.AUTH_CANCELLED,

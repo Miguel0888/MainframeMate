@@ -188,7 +188,8 @@ public class VfsFileService implements FileService {
             if (!root.exists()) {
                 return Collections.emptyList();
             }
-            if (root.getType() != FileType.FOLDER) {
+            FileType rootType = root.getType();
+            if (rootType != FileType.FOLDER && rootType != FileType.FILE_OR_FOLDER) {
                 throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
                         "Path is not a directory: " + sanitizeUri(root.getName().getURI()));
             }
@@ -198,7 +199,7 @@ public class VfsFileService implements FileService {
             for (FileObject child : children) {
                 try {
                     FileType type = child.getType();
-                    boolean isDir = type == FileType.FOLDER;
+                    boolean isDir = type == FileType.FOLDER || type == FileType.FILE_OR_FOLDER;
                     long size = isDir ? 0L : child.getContent().getSize();
                     long lastModified = child.getContent().getLastModifiedTime();
                     String name = child.getName().getBaseName();
