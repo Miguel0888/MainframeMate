@@ -15,6 +15,7 @@ import de.bund.zrb.ndv.NdvObjectInfo;
 import de.bund.zrb.ndv.NdvService;
 import de.bund.zrb.files.impl.vfs.ndv.NdvFileProvider;
 
+import org.apache.commons.net.ftp.FTPClient;
 import org.apache.commons.vfs2.FileObject;
 import org.apache.commons.vfs2.FileSystemException;
 import org.apache.commons.vfs2.FileSystemManager;
@@ -42,17 +43,20 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Unified FileService implementation backed entirely by Apache Commons VFS2.
+ * Unified FileService backed entirely by Apache Commons VFS2.
  * <p>
- * Supports ALL backends through VFS URI schemes:
+ * Every resource — local, FTP, NDV — is accessed through the same
+ * {@link org.apache.commons.vfs2.FileObject} API.  No backend-specific
+ * operation code lives here.
  * <ul>
  *   <li>{@code file://} — local file system</li>
- *   <li>{@code ftp://} — FTP (including MVS/z/OS hosts)</li>
- *   <li>{@code ndv://} — Natural Development Server (via custom VFS provider)</li>
+ *   <li>{@code ftp://}  — FTP (credentials via {@link StaticUserAuthenticator})</li>
+ *   <li>{@code ndv://}  — Natural Development Server (custom VFS provider)</li>
  * </ul>
  * <p>
- * This replaces the previous separate implementations (VfsLocalFileService,
- * CommonsNetFtpFileService, NdvFileService) with a single VFS-based service.
+ * MVS-specific browsing (qualifier navigation, dual NLST, record structure)
+ * is handled by {@code MvsConnectionTab / MvsFtpClient / MvsListingService}
+ * at the UI layer — not here.
  */
 public class VfsFileService implements FileService {
 
@@ -63,7 +67,7 @@ public class VfsFileService implements FileService {
     private final FileSystemOptions fsOptions;
     private final FileServiceException initError;
 
-    // Metadata for callers that need FTP system info
+    // Metadata detected once during forFtp()
     private boolean mvsMode;
     private String systemType;
 
@@ -71,16 +75,12 @@ public class VfsFileService implements FileService {
     //  Factory methods
     // ═══════════════════════════════════════════════════════════════════
 
-    /**
-     * Create a VFS FileService for the local file system.
-     */
+    /** Local file system. */
     public static VfsFileService forLocal() {
         return new VfsFileService("file:///", null, null);
     }
 
-    /**
-     * Create a VFS FileService for the local file system with a base root.
-     */
+    /** Local file system with a base root. */
     public static VfsFileService forLocal(Path baseRoot) {
         String uri = baseRoot != null
                 ? baseRoot.toAbsolutePath().normalize().toUri().toString()
@@ -89,29 +89,32 @@ public class VfsFileService implements FileService {
     }
 
     /**
-     * Create a VFS FileService for FTP.
+     * FTP via VFS2 with {@link StaticUserAuthenticator}.
+     * <p>
+     * Credentials are passed through {@link FileSystemOptions}, never
+     * embedded in the URI — so special characters (#, @, etc.) are safe.
+     * <p>
+     * MVS mode is detected once via a lightweight SYST probe and exposed
+     * through {@link #isMvsMode()} so the UI layer can route to the
+     * appropriate connection tab.
      */
     public static VfsFileService forFtp(String host, String user, String password) throws FileServiceException {
         Settings settings = SettingsHelper.load();
-
-        // Build FTP URI WITHOUT credentials — auth is handled via FileSystemOptions
-        // This avoids URI-encoding issues with special chars in passwords (e.g. # → %23)
         String ftpUri = "ftp://" + host + "/";
 
         FileSystemOptions opts = buildFtpOptions(settings);
-
-        // Pass credentials via StaticUserAuthenticator (raw, no encoding needed)
         StaticUserAuthenticator auth = new StaticUserAuthenticator(null, user, password);
         DefaultFileSystemConfigBuilder.getInstance().setUserAuthenticator(opts, auth);
 
         VfsFileService service = new VfsFileService(ftpUri, opts, null);
-        service.detectSystemType();
+
+        // One-shot SYST detection (lightweight — connect, SYST, disconnect)
+        service.detectSystemType(host, user, password);
+
         return service;
     }
 
-    /**
-     * Create a VFS FileService for FTP using connection credentials.
-     */
+    /** FTP via connection credentials. */
     public static VfsFileService forFtp(ConnectionId connectionId, CredentialsProvider credentialsProvider)
             throws FileServiceException {
         if (connectionId == null) {
@@ -120,7 +123,6 @@ public class VfsFileService implements FileService {
         if (credentialsProvider == null) {
             throw new FileServiceException(FileServiceErrorCode.AUTH_FAILED, "Missing CredentialsProvider");
         }
-
         Credentials credentials = credentialsProvider.resolve(connectionId)
                 .orElseThrow(new java.util.function.Supplier<FileServiceException>() {
                     @Override
@@ -128,25 +130,17 @@ public class VfsFileService implements FileService {
                         return new FileServiceException(FileServiceErrorCode.AUTH_FAILED, "No credentials available");
                     }
                 });
-
         return forFtp(credentials.getHost(), credentials.getUsername(), credentials.getPassword());
     }
 
-    /**
-     * Create a VFS FileService for NDV (Natural Development Server).
-     * Registers the custom NDV VFS provider and builds an ndv:// URI.
-     */
+    /** NDV via custom VFS provider. */
     public static VfsFileService forNdv(NdvService service, String library, NdvObjectInfo objectInfo)
             throws FileServiceException {
         try {
-            // Ensure NDV provider is registered
             NdvFileProvider.ensureRegistered(service, library, objectInfo);
-
-            // Build NDV URI: ndv://library/objectType/objectName
             String ndvUri = "ndv://" + encodeUriComponent(library) + "/"
                     + encodeUriComponent(objectInfo.getTypeExtension()) + "/"
                     + encodeUriComponent(objectInfo.getName());
-
             return new VfsFileService(ndvUri, null, null);
         } catch (Exception e) {
             throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
@@ -161,7 +155,6 @@ public class VfsFileService implements FileService {
     private VfsFileService(String baseUri, FileSystemOptions fsOptions, FileServiceException initError) {
         FileSystemManager resolvedManager = null;
         FileServiceException resolvedError = initError;
-
         try {
             resolvedManager = VFS.getManager();
         } catch (FileSystemException e) {
@@ -170,7 +163,6 @@ public class VfsFileService implements FileService {
                         "VFS manager init failed", e);
             }
         }
-
         this.manager = resolvedManager;
         this.baseUri = baseUri != null ? baseUri : "file:///";
         this.fsOptions = fsOptions != null ? fsOptions : new FileSystemOptions();
@@ -178,7 +170,7 @@ public class VfsFileService implements FileService {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  FileService implementation — all via VFS
+    //  FileService implementation — pure VFS2
     // ═══════════════════════════════════════════════════════════════════
 
     @Override
@@ -201,33 +193,20 @@ public class VfsFileService implements FileService {
                     FileType type = child.getType();
                     boolean isDir = type == FileType.FOLDER || type == FileType.FILE_OR_FOLDER;
 
-                    // Size and lastModified may not be available on all FTP servers
-                    // (e.g. MVS/z/OS uses non-standard listing formats)
                     long size = 0L;
                     long lastModified = 0L;
-                    try {
-                        if (!isDir) {
-                            size = child.getContent().getSize();
-                        }
-                    } catch (Exception ignore) {
-                        // size not available — keep default 0
-                    }
-                    try {
-                        lastModified = child.getContent().getLastModifiedTime();
-                    } catch (Exception ignore) {
-                        // timestamp not available — keep default 0
-                    }
+                    try { if (!isDir) size = child.getContent().getSize(); }
+                    catch (Exception ignore) { /* unavailable on some servers */ }
+                    try { lastModified = child.getContent().getLastModifiedTime(); }
+                    catch (Exception ignore) { /* unavailable on MVS FTP */ }
 
                     String name = child.getName().getBaseName();
                     String path = sanitizeUri(child.getName().getURI());
 
-                    // For local files, convert back to platform path
+                    // Convert file:// back to platform path
                     if (path.startsWith("file://")) {
-                        try {
-                            path = new File(new URI(path)).getAbsolutePath();
-                        } catch (URISyntaxException ignore) {
-                            // keep URI format
-                        }
+                        try { path = new File(new URI(path)).getAbsolutePath(); }
+                        catch (URISyntaxException ignore) { }
                     }
 
                     nodes.add(new FileNode(name, path, isDir, size, lastModified));
@@ -256,7 +235,6 @@ public class VfsFileService implements FileService {
                 throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
                         "Path is a directory: " + sanitizeUri(file.getName().getURI()));
             }
-
             byte[] bytes = readAllBytes(file);
             Charset charset = determineCharset();
             return FilePayload.fromBytes(bytes, charset, false);
@@ -280,7 +258,6 @@ public class VfsFileService implements FileService {
                 throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
                         "Path is a directory: " + sanitizeUri(file.getName().getURI()));
             }
-
             byte[] bytes = readAllBytes(file);
             return FilePayload.fromBytes(bytes, null, false);
         } catch (FileSystemException e) {
@@ -296,7 +273,6 @@ public class VfsFileService implements FileService {
         if (payload == null) {
             throw new FileServiceException(FileServiceErrorCode.IO_ERROR, "Payload is required");
         }
-
         FileObject file = resolve(absolutePath);
         try (OutputStream out = file.getContent().getOutputStream()) {
             out.write(payload.getBytes());
@@ -310,7 +286,6 @@ public class VfsFileService implements FileService {
 
     @Override
     public void writeFileBinary(String absolutePath, FilePayload payload) throws FileServiceException {
-        // VFS handles binary transparently — same as writeFile
         writeFile(absolutePath, payload);
     }
 
@@ -321,12 +296,10 @@ public class VfsFileService implements FileService {
             writeFile(absolutePath, payload);
             return FileWriteResult.success();
         }
-
         FilePayload current = readFile(absolutePath);
         if (!expectedHash.equals(current.getHash())) {
             return FileWriteResult.conflict(current);
         }
-
         writeFile(absolutePath, payload);
         return FileWriteResult.success();
     }
@@ -360,75 +333,41 @@ public class VfsFileService implements FileService {
 
     @Override
     public void close() throws FileServiceException {
-        // VFS manager is shared — individual file systems are closed when no longer referenced
-        // For FTP, VFS manages connection pooling internally
+        // VFS manager is a shared singleton — nothing to close
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  Public accessors (metadata)
+    //  Public accessors
     // ═══════════════════════════════════════════════════════════════════
 
-    /**
-     * Whether this FTP connection is to an MVS/z/OS system.
-     */
-    public boolean isMvsMode() {
-        return mvsMode;
-    }
-
-    /**
-     * The FTP system type string (e.g. "MVS is the operating system...").
-     */
-    public String getSystemType() {
-        return systemType;
-    }
-
-    /**
-     * The base VFS URI of this service.
-     */
-    public String getBaseUri() {
-        return baseUri;
-    }
+    public boolean isMvsMode()     { return mvsMode; }
+    public String  getSystemType() { return systemType; }
+    public String  getBaseUri()    { return baseUri; }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  Internal helpers
+    //  Internal — VFS resolution
     // ═══════════════════════════════════════════════════════════════════
 
-    /**
-     * Resolve a path to a VFS FileObject.
-     * Handles both absolute paths and paths relative to the base URI.
-     */
     private FileObject resolve(String path) throws FileServiceException {
-        if (initError != null) {
-            throw initError;
-        }
+        if (initError != null) throw initError;
         try {
             if (path == null || path.trim().isEmpty()) {
                 return manager.resolveFile(baseUri, fsOptions);
             }
-
             String trimmed = path.trim();
 
-            // Already a VFS URI (ftp://, file://, ndv://, etc.)
-            if (isVfsUri(trimmed)) {
+            if (trimmed.contains("://")) {
                 return manager.resolveFile(trimmed, fsOptions);
             }
-
-            // For local base: convert platform path to file:// URI
             if (baseUri.startsWith("file://")) {
                 return resolveLocal(trimmed);
             }
-
-            // For FTP base: append path to base URI
             if (baseUri.startsWith("ftp://")) {
                 return resolveFtp(trimmed);
             }
-
-            // For NDV base: the path IS the object reference
             if (baseUri.startsWith("ndv://")) {
                 return manager.resolveFile(baseUri, fsOptions);
             }
-
-            // Fallback: try as-is relative to base
             String combined = baseUri.endsWith("/") ? baseUri + trimmed : baseUri + "/" + trimmed;
             return manager.resolveFile(combined, fsOptions);
         } catch (FileSystemException e) {
@@ -444,13 +383,10 @@ public class VfsFileService implements FileService {
             }
             File file = new File(path);
             if (!file.isAbsolute() && baseUri.startsWith("file://")) {
-                // Resolve relative to base
                 try {
                     File base = new File(new URI(baseUri));
                     file = new File(base, path);
-                } catch (URISyntaxException ignore) {
-                    // fall through
-                }
+                } catch (URISyntaxException ignore) { }
             }
             return manager.resolveFile(file.toURI().toString(), fsOptions);
         } catch (FileSystemException e) {
@@ -461,11 +397,10 @@ public class VfsFileService implements FileService {
 
     private FileObject resolveFtp(String path) throws FileServiceException {
         try {
-            // Strip any existing leading slash for consistency
             String ftpPath = path.startsWith("/") ? path : "/" + path;
-
-            // Extract base without trailing slash, then append path
-            String base = baseUri.endsWith("/") ? baseUri.substring(0, baseUri.length() - 1) : baseUri;
+            String base = baseUri.endsWith("/")
+                    ? baseUri.substring(0, baseUri.length() - 1)
+                    : baseUri;
             return manager.resolveFile(base + ftpPath, fsOptions);
         } catch (FileSystemException e) {
             throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
@@ -473,65 +408,50 @@ public class VfsFileService implements FileService {
         }
     }
 
-    private boolean isVfsUri(String path) {
-        return path.contains("://");
-    }
+    // ═══════════════════════════════════════════════════════════════════
+    //  Internal — FTP system type detection
+    // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Detect the FTP system type after connection.
+     * Lightweight one-shot SYST probe: connect, read system type, disconnect.
+     * Only used once during {@link #forFtp} to detect MVS mode.
      */
-    private void detectSystemType() {
-        if (!baseUri.startsWith("ftp://")) return;
-
+    private void detectSystemType(String host, String user, String password) {
+        FTPClient probe = new FTPClient();
         try {
-            FileObject root = manager.resolveFile(baseUri, fsOptions);
-            // VFS will connect when resolving — the system type is detected internally
-            // We need to access it through VFS's filesystem info
-            try {
-                org.apache.commons.vfs2.FileSystem fs = root.getFileSystem();
-                // Try to get the attribute from the file system
-                Object sysType = fs.getAttribute("systemType");
-                if (sysType != null) {
-                    systemType = sysType.toString();
-                    mvsMode = systemType.toUpperCase().contains("MVS");
+            probe.connect(host);
+            if (probe.login(user, password)) {
+                systemType = probe.getSystemType();
+                mvsMode = systemType != null && systemType.toUpperCase().contains("MVS");
+                if (mvsMode) {
+                    System.out.println("[VFS-FTP] Detected MVS/zOS: " + systemType);
                 }
-            } catch (Exception e) {
-                // VFS may not expose system type as attribute — try listing root as detection
-                LOG.log(Level.FINE, "Could not detect FTP system type via attribute", e);
+                probe.logout();
             }
-            tryClose(root);
-        } catch (FileSystemException e) {
-            LOG.log(Level.WARNING, "FTP system type detection failed", e);
+        } catch (IOException e) {
+            LOG.log(Level.FINE, "SYST probe failed for " + host, e);
+        } finally {
+            try { probe.disconnect(); } catch (IOException ignore) { }
         }
     }
 
-    /**
-     * Build FTP FileSystemOptions from Settings.
-     */
+    // ═══════════════════════════════════════════════════════════════════
+    //  Internal — helpers
+    // ═══════════════════════════════════════════════════════════════════
+
     private static FileSystemOptions buildFtpOptions(Settings settings) {
         FileSystemOptions opts = new FileSystemOptions();
         try {
-            FtpFileSystemConfigBuilder builder = FtpFileSystemConfigBuilder.getInstance();
-
-            // Passive mode (standard for mainframe FTP)
-            builder.setPassiveMode(opts, true);
-
-            // Timeouts
-            if (settings.ftpConnectTimeoutMs > 0) {
-                builder.setConnectTimeout(opts, Duration.ofMillis(settings.ftpConnectTimeoutMs));
-            }
-            if (settings.ftpDataTimeoutMs > 0) {
-                builder.setDataTimeout(opts, Duration.ofMillis(settings.ftpDataTimeoutMs));
-            }
-            if (settings.ftpControlTimeoutMs > 0) {
-                builder.setSoTimeout(opts, Duration.ofMillis(settings.ftpControlTimeoutMs));
-            }
-
-            // Control encoding
-            if (settings.encoding != null) {
-                builder.setControlEncoding(opts, settings.encoding);
-            }
-
+            FtpFileSystemConfigBuilder b = FtpFileSystemConfigBuilder.getInstance();
+            b.setPassiveMode(opts, true);
+            if (settings.ftpConnectTimeoutMs > 0)
+                b.setConnectTimeout(opts, Duration.ofMillis(settings.ftpConnectTimeoutMs));
+            if (settings.ftpDataTimeoutMs > 0)
+                b.setDataTimeout(opts, Duration.ofMillis(settings.ftpDataTimeoutMs));
+            if (settings.ftpControlTimeoutMs > 0)
+                b.setSoTimeout(opts, Duration.ofMillis(settings.ftpControlTimeoutMs));
+            if (settings.encoding != null)
+                b.setControlEncoding(opts, settings.encoding);
         } catch (Exception e) {
             LOG.log(Level.WARNING, "Failed to configure FTP options", e);
         }
@@ -541,12 +461,8 @@ public class VfsFileService implements FileService {
     private Charset determineCharset() {
         if (baseUri.startsWith("ftp://")) {
             Settings settings = SettingsHelper.load();
-            String encoding = settings.encoding != null ? settings.encoding : "UTF-8";
-            try {
-                return Charset.forName(encoding);
-            } catch (Exception e) {
-                return Charset.defaultCharset();
-            }
+            String enc = settings.encoding != null ? settings.encoding : "UTF-8";
+            try { return Charset.forName(enc); } catch (Exception e) { return Charset.defaultCharset(); }
         }
         return Charset.defaultCharset();
     }
@@ -554,55 +470,36 @@ public class VfsFileService implements FileService {
     private byte[] readAllBytes(FileObject file) throws FileServiceException {
         try (InputStream in = file.getContent().getInputStream()) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = in.read(buffer)) != -1) {
-                out.write(buffer, 0, read);
-            }
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
             return out.toByteArray();
         } catch (IOException e) {
-            throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
-                    "VFS read bytes failed", e);
+            throw new FileServiceException(FileServiceErrorCode.IO_ERROR, "VFS read bytes failed", e);
         }
     }
 
     private void tryClose(FileObject file) {
         if (file == null) return;
-        try {
-            file.close();
-        } catch (FileSystemException ignore) {
-            // ignore close failures
-        }
+        try { file.close(); } catch (FileSystemException ignore) { }
     }
 
-    /**
-     * URL-encode a URI component (user/password).
-     */
     private static String encodeUriComponent(String value) {
         if (value == null) return "";
-        try {
-            return java.net.URLEncoder.encode(value, "UTF-8")
-                    .replace("+", "%20");
-        } catch (java.io.UnsupportedEncodingException e) {
-            return value; // UTF-8 is always available
-        }
+        try { return java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20"); }
+        catch (java.io.UnsupportedEncodingException e) { return value; }
     }
 
     /**
-     * Strip credentials (user:password@) from a URI to prevent leaking
-     * sensitive information in error messages and returned file paths.
-     * Example: "ftp://user:pass@host/path" → "ftp://host/path"
+     * Strip credentials from a URI: "ftp://user:pass@host/path" → "ftp://host/path"
      */
     static String sanitizeUri(String uri) {
         if (uri == null) return null;
-        // Match scheme://userinfo@host  →  scheme://host
         int schemeEnd = uri.indexOf("://");
         if (schemeEnd < 0) return uri;
         int authStart = schemeEnd + 3;
         int atSign = uri.indexOf('@', authStart);
-        if (atSign < 0) return uri; // no credentials present
-        // Find where the host-part starts (after the @)
+        if (atSign < 0) return uri;
         return uri.substring(0, authStart) + uri.substring(atSign + 1);
     }
 }
-
