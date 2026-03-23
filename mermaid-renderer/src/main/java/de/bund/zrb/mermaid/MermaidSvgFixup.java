@@ -1813,11 +1813,9 @@ public final class MermaidSvgFixup {
         Element svgRoot = doc.getDocumentElement();
         if (svgRoot == null) return;
 
-        // Parse Mermaid's original viewBox — use as baseline minimum.
-        // Our headless GraalJS shim's getBBox() is approximate, so Mermaid's
-        // viewBox may be wrong (content placed outside it).  We always scan
-        // geometric elements to catch such cases, using Mermaid's viewBox as
-        // the minimum starting bound.
+        // Parse Mermaid's original viewBox — it is always our baseline.
+        // Mermaid computes its viewBox from its own layout engine, which has
+        // much better knowledge of the diagram geometry than our post-processor.
         String currentVb = svgRoot.getAttribute("viewBox");
         double cvbX = 0, cvbY = 0, cvbW = 0, cvbH = 0;
         boolean hasMermaidVb = false;
@@ -1834,26 +1832,21 @@ public final class MermaidSvgFixup {
             }
         }
 
-        // Initialise bounds from Mermaid's viewBox (our minimum baseline)
         if (hasMermaidVb) {
-            _minX = cvbX;
-            _minY = cvbY;
-            _maxX = cvbX + cvbW;
-            _maxY = cvbY + cvbH;
-        } else {
-            _minX = Double.MAX_VALUE;  _minY = Double.MAX_VALUE;
-            _maxX = -Double.MAX_VALUE; _maxY = -Double.MAX_VALUE;
+            // Mermaid set a viewBox — TRUST it.
+            // Only apply setDimensions() to scale to our target resolution.
+            // Do NOT re-scan elements with rough heuristics (len*9 for text etc.)
+            // which would inflate the viewBox and make the actual content appear tiny.
+            setDimensions(svgRoot);
+            return;
         }
-        boolean found = hasMermaidVb;
 
-        // Scan geometric elements to find content that extends beyond the
-        // baseline viewBox.  This catches content repositioned by our
-        // post-processing fixes and elements that Mermaid's shim-based
-        // getBBox() placed incorrectly.
-        //
-        // For text elements, we use CONSERVATIVE bounds (anchor point +
-        // font-size buffer) instead of len*9 width estimates that would
-        // inflate the viewBox massively and make diagrams appear tiny.
+        // No Mermaid viewBox — compute bounds from scratch by scanning all elements
+        _minX = Double.MAX_VALUE;  _minY = Double.MAX_VALUE;
+        _maxX = -Double.MAX_VALUE; _maxY = -Double.MAX_VALUE;
+        boolean found = false;
+
+        // Scan all elements to find content bounds
         NodeList all = doc.getElementsByTagNameNS("*", "*");
         for (int i = 0; i < all.getLength(); i++) {
             Node n = all.item(i);
@@ -1931,21 +1924,16 @@ public final class MermaidSvgFixup {
                     found = true;
                 }
             }
-            // text: conservative bounds — anchor point + font-size buffer.
-            // We intentionally do NOT use len*9 width estimates here because
-            // those inflate the viewBox massively (e.g. Gantt task labels).
-            // Instead we use the font size as a uniform buffer around the
-            // text anchor point, which is enough to catch labels that are
-            // slightly outside the viewBox (rotated axis titles, edge labels).
+            // text: x, y — use wider estimate (avg char width ~9px)
             else if ("text".equals(tag)) {
                 double x = parseDouble(el, "x", 0);
                 double y = parseDouble(el, "y", 0);
                 double[] abs = resolveAbsolutePosition(el, x, y);
-                double fontSize = parseFontSizeFromStyle(el);
-                if (fontSize <= 0) fontSize = DEFAULT_FONT_SIZE;
-                // Buffer = fontSize covers ascenders/descenders and rotation
-                double buf = fontSize;
-                updateBounds(abs[0] - buf, abs[1] - buf, abs[0] + buf, abs[1] + buf);
+                String content = el.getTextContent();
+                int len = (content != null) ? content.trim().length() : 0;
+                double tw = len * 9;  // 9px per char is closer to real rendering
+                double th = 16;       // typical font height
+                updateBounds(abs[0] - tw / 2, abs[1] - th, abs[0] + tw / 2, abs[1] + 4);
                 found = true;
             }
             // path: parse d attribute bounding box
