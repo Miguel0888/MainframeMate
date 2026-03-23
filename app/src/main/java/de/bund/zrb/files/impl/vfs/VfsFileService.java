@@ -21,6 +21,8 @@ import org.apache.commons.vfs2.FileSystemManager;
 import org.apache.commons.vfs2.FileSystemOptions;
 import org.apache.commons.vfs2.FileType;
 import org.apache.commons.vfs2.VFS;
+import org.apache.commons.vfs2.auth.StaticUserAuthenticator;
+import org.apache.commons.vfs2.impl.DefaultFileSystemConfigBuilder;
 import org.apache.commons.vfs2.provider.ftp.FtpFileSystemConfigBuilder;
 
 import java.io.ByteArrayOutputStream;
@@ -92,12 +94,15 @@ public class VfsFileService implements FileService {
     public static VfsFileService forFtp(String host, String user, String password) throws FileServiceException {
         Settings settings = SettingsHelper.load();
 
-        // Build FTP URI: ftp://user:password@host/
-        String encodedUser = encodeUriComponent(user);
-        String encodedPassword = encodeUriComponent(password);
-        String ftpUri = "ftp://" + encodedUser + ":" + encodedPassword + "@" + host + "/";
+        // Build FTP URI WITHOUT credentials — auth is handled via FileSystemOptions
+        // This avoids URI-encoding issues with special chars in passwords (e.g. # → %23)
+        String ftpUri = "ftp://" + host + "/";
 
         FileSystemOptions opts = buildFtpOptions(settings);
+
+        // Pass credentials via StaticUserAuthenticator (raw, no encoding needed)
+        StaticUserAuthenticator auth = new StaticUserAuthenticator(null, user, password);
+        DefaultFileSystemConfigBuilder.getInstance().setUserAuthenticator(opts, auth);
 
         VfsFileService service = new VfsFileService(ftpUri, opts, null);
         service.detectSystemType();
@@ -185,7 +190,7 @@ public class VfsFileService implements FileService {
             }
             if (root.getType() != FileType.FOLDER) {
                 throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
-                        "Path is not a directory: " + root.getName());
+                        "Path is not a directory: " + sanitizeUri(root.getName().getURI()));
             }
 
             FileObject[] children = root.getChildren();
@@ -197,7 +202,7 @@ public class VfsFileService implements FileService {
                     long size = isDir ? 0L : child.getContent().getSize();
                     long lastModified = child.getContent().getLastModifiedTime();
                     String name = child.getName().getBaseName();
-                    String path = child.getName().getURI();
+                    String path = sanitizeUri(child.getName().getURI());
 
                     // For local files, convert back to platform path
                     if (path.startsWith("file://")) {
@@ -228,11 +233,11 @@ public class VfsFileService implements FileService {
         try {
             if (!file.exists()) {
                 throw new FileServiceException(FileServiceErrorCode.NOT_FOUND,
-                        "File not found: " + file.getName());
+                        "File not found: " + sanitizeUri(file.getName().getURI()));
             }
             if (file.getType() == FileType.FOLDER) {
                 throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
-                        "Path is a directory: " + file.getName());
+                        "Path is a directory: " + sanitizeUri(file.getName().getURI()));
             }
 
             byte[] bytes = readAllBytes(file);
@@ -252,11 +257,11 @@ public class VfsFileService implements FileService {
         try {
             if (!file.exists()) {
                 throw new FileServiceException(FileServiceErrorCode.NOT_FOUND,
-                        "File not found (binary): " + file.getName());
+                        "File not found (binary): " + sanitizeUri(file.getName().getURI()));
             }
             if (file.getType() == FileType.FOLDER) {
                 throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
-                        "Path is a directory: " + file.getName());
+                        "Path is a directory: " + sanitizeUri(file.getName().getURI()));
             }
 
             byte[] bytes = readAllBytes(file);
@@ -564,6 +569,23 @@ public class VfsFileService implements FileService {
         } catch (java.io.UnsupportedEncodingException e) {
             return value; // UTF-8 is always available
         }
+    }
+
+    /**
+     * Strip credentials (user:password@) from a URI to prevent leaking
+     * sensitive information in error messages and returned file paths.
+     * Example: "ftp://user:pass@host/path" → "ftp://host/path"
+     */
+    static String sanitizeUri(String uri) {
+        if (uri == null) return null;
+        // Match scheme://userinfo@host  →  scheme://host
+        int schemeEnd = uri.indexOf("://");
+        if (schemeEnd < 0) return uri;
+        int authStart = schemeEnd + 3;
+        int atSign = uri.indexOf('@', authStart);
+        if (atSign < 0) return uri; // no credentials present
+        // Find where the host-part starts (after the @)
+        return uri.substring(0, authStart) + uri.substring(atSign + 1);
     }
 }
 
