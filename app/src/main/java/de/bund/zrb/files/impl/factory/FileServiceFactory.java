@@ -4,6 +4,7 @@ import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.api.FileServiceException;
 import de.bund.zrb.files.auth.ConnectionId;
 import de.bund.zrb.files.auth.CredentialsProvider;
+import de.bund.zrb.files.impl.ftp.CommonsNetFtpFileService;
 import de.bund.zrb.files.impl.vfs.VfsFileService;
 import de.bund.zrb.ui.FtpResourceState;
 import de.bund.zrb.ui.NdvResourceState;
@@ -72,6 +73,13 @@ public class FileServiceFactory {
                 if (connectionId == null) {
                     throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.AUTH_FAILED,
                             "Missing ConnectionId in VirtualResource");
+                }
+                // MVS paths use quoted dataset names and member parentheses which
+                // VFS2's URI-based path handling cannot represent.  Route MVS FTP
+                // through CommonsNetFtpFileService which passes paths directly to
+                // the FTP RETR/STOR commands.
+                if (ftpState.getMvsMode() != null && ftpState.getMvsMode()) {
+                    return new CommonsNetFtpFileService(credentialsProvider, connectionId);
                 }
                 return createFtp(connectionId, credentialsProvider);
             }

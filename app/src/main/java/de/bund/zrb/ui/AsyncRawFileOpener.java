@@ -1,7 +1,7 @@
 package de.bund.zrb.ui;
 
 import de.bund.zrb.files.api.FileService;
-import de.bund.zrb.files.impl.factory.FileServiceFactory;
+import de.bund.zrb.files.impl.ftp.CommonsNetFtpFileService;
 import de.bund.zrb.files.model.FilePayload;
 import de.bund.zrb.files.path.VirtualResourceRef;
 import de.bund.zrb.files.retry.FtpRetryPolicy;
@@ -160,7 +160,7 @@ public class AsyncRawFileOpener {
         synchronized (lock) {
             if (openFileService == null) {
                 long t0 = System.currentTimeMillis();
-                openFileService = new FileServiceFactory().createFtp(host, user, password);
+                openFileService = new CommonsNetFtpFileService(host, user, password);
                 de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.FTP).fine("[AsyncRawFileOpener] created openFileService elapsedMs=" +
                         (System.currentTimeMillis() - t0));
             }

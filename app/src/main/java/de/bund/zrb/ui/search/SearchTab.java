@@ -934,7 +934,13 @@ public class SearchTab extends JPanel implements AppTab {
                 return loadFromLuceneIndex(docId);
             }
 
-            fs = new de.bund.zrb.files.impl.factory.FileServiceFactory().createFtp(host, user, password);
+            // MVS paths (quoted dataset names) require CommonsNetFtpFileService
+            // because VFS2's URI handling cannot represent them correctly.
+            if (path.contains("'")) {
+                fs = new de.bund.zrb.files.impl.ftp.CommonsNetFtpFileService(host, user, password);
+            } else {
+                fs = new de.bund.zrb.files.impl.factory.FileServiceFactory().createFtp(host, user, password);
+            }
             de.bund.zrb.files.model.FilePayload payload = fs.readFile(path);
 
             if (needsTikaExtraction(path)) {
