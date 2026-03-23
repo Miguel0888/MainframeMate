@@ -56,13 +56,43 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         keepAliveSpinner.setToolTipText("KeepAlive-Intervall in Sekunden (0 = deaktiviert)");
         fb.addRow("KeepAlive (Sek.):", keepAliveSpinner);
 
-        String[] codePages = {"Cp273", "Cp037", "Cp500", "Cp1047", "Cp297", "Cp285", "Cp284"};
+        fb.addSection("Zeichensatz (EBCDIC-Codepage)");
+        fb.addInfo("<html><i>Die Codepage bestimmt, wie der Mainframe Zeichen (z.B. Umlaute) " +
+                "kodiert. Falsche Einstellung führt zu fehlerhafter Darstellung von Sonderzeichen.<br>" +
+                "Wird beim Verbinden übernommen — bei Änderung im laufenden Betrieb neu verbinden.</i></html>");
+
+        String[] codePages = {
+                "Cp273  — Deutsch (ä ö ü Ä Ö Ü ß)",
+                "Cp037  — US / Kanada (Standard IBM)",
+                "Cp500  — International (Latin-1 CECP)",
+                "Cp1047 — Latin-1 / Open Systems",
+                "Cp297  — Französisch",
+                "Cp285  — Britisch (£)",
+                "Cp284  — Spanisch / Lateinamerika",
+                "Cp871  — Isländisch",
+                "Cp277  — Dänisch / Norwegisch",
+                "Cp278  — Schwedisch / Finnisch"
+        };
         codePageCombo = new JComboBox<>(codePages);
         codePageCombo.setEditable(true); // allow custom codepages
         String currentCp = settings.tn3270CodePage != null ? settings.tn3270CodePage : "Cp273";
-        codePageCombo.setSelectedItem(currentCp);
-        codePageCombo.setToolTipText("EBCDIC-Zeichensatz: Cp273=Deutsch, Cp037=US, Cp500=International, Cp1047=Latin-1");
-        fb.addRow("EBCDIC Codepage:", codePageCombo);
+        // Select by prefix match (stored value is just e.g. "Cp273", display is "Cp273  — Deutsch …")
+        boolean found = false;
+        for (int i = 0; i < codePageCombo.getItemCount(); i++) {
+            String item = codePageCombo.getItemAt(i);
+            if (item.startsWith(currentCp)) {
+                codePageCombo.setSelectedIndex(i);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            codePageCombo.setSelectedItem(currentCp); // custom codepage entered by user
+        }
+        codePageCombo.setToolTipText("EBCDIC-Zeichensatz des Mainframe-Hosts. " +
+                "Cp273 = Deutsch (Umlaute), Cp037 = US, Cp500 = International, Cp1047 = Latin-1 Open Systems. " +
+                "Eigene Codepages können direkt eingegeben werden (z.B. Cp870 für Polnisch).");
+        fb.addRow("Codepage:", codePageCombo);
 
         fb.addSection("Automatisierung");
 
@@ -197,11 +227,28 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         s.tn3270AutoCommandText = autoCommandField.getText();
         s.tn3270ActionDelayMs = ((Number) actionDelaySpinner.getValue()).intValue();
         s.tn3270FkeyOverlayOpacity = ((Number) fkeyOpacitySpinner.getValue()).intValue();
-        s.tn3270CodePage = (String) codePageCombo.getSelectedItem();
+        s.tn3270CodePage = extractCodePageName((String) codePageCombo.getSelectedItem());
         s.cosmicClockEnabled = cosmicClockCheckBox.isSelected();
         s.cosmicClockTimeFactor = ((Number) cosmicClockFactorSpinner.getValue()).doubleValue();
         s.cosmicClockGermanNames = germanNamesCheckBox.isSelected();
         s.tn3270MouseFkeyBindings = mouseBindingModel.getBindings();
+    }
+
+    // ── Codepage name extraction ──────────────────────────────
+
+    /**
+     * Extracts the codepage identifier from a combo box item like "Cp273  — Deutsch (ä ö ü)".
+     * Returns just the first token, e.g. "Cp273". If input is null/empty, returns "Cp273".
+     */
+    private static String extractCodePageName(String comboItem) {
+        if (comboItem == null || comboItem.trim().isEmpty()) return "Cp273";
+        String trimmed = comboItem.trim();
+        // Take everything before first whitespace or dash
+        int space = trimmed.indexOf(' ');
+        if (space > 0) {
+            return trimmed.substring(0, space).trim();
+        }
+        return trimmed;
     }
 
     // ── Table model for mouse bindings ──────────────────────────

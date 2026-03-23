@@ -174,6 +174,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /** true when the raw content is editable (text file, not BetaView read-only) */
     protected final boolean isEditable;
 
+    /** ApplicationState key for persisting the line-wrap preference. */
+    private static final String LINE_WRAP_STATE_KEY = "preview.lineWrap";
+
+    /** Line-wrap toggle checkbox (in toolbar). */
+    protected JCheckBox lineWrapCheckBox;
+
     public SplitPreviewTab(String sourceName, String rawContent, DocumentMetadata metadata,
                            List<String> warnings, Document document, boolean isRemote) {
         this(sourceName, rawContent, metadata, warnings, document, isRemote,
@@ -440,8 +446,10 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         area.setCodeFoldingEnabled(false);
         area.setFont(new Font("Consolas", Font.PLAIN, 13));
         area.setEditable(isTextFile && !"BETAVIEW".equals(backendType));
-        area.setLineWrap(true);
-        area.setWrapStyleWord(true);
+        // Line-wrap will be set via applyLineWrap() when the toolbar is built,
+        // but set a reasonable default here so the pane is usable before that.
+        area.setLineWrap(restoreLineWrapPreference());
+        area.setWrapStyleWord(restoreLineWrapPreference());
         area.setText(rawContent);
         area.setCaretPosition(0);
 
@@ -698,6 +706,20 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             toolbar.addSeparator(new Dimension(8, 0));
         }
 
+        // ── Line-Wrap checkbox ──
+        boolean lineWrapDefault = restoreLineWrapPreference();
+        lineWrapCheckBox = new JCheckBox("Zeilenumbruch", lineWrapDefault);
+        lineWrapCheckBox.setToolTipText("Automatischer Zeilenumbruch bei langen Zeilen");
+        lineWrapCheckBox.setFocusable(false);
+        applyLineWrap(lineWrapDefault);
+        lineWrapCheckBox.addActionListener(e -> {
+            boolean wrap = lineWrapCheckBox.isSelected();
+            applyLineWrap(wrap);
+            persistLineWrapPreference(wrap);
+        });
+        toolbar.add(lineWrapCheckBox);
+        toolbar.addSeparator(new Dimension(8, 0));
+
         // View Mode selector (only for non-editable content — editable files are always raw text)
         if (!isEditable) {
             JLabel modeLabel = new JLabel("Ansicht:");
@@ -814,6 +836,44 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
         contentPanel.revalidate();
         contentPanel.repaint();
+    }
+
+    // ── Line-wrap persistence ──────────────────────────────────
+
+    /**
+     * Applies the line-wrap setting to the raw pane.
+     */
+    protected void applyLineWrap(boolean wrap) {
+        rawPane.setLineWrap(wrap);
+        rawPane.setWrapStyleWord(wrap);
+    }
+
+    /**
+     * Persists the line-wrap preference into {@code Settings.applicationState}.
+     */
+    private void persistLineWrapPreference(boolean wrap) {
+        try {
+            de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+            settings.applicationState.put(LINE_WRAP_STATE_KEY, String.valueOf(wrap));
+            de.bund.zrb.helper.SettingsHelper.save(settings);
+        } catch (Exception ignored) {
+            // best effort — don't crash if settings file is locked
+        }
+    }
+
+    /**
+     * Restores the line-wrap preference from {@code Settings.applicationState}.
+     * Defaults to {@code true} (line-wrap on) if not yet stored.
+     */
+    private static boolean restoreLineWrapPreference() {
+        try {
+            de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+            String value = settings.applicationState.get(LINE_WRAP_STATE_KEY);
+            if (value != null) {
+                return Boolean.parseBoolean(value);
+            }
+        } catch (Exception ignored) { }
+        return true; // default: wrap enabled
     }
 
     protected void toggleSidebar() {
