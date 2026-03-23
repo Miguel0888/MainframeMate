@@ -2215,6 +2215,7 @@ window.NodeFilter = NodeFilter;
 window.NamedNodeMap = NamedNodeMap;
 
 window.screen = { width: 1920, height: 1080, availWidth: 1920, availHeight: 1080, colorDepth: 24 };
+var screen = window.screen;
 
 window.devicePixelRatio = 1;
 window.innerWidth = 1920;
