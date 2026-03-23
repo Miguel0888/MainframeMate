@@ -19,7 +19,12 @@ dependencies {
     // This replaces heuristic JS-side BBox estimation with Batik's real SVG text layout engine.
     implementation 'org.apache.xmlgraphics:batik-bridge:1.17'
 
+    // Batik transcoder — needed by SvgRenderer (test utility) to rasterise SVG to BufferedImage
+    implementation 'org.apache.xmlgraphics:batik-transcoder:1.17'
+    implementation 'org.apache.xmlgraphics:batik-codec:1.17'
+
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testImplementation 'com.google.code.gson:gson:2.10.1'
 }
 
 test {
