@@ -430,23 +430,44 @@ function _resolveFontFamily(el) {
 
 /**
  * Resolve the effective font-size for an element.
+ * Handles em, px, pt units and inherits from ancestors.
  */
 function _resolveFontSize(el) {
     var current = el;
+    var parentFs = null; // lazy-resolved parent font-size for em conversion
     while (current && current.nodeType === 1) {
+        var raw = null;
         // Check style object
         if (current.style && current.style.fontSize) {
-            return parseFloat(current.style.fontSize) || 16;
+            raw = current.style.fontSize;
         }
         // Check style attribute string
-        var styleAttr = current._attrs && current._attrs['style'];
-        if (styleAttr) {
-            var match = styleAttr.match(/font-size\s*:\s*([\d.]+)/);
-            if (match) return parseFloat(match[1]) || 16;
+        if (!raw) {
+            var styleAttr = current._attrs && current._attrs['style'];
+            if (styleAttr) {
+                var match = styleAttr.match(/font-size\s*:\s*([^;]+)/);
+                if (match) raw = match[1].trim();
+            }
         }
         // Check font-size attribute (SVG text elements)
-        var fs = current._attrs && current._attrs['font-size'];
-        if (fs) return parseFloat(fs) || 16;
+        if (!raw) {
+            var fs = current._attrs && current._attrs['font-size'];
+            if (fs) raw = String(fs);
+        }
+        if (raw) {
+            if (raw.indexOf('em') >= 0) {
+                // em = relative to parent font-size
+                parentFs = _resolveFontSize(current.parentNode) || 16;
+                return parseFloat(raw) * parentFs;
+            }
+            if (raw.indexOf('%') >= 0) {
+                parentFs = _resolveFontSize(current.parentNode) || 16;
+                return parseFloat(raw) / 100 * parentFs;
+            }
+            // px, pt, or bare number
+            var parsed = parseFloat(raw);
+            if (!isNaN(parsed) && parsed > 0) return parsed;
+        }
         current = current.parentNode;
     }
     return null;
@@ -483,6 +504,28 @@ function _collectAllText(el) {
 }
 
 // ── Dimension computation for getBBox / getBoundingClientRect ────────────────
+
+/**
+ * Resolve an SVG length value to pixels.
+ * Handles raw numbers, 'px', 'em', and '%' units.
+ * @param {string|number} val  The attribute value (e.g. "12", "1.1em", "50%", "16px")
+ * @param {number} fontSize    The resolved font-size in px for em conversion
+ * @param {number} refSize     Reference dimension for % conversion (default 0)
+ * @returns {number} Value in pixels, or NaN if not parseable
+ */
+function _resolveSvgLength(val, fontSize, refSize) {
+    if (val === undefined || val === null || val === '') return NaN;
+    var s = String(val).trim();
+    if (s.indexOf('em') >= 0) {
+        return parseFloat(s) * (fontSize || 16);
+    }
+    if (s.indexOf('%') >= 0) {
+        return parseFloat(s) / 100 * (refSize || 0);
+    }
+    // 'px', 'pt', bare numbers — parseFloat handles the numeric prefix
+    return parseFloat(s);
+}
+
 function _computeElementDims(el) {
     var tag = (el.tagName || '').toLowerCase();
     var attrs = el._attrs || {};
@@ -496,11 +539,13 @@ function _computeElementDims(el) {
         return { x: 0, y: 0, w: 0, h: 0 };
     }
 
-    // Helper to read numeric attribute
+    // Helper to read numeric attribute (plain px, no unit conversion needed
+    // for geometric attributes like x, y, width, height, r, cx, cy etc.)
+    var elFontSize = _resolveFontSize(el) || 16;
     function num(name) {
         var v = attrs[name];
         if (v === undefined || v === null || v === '') return NaN;
-        return parseFloat(v);
+        return _resolveSvgLength(v, elFontSize, 0);
     }
 
     // 1) rect — explicit width/height
@@ -578,10 +623,15 @@ function _computeElementDims(el) {
     }
 
     // 6) text — estimate from content; height based on actual font metrics.
-    //    Real browsers return getBBox() encompassing all tspans, with
-    //    height = ascent + descent (per line), x depending on text-anchor.
+    //    SVG text positioning rules:
+    //    - <text x="X" y="Y"> sets the initial current text position
+    //    - <tspan x="X"> RESETS the horizontal position (absolute)
+    //    - <tspan y="Y"> RESETS the vertical position (absolute)
+    //    - <tspan dx="D"> shifts horizontally relative to current
+    //    - <tspan dy="D"> shifts vertically relative to current
+    //    - em units are relative to the element's font-size
     if (tag === 'text') {
-        // Check for multi-line text (tspan children with dy offsets)
+        // Collect tspan children (direct children only, per SVG spec)
         var tspans = [];
         if (el.childNodes) {
             for (var ti = 0; ti < el.childNodes.length; ti++) {
@@ -589,40 +639,68 @@ function _computeElementDims(el) {
                 if (tc.tagName && tc.tagName.toLowerCase() === 'tspan') tspans.push(tc);
             }
         }
+
+        var textFs = _resolveFontSize(el) || 16;
+        var anchor = _resolveTextAnchor(el);
+
         if (tspans.length > 0) {
-            // Multi-line: aggregate all tspan dimensions
+            // Multi-span text: proper SVG text layout
             var textMinX = Infinity, textMinY = Infinity, textMaxX = -Infinity, textMaxY = -Infinity;
-            var baseY = num('y') || 0;
-            var accDy = 0; // accumulated dy offset
-            var anchor = _resolveTextAnchor(el);
+
+            // Initial current position from <text x="" y="">
+            var baseTextX = _resolveSvgLength(attrs['x'], textFs, 0);
+            var baseTextY = _resolveSvgLength(attrs['y'], textFs, 0);
+            if (isNaN(baseTextX)) baseTextX = 0;
+            if (isNaN(baseTextY)) baseTextY = 0;
+
+            var curX = baseTextX;
+            var curY = baseTextY;
+
             for (var si = 0; si < tspans.length; si++) {
                 var span = tspans[si];
                 var spanAttrs = span._attrs || {};
+                var spanFs = _resolveFontSize(span) || textFs;
                 var spanMetrics = _measureTextMetrics(span);
                 if (spanMetrics.width <= 0) continue;
-                var spanX = parseFloat(spanAttrs['x']);
-                if (isNaN(spanX)) spanX = num('x') || 0;
+
+                // tspan x → absolute reset of horizontal position
+                var spanXAttr = spanAttrs['x'];
+                if (spanXAttr !== undefined && spanXAttr !== null && spanXAttr !== '') {
+                    curX = _resolveSvgLength(spanXAttr, spanFs, 0);
+                    if (isNaN(curX)) curX = baseTextX;
+                }
+
+                // tspan y → absolute reset of vertical position
+                var spanYAttr = spanAttrs['y'];
+                if (spanYAttr !== undefined && spanYAttr !== null && spanYAttr !== '') {
+                    var resolvedY = _resolveSvgLength(spanYAttr, spanFs, 0);
+                    if (!isNaN(resolvedY)) curY = resolvedY;
+                }
+
+                // tspan dx → relative horizontal shift
+                var spanDx = spanAttrs['dx'];
+                if (spanDx !== undefined && spanDx !== null && spanDx !== '') {
+                    curX += _resolveSvgLength(spanDx, spanFs, 0) || 0;
+                }
+
+                // tspan dy → relative vertical shift
                 var spanDy = spanAttrs['dy'];
                 if (spanDy !== undefined && spanDy !== null && spanDy !== '') {
-                    // Handle em units (e.g. "1.2em")
-                    var spanFs = _resolveFontSize(span) || _resolveFontSize(el) || 16;
-                    if (typeof spanDy === 'string' && spanDy.indexOf('em') >= 0) {
-                        accDy += parseFloat(spanDy) * spanFs;
-                    } else {
-                        accDy += parseFloat(spanDy) || 0;
-                    }
+                    curY += _resolveSvgLength(spanDy, spanFs, 0) || 0;
                 }
-                var spanY = baseY + accDy;
-                // x position depends on text-anchor
+
+                // Calculate bounding box of this span at current position
                 var sx;
                 if (anchor === 'middle') {
-                    sx = spanX - spanMetrics.width / 2;
+                    sx = curX - spanMetrics.width / 2;
                 } else if (anchor === 'end') {
-                    sx = spanX - spanMetrics.width;
+                    sx = curX - spanMetrics.width;
                 } else {
-                    sx = spanX;
+                    sx = curX;
                 }
-                var sy = spanY - spanMetrics.ascent;
+                // SVG text y is the baseline — bounding box top is y - ascent
+                var sy = curY - spanMetrics.ascent;
+
                 if (sx < textMinX) textMinX = sx;
                 if (sy < textMinY) textMinY = sy;
                 if (sx + spanMetrics.width > textMaxX) textMaxX = sx + spanMetrics.width;
@@ -633,6 +711,7 @@ function _computeElementDims(el) {
                          w: textMaxX - textMinX, h: textMaxY - textMinY };
             }
         }
+
         // Single-line text (no tspan children, or tspans had no text)
         var textMetrics = _measureTextMetrics(el);
         if (textMetrics.width > 0) {
@@ -656,7 +735,14 @@ function _computeElementDims(el) {
     if (tag === 'tspan') {
         var tspanMetrics = _measureTextMetrics(el);
         if (tspanMetrics.width > 0) {
-            var tsx = num('x'), tsy = num('y');
+            var tsFs = _resolveFontSize(el) || 16;
+            var tsXAttr = attrs['x'];
+            var tsYAttr = attrs['y'];
+            var tsx = (tsXAttr !== undefined && tsXAttr !== null && tsXAttr !== '')
+                      ? _resolveSvgLength(tsXAttr, tsFs, 0) : NaN;
+            var tsy = (tsYAttr !== undefined && tsYAttr !== null && tsYAttr !== '')
+                      ? _resolveSvgLength(tsYAttr, tsFs, 0) : NaN;
+
             var tAnchor = _resolveTextAnchor(el);
             var tbx;
             if (tAnchor === 'middle') {
@@ -670,12 +756,7 @@ function _computeElementDims(el) {
             var tsDy = attrs['dy'];
             var dyOffset = 0;
             if (tsDy !== undefined && tsDy !== null && tsDy !== '') {
-                var tsFs = _resolveFontSize(el) || 16;
-                if (typeof tsDy === 'string' && tsDy.indexOf('em') >= 0) {
-                    dyOffset = parseFloat(tsDy) * tsFs;
-                } else {
-                    dyOffset = parseFloat(tsDy) || 0;
-                }
+                dyOffset = _resolveSvgLength(tsDy, tsFs, 0) || 0;
             }
             var tby = isNaN(tsy) ? -tspanMetrics.ascent + dyOffset : tsy - tspanMetrics.ascent + dyOffset;
             return { x: tbx, y: tby,
@@ -888,15 +969,38 @@ function _parsePathBBox(d) {
     return { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
 }
 
-// Parse translate(x, y) from an element's transform attribute
-function _parseTranslate(el) {
+// Parse transform attribute and extract the net [tx, ty] translation.
+// Supports: translate(x), translate(x,y), matrix(a,b,c,d,e,f),
+// scale(s), scale(sx,sy), rotate(a), and combined transforms.
+function _parseTransform(el) {
     var t = el._attrs && el._attrs['transform'];
     if (!t && el.getAttribute) t = el.getAttribute('transform');
     if (!t) return [0, 0];
-    var m = t.match(/translate\(\s*(-?[\d.]+)\s*[,\s]\s*(-?[\d.]+)\s*\)/);
-    if (m) return [parseFloat(m[1]), parseFloat(m[2])];
-    return [0, 0];
+    // Accumulate net translation by processing each transform function
+    var tx = 0, ty = 0;
+    var re = /(translate|matrix|scale|rotate|skewX|skewY)\s*\(([^)]*)\)/gi;
+    var m;
+    while ((m = re.exec(t)) !== null) {
+        var fn = m[1].toLowerCase();
+        var args = m[2].replace(/,/g, ' ').trim().split(/\s+/).map(parseFloat);
+        if (fn === 'translate') {
+            tx += args[0] || 0;
+            ty += args.length > 1 ? (args[1] || 0) : 0;
+        } else if (fn === 'matrix') {
+            // matrix(a,b,c,d,e,f) — e=tx, f=ty
+            if (args.length >= 6) {
+                tx += args[4] || 0;
+                ty += args[5] || 0;
+            }
+        }
+        // scale, rotate, skew affect shape but not absolute position offset
+        // for our bounding box purposes we only care about translation
+    }
+    return [tx, ty];
 }
+
+// Backwards-compatible alias
+function _parseTranslate(el) { return _parseTransform(el); }
 
 // ── Minimal HTML/SVG parser for innerHTML ───────────────────────────────────
 // DOMPurify sets innerHTML on a document's body and then walks the DOM tree

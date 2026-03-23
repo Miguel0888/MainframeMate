@@ -136,6 +136,27 @@ public final class MermaidSvgFixup {
     static String regexSanitize(String svg) {
         if (svg == null || svg.isEmpty()) return svg;
 
+        // Fix locale-dependent decimal separators in translate() attributes.
+        // German locale produces "translate(10,5, -18,9)" instead of "translate(10.5, -18.9)".
+        // Pattern: digit,digit inside translate() where comma is decimal, not separator.
+        // We match translate(...) and fix commas that sit between digits (not space-separated).
+        {
+            java.util.regex.Pattern translateP = java.util.regex.Pattern.compile(
+                    "translate\\(([^)]+)\\)");
+            java.util.regex.Matcher translateM = translateP.matcher(svg);
+            StringBuffer translateSb = new StringBuffer(svg.length());
+            while (translateM.find()) {
+                String inner = translateM.group(1);
+                // Replace digit,digit patterns with digit.digit (decimal fix)
+                // but preserve comma-space as value separator
+                inner = inner.replaceAll("(\\d),(\\d)", "$1.$2");
+                translateM.appendReplacement(translateSb,
+                        java.util.regex.Matcher.quoteReplacement("translate(" + inner + ")"));
+            }
+            translateM.appendTail(translateSb);
+            svg = translateSb.toString();
+        }
+
         // Remove alignment-baseline XML attributes (double or single quotes)
         svg = svg.replaceAll("\\s+alignment-baseline\\s*=\\s*\"[^\"]*\"", "");
         svg = svg.replaceAll("\\s+alignment-baseline\\s*=\\s*'[^']*'", "");
@@ -836,10 +857,13 @@ public final class MermaidSvgFixup {
         }
     }
 
-    /** Format a double as a compact string (no trailing zeros). */
+    /** Format a double as a compact string (no trailing zeros).
+     *  MUST use Locale.US — SVG requires '.' as decimal separator.
+     *  Using the default locale on German systems would produce ',' which
+     *  makes the SVG invalid (Batik rejects transform="translate(0, -56,6)"). */
     private static String fmt(double v) {
-        if (v == Math.floor(v)) return String.valueOf((long) v);
-        return String.format("%.1f", v);
+        if (v == Math.floor(v) && Math.abs(v) < Long.MAX_VALUE) return String.valueOf((long) v);
+        return String.format(java.util.Locale.US, "%.1f", v);
     }
 
     /** Check if a list already contains a value within tolerance. */
