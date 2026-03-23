@@ -811,6 +811,8 @@ function _computeElementDims(el) {
     //     Mermaid's D3 reads `element.offsetWidth` during early layout when the SVG
     //     only has partial content (e.g. a title text).  Aggregating children at that
     //     point gives ~130px (text width) instead of the correct 1600px container width.
+    //     This behaviour is correct for offsetWidth/offsetHeight/clientWidth/clientHeight.
+    //     getBBox() is handled separately via _computeSvgContentBBox() — see below.
     if (tag === 'svg') {
         var svgW = attrs['width'];
         var svgH = attrs['height'];
@@ -910,6 +912,51 @@ function _computeElementDims(el) {
         return { x: 0, y: 0, w: 0, h: 0 };
     }
     return { x: 0, y: 0, w: 20, h: 20 };
+}
+
+/**
+ * Compute the content bounding box of an SVG root element by aggregating
+ * all child bounding boxes.  This is what getBBox() should return for <svg>
+ * elements — the actual rendered content bounds, NOT the declared container
+ * dimensions.
+ *
+ * This is separate from _computeElementDims because offsetWidth/offsetHeight
+ * must return the declared container size (Mermaid D3 reads those during
+ * early layout), while getBBox() must return content bounds (Mermaid uses
+ * those for final viewBox computation).
+ */
+function _computeSvgContentBBox(el) {
+    if (!el.childNodes || el.childNodes.length === 0) {
+        // No children yet — return declared dimensions as fallback
+        return _computeElementDims(el);
+    }
+    var cMinX = Infinity, cMinY = Infinity, cMaxX = -Infinity, cMaxY = -Infinity;
+    var found = false;
+    for (var i = 0; i < el.childNodes.length; i++) {
+        var child = el.childNodes[i];
+        // Skip <style> and <defs> — they don't contribute to rendered bounds
+        var childTag = (child.tagName || '').toLowerCase();
+        if (childTag === 'style' || childTag === 'defs') continue;
+        if (child.getBBox) {
+            var cb = child.getBBox();
+            if (cb.w === undefined) { cb.w = cb.width; cb.h = cb.height; }
+            if (cb.w > 0 || cb.h > 0) {
+                var cOff = _parseTranslate(child);
+                var cx1 = cb.x + cOff[0], cy1 = cb.y + cOff[1];
+                var cx2 = cx1 + cb.w, cy2 = cy1 + cb.h;
+                if (cx1 < cMinX) cMinX = cx1;
+                if (cy1 < cMinY) cMinY = cy1;
+                if (cx2 > cMaxX) cMaxX = cx2;
+                if (cy2 > cMaxY) cMaxY = cy2;
+                found = true;
+            }
+        }
+    }
+    if (found && cMaxX > cMinX && cMaxY > cMinY) {
+        return { x: cMinX, y: cMinY, w: cMaxX - cMinX, h: cMaxY - cMinY };
+    }
+    // No visible children — fall back to declared dimensions
+    return _computeElementDims(el);
 }
 
 /**
@@ -1803,7 +1850,11 @@ function createDomElement(tagName, namespaceURI) {
         return _estimateTextWidth(el);
     };
     el.getBBox = function() {
-        var dims = _computeElementDims(el);
+        var _tag = (el.tagName || '').toLowerCase();
+        // SVG root elements: return actual content bounds, not declared dimensions.
+        // _computeElementDims returns the container size (for offsetWidth/offsetHeight)
+        // but getBBox must return the aggregate of all child content.
+        var dims = (_tag === 'svg') ? _computeSvgContentBBox(el) : _computeElementDims(el);
         return { x: dims.x, y: dims.y, width: dims.w, height: dims.h };
     };
     el.getTotalLength = function() { return 0; };
