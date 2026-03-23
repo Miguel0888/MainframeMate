@@ -35,7 +35,8 @@ public final class MermaidRenderer {
             "{ startOnLoad: false, securityLevel: 'loose',"
             + " htmlLabels: false,"
             + " flowchart: { htmlLabels: false },"
-            + " sequence: { htmlLabels: false } }";
+            + " sequence: { htmlLabels: false },"
+            + " gantt: { useWidth: 1200 } }";
 
     private static final MermaidRenderer INSTANCE = new MermaidRenderer();
 
@@ -293,8 +294,45 @@ public final class MermaidRenderer {
         svg = svg.replace("stroke=\"transparent\"", "stroke=\"none\"");
 
         // 10d) Fix negative width/height on <rect> elements (Gantt charts produce these
-        //      when the headless shim miscalculates container dimensions)
-        svg = svg.replaceAll("(width|height)\\s*=\\s*\"-[\\d.]+\"", "$1=\"0\"");
+        //      when D3's time scale inverts coordinates).
+        //      Convert negative width to absolute value and shift x accordingly.
+        {
+            java.util.regex.Pattern negWP = java.util.regex.Pattern.compile(
+                    "<rect([^>]*)\\bwidth\\s*=\\s*\"(-[\\d.]+)\"([^>]*)>");
+            java.util.regex.Matcher negWM = negWP.matcher(svg);
+            StringBuffer negWSb = new StringBuffer(svg.length());
+            while (negWM.find()) {
+                String before = negWM.group(1);
+                double negW = Double.parseDouble(negWM.group(2));
+                String after = negWM.group(3);
+                double posW = Math.abs(negW);
+                // Try to adjust x position: x = x + negW (shift left by absolute width)
+                String combined = before + after;
+                java.util.regex.Matcher xM = java.util.regex.Pattern.compile(
+                        "\\bx\\s*=\\s*\"(-?[\\d.]+)\"").matcher(combined);
+                if (xM.find()) {
+                    double oldX = Double.parseDouble(xM.group(1));
+                    double newX = oldX + negW; // negW is negative, so this shifts left
+                    String fixedAttrs = combined.replaceFirst(
+                            "\\bx\\s*=\\s*\"-?[\\d.]+\"",
+                            "x=\"" + String.format(java.util.Locale.US, "%.1f", newX) + "\"");
+                    negWM.appendReplacement(negWSb,
+                            java.util.regex.Matcher.quoteReplacement(
+                                    "<rect" + fixedAttrs + " width=\""
+                                    + String.format(java.util.Locale.US, "%.1f", posW) + "\">"));
+                } else {
+                    // No x attribute — just use absolute width
+                    negWM.appendReplacement(negWSb,
+                            java.util.regex.Matcher.quoteReplacement(
+                                    "<rect" + before + "width=\""
+                                    + String.format(java.util.Locale.US, "%.1f", posW) + "\"" + after + ">"));
+                }
+            }
+            negWM.appendTail(negWSb);
+            svg = negWSb.toString();
+        }
+        // Also clamp any remaining negative height to 0 (not applicable to Gantt but safety net)
+        svg = svg.replaceAll("height\\s*=\\s*\"(-[\\d.]+)\"", "height=\"0\"");
 
         // 10e) Fix SVG element case sensitivity: D3 creates lowercase element names
         //      (lineargradient) but SVG requires camelCase (linearGradient)

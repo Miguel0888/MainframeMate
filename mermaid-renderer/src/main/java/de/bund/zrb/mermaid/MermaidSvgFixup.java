@@ -289,20 +289,49 @@ public final class MermaidSvgFixup {
             svg = hslAttrSb.toString();
         }
 
-        // Fix negative width/height on <rect> elements — Batik throws
+        // Fix negative width on <rect> elements — Batik throws
         // "The attribute 'width' of the element <rect> cannot be negative".
-        // Gantt charts produce these when the browser shim miscalculates container width.
+        // Gantt charts produce these when D3's time scale inverts coordinates.
+        // Convert negative width to absolute value and shift x position accordingly.
         {
-            java.util.regex.Pattern negRectP = java.util.regex.Pattern.compile(
-                    "(width|height)\\s*=\\s*\"(-[\\d.]+)\"");
-            java.util.regex.Matcher negRectM = negRectP.matcher(svg);
-            StringBuffer negRectSb = new StringBuffer(svg.length());
-            while (negRectM.find()) {
-                negRectM.appendReplacement(negRectSb, negRectM.group(1) + "=\"0\"");
+            java.util.regex.Pattern negWP = java.util.regex.Pattern.compile(
+                    "<rect([^>]*)\\bwidth\\s*=\\s*\"(-[\\d.]+)\"([^>]*)(/?)>");
+            java.util.regex.Matcher negWM = negWP.matcher(svg);
+            StringBuffer negWSb = new StringBuffer(svg.length());
+            while (negWM.find()) {
+                String before = negWM.group(1);
+                double negW = Double.parseDouble(negWM.group(2));
+                String after = negWM.group(3);
+                String selfClose = negWM.group(4);
+                double posW = Math.abs(negW);
+                // Try to adjust x position: x = x + negW (shift left by absolute width)
+                String combined = before + after;
+                java.util.regex.Matcher xM = java.util.regex.Pattern.compile(
+                        "\\bx\\s*=\\s*\"(-?[\\d.]+)\"").matcher(combined);
+                if (xM.find()) {
+                    double oldX = Double.parseDouble(xM.group(1));
+                    double newX = oldX + negW; // negW is negative, so this shifts left
+                    String fixedAttrs = combined.replaceFirst(
+                            "\\bx\\s*=\\s*\"-?[\\d.]+\"",
+                            "x=\"" + String.format(java.util.Locale.US, "%.1f", newX) + "\"");
+                    negWM.appendReplacement(negWSb,
+                            java.util.regex.Matcher.quoteReplacement(
+                                    "<rect" + fixedAttrs + " width=\""
+                                    + String.format(java.util.Locale.US, "%.1f", posW)
+                                    + "\"" + selfClose + ">"));
+                } else {
+                    negWM.appendReplacement(negWSb,
+                            java.util.regex.Matcher.quoteReplacement(
+                                    "<rect" + before + "width=\""
+                                    + String.format(java.util.Locale.US, "%.1f", posW)
+                                    + "\"" + after + selfClose + ">"));
+                }
             }
-            negRectM.appendTail(negRectSb);
-            svg = negRectSb.toString();
+            negWM.appendTail(negWSb);
+            svg = negWSb.toString();
         }
+        // Clamp any remaining negative height to 0
+        svg = svg.replaceAll("height\\s*=\\s*\"(-[\\d.]+)\"", "height=\"0\"");
 
         // Remove empty presentation attributes: fill="" / stroke="" / transform=""
         // Batik's CSS parser crashes on empty string values for paint/transform.
