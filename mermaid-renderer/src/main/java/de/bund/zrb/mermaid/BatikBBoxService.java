@@ -5,7 +5,6 @@ import org.apache.batik.bridge.GVTBuilder;
 import org.apache.batik.bridge.UserAgentAdapter;
 import org.apache.batik.gvt.GraphicsNode;
 
-import org.w3c.dom.DOMImplementation;
 import org.w3c.dom.Document;
 
 import java.awt.geom.Rectangle2D;
@@ -125,14 +124,10 @@ final class BatikBBoxService {
         // Wrap in a minimal SVG document
         String svgDoc = SVG_WRAPPER_PREFIX + sanitized + SVG_WRAPPER_SUFFIX;
 
-        // Parse with namespace-aware XML parser into a Batik-compatible SVG DOM.
-        // We use Batik's own DOMImplementation so that the resulting Document
-        // is an SVGDocument that BridgeContext can work with.
-        DOMImplementation domImpl = org.apache.batik.anim.dom.SVGDOMImplementation.getDOMImplementation();
-        org.apache.batik.anim.dom.SAXSVGDocumentFactory factory =
-                new org.apache.batik.anim.dom.SAXSVGDocumentFactory(
-                        org.apache.batik.util.XMLResourceDescriptor.getXMLParserClassName());
-        Document document = factory.createDocument(
+        // Parse into a Batik SVG DOM using the class-level factory.
+        // SAXSVGDocumentFactory internally uses the correct SVG DOMImplementation,
+        // so the resulting Document is an SVGDocument that BridgeContext can work with.
+        Document document = documentFactory.createDocument(
                 "http://localhost/bbox.svg",
                 new java.io.StringReader(svgDoc));
 
