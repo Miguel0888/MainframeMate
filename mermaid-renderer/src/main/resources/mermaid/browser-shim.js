@@ -423,6 +423,13 @@ function _resolveFontFamily(el) {
         // Check font-family attribute (SVG text elements)
         var ff = current._attrs && current._attrs['font-family'];
         if (ff) return ff;
+        // Check CSS font shorthand attribute (e.g. font="11px sans-serif")
+        // Extract family part after the size component
+        var fontShort2 = current._attrs && current._attrs['font'];
+        if (fontShort2) {
+            var fMatch = String(fontShort2).match(/\d+(?:\.\d+)?\s*px\s+(.+)/);
+            if (fMatch) return fMatch[1].trim();
+        }
         current = current.parentNode;
     }
     return null;
@@ -453,6 +460,15 @@ function _resolveFontSize(el) {
         if (!raw) {
             var fs = current._attrs && current._attrs['font-size'];
             if (fs) raw = String(fs);
+        }
+        // Check CSS font shorthand attribute (e.g. font="11px sans-serif")
+        // D3 sets this on temporary text elements for measurement.
+        if (!raw) {
+            var fontShort = current._attrs && current._attrs['font'];
+            if (fontShort) {
+                var fsMatch = String(fontShort).match(/(\d+(?:\.\d+)?)\s*px/);
+                if (fsMatch) raw = fsMatch[1] + 'px';
+            }
         }
         if (raw) {
             if (raw.indexOf('em') >= 0) {
@@ -791,7 +807,63 @@ function _computeElementDims(el) {
         }
     }
 
-    // 8) g / svg / other containers — aggregate child bboxes with proper min/max
+    // 7c) SVG root element — resolve from attributes or parent, NOT from children.
+    //     Mermaid's D3 reads `element.offsetWidth` during early layout when the SVG
+    //     only has partial content (e.g. a title text).  Aggregating children at that
+    //     point gives ~130px (text width) instead of the correct 1600px container width.
+    if (tag === 'svg') {
+        var svgW = attrs['width'];
+        var svgH = attrs['height'];
+
+        // Explicit pixel dimensions (e.g. width="800" height="600")
+        if (svgW && svgH) {
+            var ew = parseFloat(svgW);
+            var eh = parseFloat(svgH);
+
+            // Percentage → resolve from parent (avoiding infinite recursion:
+            // parent's children-aggregate would call us back, but we return
+            // before reaching that path)
+            if (String(svgW).indexOf('%') >= 0 && el.parentNode && el.parentNode.nodeType === 1) {
+                // Temporarily detach from parent to prevent recursion
+                var savedParent = el.parentNode;
+                var savedNext = el.nextSibling;
+                try {
+                    savedParent.removeChild(el);
+                    var parentDims = _computeElementDims(savedParent);
+                    ew = parseFloat(svgW) / 100 * parentDims.w;
+                    eh = parseFloat(svgH) / 100 * parentDims.h;
+                    if (isNaN(eh) || eh <= 0) eh = parentDims.h;
+                } finally {
+                    if (savedNext) savedParent.insertBefore(el, savedNext);
+                    else savedParent.appendChild(el);
+                }
+            }
+
+            if (!isNaN(ew) && ew > 0 && !isNaN(eh) && eh > 0) {
+                return { x: 0, y: 0, w: ew, h: eh };
+            }
+            // width="100%" but parent resolution failed → try viewBox or default
+        }
+
+        // ViewBox dimensions
+        var svgVb = attrs['viewBox'];
+        if (svgVb) {
+            var vbParts = String(svgVb).trim().split(/\s+/);
+            if (vbParts.length >= 4) {
+                var vbW = parseFloat(vbParts[2]);
+                var vbH = parseFloat(vbParts[3]);
+                if (vbW > 0 && vbH > 0) {
+                    return { x: parseFloat(vbParts[0]) || 0, y: parseFloat(vbParts[1]) || 0,
+                             w: vbW, h: vbH };
+                }
+            }
+        }
+
+        // Fallback: container-sized default
+        return { x: 0, y: 0, w: 1600, h: 900 };
+    }
+
+    // 8) g / other containers — aggregate child bboxes with proper min/max
     if (el.childNodes && el.childNodes.length > 0) {
         var cMinX = Infinity, cMinY = Infinity, cMaxX = -Infinity, cMaxY = -Infinity;
         var found = false;
@@ -829,7 +901,7 @@ function _computeElementDims(el) {
     // 1600×900 prevents D3 scale inversion on Gantt charts where long
     // task labels eat up horizontal margin space.
     if (tag === 'div' || tag === 'body' || tag === 'html' || tag === 'canvas' || tag === 'section'
-        || tag === 'svg' || tag === 'article' || tag === 'main' || tag === 'nav' || tag === 'header'
+        || tag === 'article' || tag === 'main' || tag === 'nav' || tag === 'header'
         || tag === 'footer' || tag === 'aside') {
         return { x: 0, y: 0, w: 1600, h: 900 };
     }
