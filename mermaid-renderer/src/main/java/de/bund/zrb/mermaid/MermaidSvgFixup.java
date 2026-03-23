@@ -136,25 +136,41 @@ public final class MermaidSvgFixup {
     static String regexSanitize(String svg) {
         if (svg == null || svg.isEmpty()) return svg;
 
-        // Fix locale-dependent decimal separators in translate() attributes.
-        // German locale produces "translate(10,5, -18,9)" instead of "translate(10.5, -18.9)".
-        // Pattern: digit,digit inside translate() where comma is decimal, not separator.
-        // We match translate(...) and fix commas that sit between digits (not space-separated).
+        // Fix locale-dependent decimal separators in ALL SVG transform functions.
+        // German locale produces "translate(10,5 -18,9)" instead of "translate(10.5 -18.9)"
+        // where commas are used as decimal separators WITH spaces separating values.
+        // IMPORTANT: We must NOT replace commas that are value separators (e.g. translate(225,225)).
+        // GraalJS always produces proper dots for decimals, so the only locale issue comes
+        // from Java code that formats numbers without Locale.US.
+        // We only fix commas that are clearly decimal: digit,digit NOT followed by space/comma
+        // which would indicate a 2nd value.  The safest heuristic: only fix if the Java bridge
+        // injected locale-formatted numbers, which would be "translate(10,5 -18,9)" pattern
+        // (space-separated, not comma-separated values).
+        // For safety, skip this fix entirely — GraalJS and our Java code use Locale.US.
+        // If locale issues resurface, fix them at the source (Java String.format with Locale.US).
+
+        // Fix transform attributes containing invalid values that aren't covered
+        // by the NaN/Infinity removal above.  Batik requires well-formed SVG 1.1
+        // transform syntax.  Strip any transform whose value doesn't start with
+        // a known SVG transform function.
         {
-            java.util.regex.Pattern translateP = java.util.regex.Pattern.compile(
-                    "translate\\(([^)]+)\\)");
-            java.util.regex.Matcher translateM = translateP.matcher(svg);
-            StringBuffer translateSb = new StringBuffer(svg.length());
-            while (translateM.find()) {
-                String inner = translateM.group(1);
-                // Replace digit,digit patterns with digit.digit (decimal fix)
-                // but preserve comma-space as value separator
-                inner = inner.replaceAll("(\\d),(\\d)", "$1.$2");
-                translateM.appendReplacement(translateSb,
-                        java.util.regex.Matcher.quoteReplacement("translate(" + inner + ")"));
+            java.util.regex.Pattern badTransformP = java.util.regex.Pattern.compile(
+                    "\\s+transform\\s*=\\s*\"([^\"]*)\"");
+            java.util.regex.Matcher badTransformM = badTransformP.matcher(svg);
+            StringBuffer badTransformSb = new StringBuffer(svg.length());
+            while (badTransformM.find()) {
+                String val = badTransformM.group(1).trim();
+                // A valid SVG transform must contain at least one known function
+                if (!val.isEmpty() && !val.matches(".*\\b(translate|rotate|scale|matrix|skewX|skewY)\\s*\\(.*")) {
+                    // Not a valid transform → remove the entire attribute
+                    badTransformM.appendReplacement(badTransformSb, "");
+                } else {
+                    badTransformM.appendReplacement(badTransformSb,
+                            java.util.regex.Matcher.quoteReplacement(badTransformM.group(0)));
+                }
             }
-            translateM.appendTail(translateSb);
-            svg = translateSb.toString();
+            badTransformM.appendTail(badTransformSb);
+            svg = badTransformSb.toString();
         }
 
         // Remove alignment-baseline XML attributes (double or single quotes)
@@ -287,6 +303,27 @@ public final class MermaidSvgFixup {
             negRectM.appendTail(negRectSb);
             svg = negRectSb.toString();
         }
+
+        // Remove empty presentation attributes: fill="" / stroke="" / transform=""
+        // Batik's CSS parser crashes on empty string values for paint/transform.
+        svg = svg.replaceAll("\\s+fill\\s*=\\s*\"\"", "");
+        svg = svg.replaceAll("\\s+fill\\s*=\\s*''", "");
+        svg = svg.replaceAll("\\s+stroke\\s*=\\s*\"\"", "");
+        svg = svg.replaceAll("\\s+stroke\\s*=\\s*''", "");
+        svg = svg.replaceAll("\\s+transform\\s*=\\s*\"\"", "");
+        svg = svg.replaceAll("\\s+transform\\s*=\\s*''", "");
+
+        // Remove transform attributes containing NaN or Infinity values
+        // (browser shim may produce these when dimension computation fails)
+        svg = svg.replaceAll("\\s+transform\\s*=\\s*\"[^\"]*NaN[^\"]*\"", "");
+        svg = svg.replaceAll("\\s+transform\\s*=\\s*\"[^\"]*Infinity[^\"]*\"", "");
+        svg = svg.replaceAll("\\s+transform\\s*=\\s*\"[^\"]*undefined[^\"]*\"", "");
+
+        // Fix transforms that contain only whitespace or are syntactically invalid:
+        // e.g. transform="translate(, )" or transform="rotate()" with no args
+        svg = svg.replaceAll("\\s+transform\\s*=\\s*\"\\s*\"", "");
+        svg = svg.replaceAll("\\s+transform\\s*=\\s*\"[a-z]+\\(\\s*\\)\"", "");
+        svg = svg.replaceAll("\\s+transform\\s*=\\s*\"[a-z]+\\(\\s*,\\s*\\)\"", "");
 
         // Fix SVG element case sensitivity: D3 creates <lineargradient> (lowercase)
         // but SVG requires <linearGradient> (camelCase).  Same for other elements.
