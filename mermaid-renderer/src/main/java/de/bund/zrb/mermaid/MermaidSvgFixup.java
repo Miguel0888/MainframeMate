@@ -1813,9 +1813,7 @@ public final class MermaidSvgFixup {
         Element svgRoot = doc.getDocumentElement();
         if (svgRoot == null) return;
 
-        // Parse Mermaid's original viewBox — it is always our baseline.
-        // Mermaid computes its viewBox from its own layout engine, which has
-        // much better knowledge of the diagram geometry than our post-processor.
+        // Parse Mermaid's original viewBox — use as baseline minimum.
         String currentVb = svgRoot.getAttribute("viewBox");
         double cvbX = 0, cvbY = 0, cvbW = 0, cvbH = 0;
         boolean hasMermaidVb = false;
@@ -1832,21 +1830,24 @@ public final class MermaidSvgFixup {
             }
         }
 
+        // Initialise bounds from Mermaid's viewBox (our minimum)
         if (hasMermaidVb) {
-            // Mermaid set a viewBox — TRUST it.
-            // Only apply setDimensions() to scale to our target resolution.
-            // Do NOT re-scan elements with rough heuristics (len*9 for text etc.)
-            // which would inflate the viewBox and make the actual content appear tiny.
-            setDimensions(svgRoot);
-            return;
+            _minX = cvbX;
+            _minY = cvbY;
+            _maxX = cvbX + cvbW;
+            _maxY = cvbY + cvbH;
+        } else {
+            _minX = Double.MAX_VALUE;  _minY = Double.MAX_VALUE;
+            _maxX = -Double.MAX_VALUE; _maxY = -Double.MAX_VALUE;
         }
+        boolean found = hasMermaidVb;
 
-        // No Mermaid viewBox — compute bounds from scratch by scanning all elements
-        _minX = Double.MAX_VALUE;  _minY = Double.MAX_VALUE;
-        _maxX = -Double.MAX_VALUE; _maxY = -Double.MAX_VALUE;
-        boolean found = false;
-
-        // Scan all elements to find content bounds
+        // Scan GEOMETRIC elements to find content that extends beyond Mermaid's viewBox.
+        // This catches content repositioned by post-processing fixes (e.g. negative-width
+        // rect flip shifts x positions outside the original viewBox).
+        //
+        // IMPORTANT: Do NOT include rough text width estimates (len*9) — they inflate
+        // the viewBox massively and make diagrams like Gantt appear tiny in a huge canvas.
         NodeList all = doc.getElementsByTagNameNS("*", "*");
         for (int i = 0; i < all.getLength(); i++) {
             Node n = all.item(i);
@@ -1858,7 +1859,6 @@ public final class MermaidSvgFixup {
             if ("marker".equals(tag) || "defs".equals(tag) || "symbol".equals(tag)) continue;
             if (isInsideTag(el, "marker") || isInsideTag(el, "defs")) continue;
 
-            // rect: x, y, width, height
             if ("rect".equals(tag)) {
                 double x = parseDouble(el, "x", 0);
                 double y = parseDouble(el, "y", 0);
@@ -1869,9 +1869,7 @@ public final class MermaidSvgFixup {
                     updateBounds(abs[0], abs[1], abs[0] + w, abs[1] + h);
                     found = true;
                 }
-            }
-            // polygon: parse points, apply own transform, resolve parents
-            else if ("polygon".equals(tag)) {
+            } else if ("polygon".equals(tag)) {
                 String points = el.getAttribute("points");
                 if (points != null && !points.isEmpty()) {
                     double[] localOff = parseElementTranslate(el);
@@ -1889,9 +1887,7 @@ public final class MermaidSvgFixup {
                         }
                     }
                 }
-            }
-            // line: x1, y1, x2, y2
-            else if ("line".equals(tag)) {
+            } else if ("line".equals(tag)) {
                 double x1 = parseDouble(el, "x1", 0);
                 double y1 = parseDouble(el, "y1", 0);
                 double x2 = parseDouble(el, "x2", 0);
@@ -1900,9 +1896,7 @@ public final class MermaidSvgFixup {
                 double[] abs2 = resolveAbsolutePosition(el, Math.max(x1, x2), Math.max(y1, y2));
                 updateBounds(abs1[0], abs1[1], abs2[0], abs2[1]);
                 found = true;
-            }
-            // circle: cx, cy, r
-            else if ("circle".equals(tag)) {
+            } else if ("circle".equals(tag)) {
                 double cx = parseDouble(el, "cx", 0);
                 double cy = parseDouble(el, "cy", 0);
                 double r = parseDouble(el, "r", 0);
@@ -1911,9 +1905,7 @@ public final class MermaidSvgFixup {
                     updateBounds(abs[0] - r, abs[1] - r, abs[0] + r, abs[1] + r);
                     found = true;
                 }
-            }
-            // ellipse: cx, cy, rx, ry
-            else if ("ellipse".equals(tag)) {
+            } else if ("ellipse".equals(tag)) {
                 double cx = parseDouble(el, "cx", 0);
                 double cy = parseDouble(el, "cy", 0);
                 double rx = parseDouble(el, "rx", 0);
@@ -1923,21 +1915,7 @@ public final class MermaidSvgFixup {
                     updateBounds(abs[0] - rx, abs[1] - ry, abs[0] + rx, abs[1] + ry);
                     found = true;
                 }
-            }
-            // text: x, y — use wider estimate (avg char width ~9px)
-            else if ("text".equals(tag)) {
-                double x = parseDouble(el, "x", 0);
-                double y = parseDouble(el, "y", 0);
-                double[] abs = resolveAbsolutePosition(el, x, y);
-                String content = el.getTextContent();
-                int len = (content != null) ? content.trim().length() : 0;
-                double tw = len * 9;  // 9px per char is closer to real rendering
-                double th = 16;       // typical font height
-                updateBounds(abs[0] - tw / 2, abs[1] - th, abs[0] + tw / 2, abs[1] + 4);
-                found = true;
-            }
-            // path: parse d attribute bounding box
-            else if ("path".equals(tag)) {
+            } else if ("path".equals(tag)) {
                 String d = el.getAttribute("d");
                 if (d != null && !d.isEmpty()) {
                     try {
@@ -1956,13 +1934,14 @@ public final class MermaidSvgFixup {
                     } catch (Exception ignored) {}
                 }
             }
+            // NOTE: text elements are intentionally NOT scanned.
+            // Rough text width estimates inflate the viewBox massively.
         }
 
         if (!found || _maxX <= _minX || _maxY <= _minY) {
             setDimensions(svgRoot);
             return;
         }
-
 
         // Apply padding and set the new viewBox
         double pad = 20;
@@ -2283,6 +2262,9 @@ public final class MermaidSvgFixup {
             if (!(n instanceof Element)) continue;
             Element rect = (Element) n;
             if (!attr(rect, "class").contains("actor")) continue;
+            String name = attr(rect, "name");
+            if (name.isEmpty()) continue;
+            if (actorRectYH.stream().anyMatch(r -> r[0] == Double.parseDouble(rect.getAttribute("y")))) continue; // skip duplicates
 
             try {
                 double y = Double.parseDouble(rect.getAttribute("y"));
@@ -2474,7 +2456,7 @@ public final class MermaidSvgFixup {
                 }
                 continue;
             }
-            if (trimLine.equalsIgnoreCase("end")) {
+            if (trimLine.matches("(?i)end")) {
                 if (!blockStack.isEmpty()) {
                     Object[] block = blockStack.remove(blockStack.size() - 1);
                     int startIdx = (Integer) block[0];
