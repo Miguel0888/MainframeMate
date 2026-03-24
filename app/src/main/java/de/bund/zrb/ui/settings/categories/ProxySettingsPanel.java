@@ -13,7 +13,6 @@ import java.util.Objects;
 
 public class ProxySettingsPanel extends AbstractSettingsPanel {
 
-    private final JCheckBox proxyEnabledBox;
     private final JComboBox<String> proxyModeBox;
     private final JTextField proxyHostField;
     private final JSpinner proxyPortSpinner;
@@ -27,9 +26,9 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
         super("proxy", "Proxy");
         FormBuilder fb = new FormBuilder();
 
-        proxyEnabledBox = new JCheckBox("Proxy aktivieren");
-        proxyEnabledBox.setSelected(settings.proxyEnabled);
-        fb.addWide(proxyEnabledBox);
+        fb.addInfo("<html><i>Proxy-Konfiguration für ausgehende Verbindungen. " +
+                "Ob ein Proxy tatsächlich verwendet wird, steuert der Haken " +
+                "\"Proxy\" je Passwort-Eintrag (Einstellungen → Passwörter).</i></html>");
 
         proxyModeBox = new JComboBox<>(new String[]{"WINDOWS_PAC", "MANUAL"});
         proxyModeBox.setSelectedItem(settings.proxyMode == null ? "WINDOWS_PAC" : settings.proxyMode);
@@ -60,7 +59,6 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
             String testUrl = proxyTestUrlField.getText().trim();
             if (testUrl.isEmpty()) { JOptionPane.showMessageDialog(parent, "Bitte Test-URL eingeben.", "Proxy Test", JOptionPane.WARNING_MESSAGE); return; }
 
-            // Run PAC test (always executes the script, regardless of "Proxy aktivieren" checkbox)
             proxyTestButton.setEnabled(false);
             proxyTestButton.setText("…");
             new javax.swing.SwingWorker<ProxyResolver.ProxyResolution, Void>() {
@@ -75,10 +73,7 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
                         String detail = result.isDirect()
                                 ? "DIRECT (" + result.getReason() + ")"
                                 : result.getProxy().address() + " (" + result.getReason() + ")";
-                        String hint = proxyEnabledBox.isSelected()
-                                ? ""
-                                : "\n\nHinweis: \"Proxy aktivieren\" ist nicht gesetzt —\nim Betrieb wird kein Proxy verwendet.";
-                        JOptionPane.showMessageDialog(parent, detail + hint, "Proxy Test", JOptionPane.INFORMATION_MESSAGE);
+                        JOptionPane.showMessageDialog(parent, detail, "Proxy Test", JOptionPane.INFORMATION_MESSAGE);
                     } catch (Exception ex) {
                         JOptionPane.showMessageDialog(parent, "Fehler: " + ex.getMessage(), "Proxy Test", JOptionPane.ERROR_MESSAGE);
                     }
@@ -87,33 +82,11 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
         });
         fb.addRowWithButton("Test-URL:", proxyTestUrlField, proxyTestButton);
 
-        // Wire "Proxy aktivieren" checkbox to enable/disable all proxy controls
-        proxyEnabledBox.addActionListener(e -> updateEnabledState());
-        updateEnabledState();
-
         installPanel(fb);
-    }
-
-    /**
-     * Enables or disables all proxy configuration controls based on the
-     * "Proxy aktivieren" checkbox. The test button stays always enabled
-     * so the PAC script can be tested before activation.
-     */
-    private void updateEnabledState() {
-        boolean on = proxyEnabledBox.isSelected();
-        proxyModeBox.setEnabled(on);
-        proxyHostField.setEnabled(on);
-        proxyPortSpinner.setEnabled(on);
-        proxyNoProxyLocalBox.setEnabled(on);
-        proxyPacScriptArea.setEnabled(on);
-        proxyPacScriptArea.setEditable(on);
-        // Test-URL and Test-Button remain enabled — test is independent of activation
-        // proxyTestUrlField and proxyTestButton stay enabled
     }
 
     @Override
     protected void applyToSettings(Settings s) {
-        s.proxyEnabled = proxyEnabledBox.isSelected();
         s.proxyMode = Objects.toString(proxyModeBox.getSelectedItem(), "WINDOWS_PAC");
         s.proxyHost = proxyHostField.getText().trim();
         s.proxyPort = ((Number) proxyPortSpinner.getValue()).intValue();

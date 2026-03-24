@@ -231,6 +231,12 @@ public class Settings {
     public boolean showHelpIcons = true; // Hilfe-Icons anzeigen (für erfahrene Benutzer deaktivierbar)
 
     // Proxy
+    /**
+     * @deprecated Global proxy kill-switch is no longer used.
+     * Each password entry now has its own {@code useProxy} flag.
+     * Kept for backward compatibility with old settings files.
+     */
+    @Deprecated
     public boolean proxyEnabled = false;
     public String proxyMode = "WINDOWS_PAC";
     public String proxyHost = "";

@@ -23,8 +23,29 @@ public class ProxyResolver {
         MANUAL
     }
 
+    /**
+     * Resolves the proxy for the given URL using the global proxy settings.
+     * The proxy mode (PAC/WPAD vs MANUAL) and proxy host/port are taken from settings.
+     * <p>
+     * Callers should check the per-entry {@code useProxy} flag before calling this method.
+     * If the entry does not want a proxy, callers should use {@link ProxyResolution#direct(String)} directly.
+     *
+     * @see #resolveForUrl(String, Settings, boolean)
+     */
     public static ProxyResolution resolveForUrl(String url, Settings settings) {
-        if (settings == null || !settings.proxyEnabled) {
+        return resolveForUrl(url, settings, true);
+    }
+
+    /**
+     * Resolves the proxy for the given URL. If {@code useProxy} is false, returns DIRECT immediately.
+     * This is the preferred overload when the caller has a per-entry proxy flag.
+     *
+     * @param url       target URL
+     * @param settings  global proxy configuration (mode, host, port, PAC script)
+     * @param useProxy  per-entry proxy flag (from password manager)
+     */
+    public static ProxyResolution resolveForUrl(String url, Settings settings, boolean useProxy) {
+        if (settings == null || !useProxy) {
             return ProxyResolution.direct("disabled");
         }
 

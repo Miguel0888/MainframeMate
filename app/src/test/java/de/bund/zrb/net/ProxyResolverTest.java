@@ -66,7 +66,6 @@ class ProxyResolverTest {
     @Test
     void manualNoProxyLocalBypasses() {
         Settings settings = new Settings();
-        settings.proxyEnabled = true;
         settings.proxyMode = "MANUAL";
         settings.proxyHost = "proxy";
         settings.proxyPort = 8080;
@@ -74,6 +73,30 @@ class ProxyResolverTest {
 
         ProxyResolver.ProxyResolution res = ProxyResolver.resolveForUrl("http://localhost:11434", settings);
         assertTrue(res.isDirect());
+    }
+
+    @Test
+    void useProxyFalseReturnsDirect() {
+        Settings settings = new Settings();
+        settings.proxyMode = "MANUAL";
+        settings.proxyHost = "proxy";
+        settings.proxyPort = 8080;
+
+        ProxyResolver.ProxyResolution res = ProxyResolver.resolveForUrl("http://example.com", settings, false);
+        assertTrue(res.isDirect());
+        assertTrue(res.getReason().contains("disabled"));
+    }
+
+    @Test
+    void useProxyTrueResolves() {
+        Settings settings = new Settings();
+        settings.proxyMode = "MANUAL";
+        settings.proxyHost = "proxy.example.com";
+        settings.proxyPort = 3128;
+
+        ProxyResolver.ProxyResolution res = ProxyResolver.resolveForUrl("http://example.com", settings, true);
+        assertFalse(res.isDirect());
+        assertTrue(res.getProxy().address().toString().contains("3128"));
     }
 }
 

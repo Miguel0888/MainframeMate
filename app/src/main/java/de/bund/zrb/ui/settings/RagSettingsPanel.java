@@ -125,17 +125,13 @@ public class RagSettingsPanel extends JPanel {
 
     private void updateProxyInfoLabel() {
         Settings settings = SettingsHelper.load();
-        if (settings.proxyEnabled) {
-            String mode = settings.proxyMode;
-            if ("MANUAL".equals(mode)) {
-                proxyInfoLabel.setText("✅ Proxy aktiv: " + settings.proxyHost + ":" + settings.proxyPort);
-            } else {
-                proxyInfoLabel.setText("✅ Proxy aktiv (PAC/WPAD)");
-            }
+        String mode = settings.proxyMode;
+        if ("MANUAL".equals(mode) && settings.proxyHost != null && !settings.proxyHost.trim().isEmpty()) {
+            proxyInfoLabel.setText("✅ Proxy konfiguriert: " + settings.proxyHost + ":" + settings.proxyPort + " (MANUAL)");
             proxyInfoLabel.setForeground(new Color(0, 128, 0));
         } else {
-            proxyInfoLabel.setText("ℹ️ Kein Proxy konfiguriert (siehe Proxy-Tab)");
-            proxyInfoLabel.setForeground(Color.GRAY);
+            proxyInfoLabel.setText("✅ Proxy konfiguriert (PAC/WPAD)");
+            proxyInfoLabel.setForeground(new Color(0, 128, 0));
         }
     }
 

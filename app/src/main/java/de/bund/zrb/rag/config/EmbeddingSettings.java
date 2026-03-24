@@ -200,16 +200,18 @@ public class EmbeddingSettings {
             result.setEnabled(Boolean.parseBoolean(embConfig.getOrDefault("enabled", "true")));
         }
 
-        // Proxy-Einstellungen aus dem zentralen Proxy-Tab übernehmen
-        if (settings.proxyEnabled) {
+        // Proxy-Einstellungen aus dem zentralen Proxy-Tab übernehmen.
+        // Ob ein Proxy tatsächlich verwendet wird, entscheidet der Caller
+        // anhand des per-Eintrag useProxy-Flags im PasswordManager.
+        // Hier wird die Proxy-Konfiguration immer bereitgestellt.
+        if ("MANUAL".equals(settings.proxyMode)
+                && settings.proxyHost != null && !settings.proxyHost.trim().isEmpty()) {
             result.setUseProxy(true);
-            if ("MANUAL".equals(settings.proxyMode)) {
-                result.setProxyHost(settings.proxyHost);
-                result.setProxyPort(settings.proxyPort);
-            }
-            // Bei PAC/WPAD wird der Proxy dynamisch ermittelt
+            result.setProxyHost(settings.proxyHost);
+            result.setProxyPort(settings.proxyPort);
         } else {
-            result.setUseProxy(false);
+            // PAC/WPAD — Proxy wird dynamisch ermittelt
+            result.setUseProxy(true);
         }
 
         return result;
