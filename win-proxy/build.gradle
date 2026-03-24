@@ -1,0 +1,27 @@
+plugins {
+    id 'java-library'
+}
+
+description = 'Windows Proxy Resolver — reads proxy settings from the Windows Registry ' +
+              'and evaluates PAC/WPAD auto-config scripts via GraalJS. ' +
+              'Works on hardened systems where PowerShell CLM blocks .NET calls.'
+
+repositories {
+    mavenCentral()
+}
+
+sourceCompatibility = '1.8'
+targetCompatibility = '1.8'
+
+dependencies {
+    // GraalJS for PAC/WPAD script evaluation (FindProxyForURL)
+    implementation 'org.graalvm.js:js:21.2.0'
+    implementation 'org.graalvm.sdk:graal-sdk:21.2.0'
+
+    // Testing
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+}
+
+test {
+    useJUnitPlatform()
+}
