@@ -62,6 +62,15 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             return res.getProxy();
         });
 
+        // Also wire up proxy for async image downloads (upload.wikimedia.org etc.)
+        java.util.function.Function<String, java.net.Proxy> imageProxyResolver = url -> {
+            Settings s = SettingsHelper.load();
+            de.bund.zrb.net.ProxyResolver.ProxyResolution res = de.bund.zrb.net.ProxyResolver.resolveForUrl(url, s);
+            return res.getProxy();
+        };
+        de.bund.zrb.wiki.ui.WikiAsyncImageLoader.setProxyResolver(imageProxyResolver);
+        de.bund.zrb.wiki.ui.ImageStripPanel.setProxyResolver(imageProxyResolver);
+
         WikiContentService service = jwbfService;
         WikiConnectionTab tab = new WikiConnectionTab(service);
 

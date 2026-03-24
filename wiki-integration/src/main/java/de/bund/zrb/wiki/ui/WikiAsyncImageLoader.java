@@ -8,6 +8,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.Proxy;
 import java.net.URL;
 import java.util.Dictionary;
 import java.util.Hashtable;
@@ -35,12 +36,25 @@ public final class WikiAsyncImageLoader {
     private static final String USER_AGENT =
             "MainframeMate/1.0 (https://github.com/Miguel0888/MainframeMate; Java)";
 
+    /** Optional proxy resolver: given a URL string, returns the Proxy to use. */
+    private static volatile java.util.function.Function<String, Proxy> proxyResolver;
+
     /** Pattern to find img src attributes in HTML. */
     private static final Pattern IMG_SRC_PATTERN = Pattern.compile(
             "<img\\s[^>]*src\\s*=\\s*[\"']([^\"']+)[\"']",
             Pattern.CASE_INSENSITIVE);
 
     private WikiAsyncImageLoader() { /* utility class */ }
+
+    /**
+     * Set a global proxy resolver for image downloads.
+     * Called once from the app module to wire in PAC-script / manual proxy settings.
+     *
+     * @param resolver maps a URL string to a {@link Proxy} (may return {@code null} or {@link Proxy#NO_PROXY})
+     */
+    public static void setProxyResolver(java.util.function.Function<String, Proxy> resolver) {
+        proxyResolver = resolver;
+    }
 
     /**
      * Load all images in the given HTML asynchronously and inject them
@@ -174,9 +188,25 @@ public final class WikiAsyncImageLoader {
 
     /**
      * Download the image bytes from a URL using plain HTTP.
+     * Uses the global proxy resolver if set.
      */
     private static byte[] downloadBytes(String imageUrl) throws java.io.IOException {
-        HttpURLConnection conn = (HttpURLConnection) new URL(imageUrl).openConnection();
+        URL url = new URL(imageUrl);
+        HttpURLConnection conn;
+
+        java.util.function.Function<String, Proxy> resolver = proxyResolver;
+        if (resolver != null) {
+            Proxy proxy = resolver.apply(imageUrl);
+            if (proxy != null && !Proxy.NO_PROXY.equals(proxy)) {
+                LOG.fine("[WikiImageLoader] Using proxy " + proxy + " for " + imageUrl);
+                conn = (HttpURLConnection) url.openConnection(proxy);
+            } else {
+                conn = (HttpURLConnection) url.openConnection();
+            }
+        } else {
+            conn = (HttpURLConnection) url.openConnection();
+        }
+
         conn.setRequestProperty("User-Agent", USER_AGENT);
         conn.setRequestProperty("Accept", "image/*,*/*;q=0.8");
         conn.setConnectTimeout(10_000);
