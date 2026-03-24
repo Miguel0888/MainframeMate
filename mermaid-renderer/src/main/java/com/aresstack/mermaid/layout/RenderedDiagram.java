@@ -192,6 +192,46 @@ public final class RenderedDiagram {
         return ids;
     }
 
+    // ── Typed finders ────────────────────────────────────────
+
+    /**
+     * Get all nodes of a specific subtype.
+     * <pre>
+     *   List&lt;ClassNode&gt; classes = diagram.getNodesOfType(ClassNode.class);
+     * </pre>
+     *
+     * @param type the node subclass to filter by
+     * @return matching nodes (may be empty, never null)
+     */
+    public <T extends DiagramNode> List<T> getNodesOfType(Class<T> type) {
+        List<T> result = new ArrayList<T>();
+        for (DiagramNode n : nodes) {
+            if (type.isInstance(n)) {
+                result.add(type.cast(n));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Get all edges of a specific subtype.
+     * <pre>
+     *   List&lt;FlowchartEdge&gt; links = diagram.getEdgesOfType(FlowchartEdge.class);
+     * </pre>
+     *
+     * @param type the edge subclass to filter by
+     * @return matching edges (may be empty, never null)
+     */
+    public <T extends DiagramEdge> List<T> getEdgesOfType(Class<T> type) {
+        List<T> result = new ArrayList<T>();
+        for (DiagramEdge e : edges) {
+            if (type.isInstance(e)) {
+                result.add(type.cast(e));
+            }
+        }
+        return result;
+    }
+
     @Override
     public String toString() {
         return "RenderedDiagram{type='" + diagramType + "', nodes=" + nodes.size()

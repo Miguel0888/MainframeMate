@@ -1,12 +1,32 @@
 package com.aresstack.mermaid.layout;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
  * A rendered diagram node with its position and dimensions.
  * Coordinates are in SVG user-space units (typically pixels).
  *
+ * <p>Base class for all diagram-specific node types.
+ * Subclasses add type-specific properties:
+ * <ul>
+ *   <li>{@link FlowchartNode} — node shape (rectangle, diamond, circle, …)</li>
+ *   <li>{@link ClassNode} — stereotype, fields, methods</li>
+ *   <li>{@link ErEntityNode} — entity attributes with types and PK/FK</li>
+ *   <li>{@link SequenceActorNode} — actor type (participant, actor)</li>
+ *   <li>{@link StateDiagramNode} — start/end state markers</li>
+ *   <li>{@link MindmapItemNode} — depth in the tree</li>
+ *   <li>{@link RequirementItemNode} — requirement metadata</li>
+ * </ul>
+ *
+ * <p>For diagram types without a specialised subclass, the base
+ * {@code DiagramNode} is used and ad-hoc properties can be stored
+ * in {@link #getProperties()}.
+ *
  * <p>Immutable value object — safe to share across threads.
  */
-public final class DiagramNode {
+public class DiagramNode {
 
     private final String id;
     private final String label;
@@ -16,10 +36,18 @@ public final class DiagramNode {
     private final double width;
     private final double height;
     private final String svgId;
+    private final Map<String, String> properties;
 
     public DiagramNode(String id, String label, String kind,
                        double x, double y, double width, double height,
                        String svgId) {
+        this(id, label, kind, x, y, width, height, svgId,
+                Collections.<String, String>emptyMap());
+    }
+
+    public DiagramNode(String id, String label, String kind,
+                       double x, double y, double width, double height,
+                       String svgId, Map<String, String> properties) {
         this.id = id;
         this.label = label;
         this.kind = kind;
@@ -28,6 +56,9 @@ public final class DiagramNode {
         this.width = width;
         this.height = height;
         this.svgId = svgId;
+        this.properties = properties != null && !properties.isEmpty()
+                ? Collections.unmodifiableMap(new LinkedHashMap<String, String>(properties))
+                : Collections.<String, String>emptyMap();
     }
 
     /** Logical node identifier derived from the Mermaid source, e.g. "A", "Customer". */
@@ -65,6 +96,12 @@ public final class DiagramNode {
     public String getSvgId() { return svgId; }
 
     /**
+     * Additional ad-hoc properties for diagram types without a dedicated
+     * subclass.  Returns an unmodifiable map (may be empty, never null).
+     */
+    public Map<String, String> getProperties() { return properties; }
+
+    /**
      * Test whether a point (in SVG user-space) falls inside this node's
      * bounding box.  Useful for hit-testing / click detection.
      */
@@ -74,12 +111,13 @@ public final class DiagramNode {
 
     @Override
     public String toString() {
-        return "DiagramNode{id='" + id + "', label='" + label + "', kind='" + kind
-                + "', bounds=[" + fmt(x) + "," + fmt(y) + " " + fmt(width) + "x" + fmt(height) + "]}";
+        return getClass().getSimpleName() + "{id='" + id + "', label='" + label
+                + "', kind='" + kind
+                + "', bounds=[" + fmt(x) + "," + fmt(y) + " "
+                + fmt(width) + "x" + fmt(height) + "]}";
     }
 
-    private static String fmt(double v) {
+    static String fmt(double v) {
         return v == Math.floor(v) ? String.valueOf((long) v) : String.format(java.util.Locale.US, "%.1f", v);
     }
 }
-
