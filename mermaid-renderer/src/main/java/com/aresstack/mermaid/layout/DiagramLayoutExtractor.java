@@ -527,22 +527,31 @@ public final class DiagramLayoutExtractor {
             String name = attr(rect, "name");
             if (name.isEmpty()) continue;
 
-            double x = parseDoubleAttr(rect, "x", 0);
-            double y = parseDoubleAttr(rect, "y", 0);
-            double w = parseDoubleAttr(rect, "width", 150);
-            double h = parseDoubleAttr(rect, "height", 65);
+            double rx = parseDoubleAttr(rect, "x", 0);
+            double ry = parseDoubleAttr(rect, "y", 0);
+            double rw = parseDoubleAttr(rect, "width", 150);
+            double rh = parseDoubleAttr(rect, "height", 65);
 
             if (!actorBounds.containsKey(name)) {
-                actorBounds.put(name, new double[]{x, y, w, h});
+                // Store as [minX, minY, maxX, maxY] for easier merging
+                actorBounds.put(name, new double[]{rx, ry, rx + rw, ry + rh});
+            } else {
+                // Merge: expand bounding box to encompass this rect too
+                // (covers both top and bottom actor boxes + lifeline)
+                double[] prev = actorBounds.get(name);
+                prev[0] = Math.min(prev[0], rx);           // minX
+                prev[1] = Math.min(prev[1], ry);           // minY
+                prev[2] = Math.max(prev[2], rx + rw);      // maxX
+                prev[3] = Math.max(prev[3], ry + rh);      // maxY
             }
-            // Merge top & bottom actor boxes
         }
 
         for (Map.Entry<String, double[]> entry : actorBounds.entrySet()) {
-            double[] b = entry.getValue();
+            double[] b = entry.getValue(); // [minX, minY, maxX, maxY]
+            double ax = b[0], ay = b[1], aw = b[2] - b[0], ah = b[3] - b[1];
             result.add(new SequenceActorNode(
                     entry.getKey(), entry.getKey(),
-                    b[0], b[1], b[2], b[3],
+                    ax, ay, aw, ah,
                     "actor-" + entry.getKey(),
                     hasStickFigures ? SequenceActorNode.ActorType.ACTOR
                                     : SequenceActorNode.ActorType.PARTICIPANT

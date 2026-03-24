@@ -1,8 +1,6 @@
 package de.bund.zrb.mermaid;
 
 import com.aresstack.mermaid.layout.*;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import de.bund.zrb.wiki.ui.SvgRenderer;
 
 import javax.swing.*;
@@ -10,34 +8,24 @@ import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
-import java.io.*;
-import java.nio.charset.Charset;
 import java.util.*;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Interactive visual selection test for the mermaid-java layout + highlighting API.
- * <p>
- * Tests whether nodes and edges can be correctly identified via click coordinates
- * and displays their type-specific properties — simulating the core interaction
- * pattern of a graphical diagram editor like <em>mermaid-designer</em>.
+ * Interactive visual selection &amp; editing test for the mermaid-java layout + highlighting API.
  * <p>
  * Each test case shows a rendered diagram that the tester can click on.
  * The system identifies the clicked element using {@link RenderedDiagram#findNodeAt}
  * and {@link DiagramEdge#containsApprox}, then displays its polymorphic type and
  * properties in a detail panel.  A yellow overlay highlights the selection.
  * <p>
- * <b>Test procedure:</b>
- * <ol>
- *   <li>Click on the elements described in the task instructions</li>
- *   <li>Verify the detail panel shows the correct type &amp; properties</li>
- *   <li>Answer the questions for each test case</li>
- *   <li>Submit results when all questions are answered</li>
- * </ol>
+ * Below the detail panel, a <b>polymorphic edit panel</b> allows modifying the
+ * selected element (rename, shape change, class member editing, etc.).
+ * Changes are applied to the Mermaid source and the diagram is re-rendered.
  */
 public final class MermaidSelectionTest {
-
-    private static final int COUNTDOWN_SECONDS = 15 * 60;
 
     private MermaidSelectionTest() {}
 
@@ -45,50 +33,33 @@ public final class MermaidSelectionTest {
     //  Data model
     // ═══════════════════════════════════════════════════════════
 
-    public static final class TestCaseResult {
-        public String id;
-        public String title;
-        public String mermaidCode;
-        public String annotation;
-        public Map<String, String> questionAnswers;
-        public boolean renderError;
-        public boolean rasterError;
-        public int clickCount;
-        public List<String> selectedElements;
-    }
-
     private static final class SelectionSpec {
         final String id, title, task, mermaidCode;
-        final Map<String, String> questions;
 
-        SelectionSpec(String id, String title, String task,
-                      String mermaidCode, String[][] questions) {
+        SelectionSpec(String id, String title, String task, String mermaidCode) {
             this.id = id;
             this.title = title;
             this.task = task;
             this.mermaidCode = mermaidCode;
-            this.questions = new LinkedHashMap<String, String>();
-            for (String[] q : questions) {
-                this.questions.put(q[0], q[1]);
-            }
         }
     }
 
-    private static final class RenderedCase {
+    /** Mutable rendering state for one card — supports re-rendering after edits. */
+    private static final class CardState {
         final SelectionSpec spec;
-        final BufferedImage image;
-        final String svg;
-        final RenderedDiagram diagram;
-        final boolean renderError, rasterError;
+        String currentSource;
+        BufferedImage image;
+        String svg;
+        RenderedDiagram diagram;
+        boolean renderError, rasterError;
 
-        RenderedCase(SelectionSpec spec, BufferedImage image, String svg,
-                     RenderedDiagram diagram, boolean renderError, boolean rasterError) {
+        // Currently selected element
+        DiagramNode selectedNode;
+        DiagramEdge selectedEdge;
+
+        CardState(SelectionSpec spec) {
             this.spec = spec;
-            this.image = image;
-            this.svg = svg;
-            this.diagram = diagram;
-            this.renderError = renderError;
-            this.rasterError = rasterError;
+            this.currentSource = spec.mermaidCode;
         }
     }
 
@@ -102,48 +73,30 @@ public final class MermaidSelectionTest {
         // ── 1. Flowchart: Node shapes ──
         s.add(new SelectionSpec("fc-shapes",
                 "1 — Flowchart: Knotenformen selektieren",
-                "Klicken Sie nacheinander auf jeden der 6 Knoten.\n"
-                + "Prüfen Sie im Detail-Panel: Wird der korrekte Typ (FlowchartNode)\n"
-                + "und die richtige Form (Rechteck, Stadium, Kreis, Raute, Sechseck, Trapez) angezeigt?",
+                "Klicken Sie auf Knoten. Im Edit-Panel können Sie\n"
+                + "den Namen ändern. Das Diagramm wird neu gerendert.",
                 "graph LR\n"
                 + "    Rechteck[Rechteck] --> Rund([Rund])\n"
                 + "    Rund --> Kreis((Kreis))\n"
                 + "    Kreis --> Raute{Raute}\n"
                 + "    Raute --> Sechseck{{Sechseck}}\n"
-                + "    Sechseck --> Trapez[/Trapez/]",
-                new String[][] {
-                    {"node-click", "Wird beim Klick auf einen Knoten ein Element erkannt (gelb markiert)?"},
-                    {"correct-type", "Zeigt das Detail-Panel den Typ 'FlowchartNode' an?"},
-                    {"correct-shape", "Stimmt die angezeigte Form (Shape) mit der visuellen Darstellung überein?"},
-                    {"correct-id", "Stimmt die angezeigte ID mit dem Knotennamen überein?"},
-                    {"all-clickable", "Lassen sich alle 6 Knoten einzeln anklicken und selektieren?"}
-                }));
+                + "    Sechseck --> Trapez[/Trapez/]"));
 
         // ── 2. Flowchart: Edge styles ──
         s.add(new SelectionSpec("fc-edges",
                 "2 — Flowchart: Kantenstile selektieren",
-                "Klicken Sie auf die Linien zwischen den Knoten (nicht auf die Knoten selbst).\n"
-                + "Es gibt 3 Kanten: durchgezogen (Alpha→Delta), gestrichelt (Beta→Echo),\n"
-                + "dick (Gamma→Foxtrot). Prüfen Sie den erkannten LineStyle im Detail-Panel.",
+                "Klicken Sie auf die Linien zwischen den Knoten.\n"
+                + "Im Edit-Panel können Sie das Label ändern.",
                 "graph LR\n"
                 + "    Alpha --> Delta\n"
                 + "    Beta -.->|dashed| Echo\n"
-                + "    Gamma ==>|thick| Foxtrot",
-                new String[][] {
-                    {"edge-click", "Wird beim Klick auf eine Kante ein Edge-Element erkannt?"},
-                    {"correct-edge-type", "Zeigt das Detail-Panel 'FlowchartEdge' als Typ an?"},
-                    {"line-style", "Wird der LineStyle (SOLID, DASHED, THICK) korrekt erkannt?"},
-                    {"source-target", "Sind Source und Target der Kante korrekt zugeordnet?"},
-                    {"edge-label", "Werden die Labels 'dashed' und 'thick' angezeigt?"}
-                }));
+                + "    Gamma ==>|thick| Foxtrot"));
 
         // ── 3. Class diagram ──
         s.add(new SelectionSpec("class-sel",
                 "3 — Klassendiagramm: Klassen und Relationen",
-                "Klicken Sie auf die Klasse 'Animal': Es sollte ein ClassNode\n"
-                + "mit Stereotype '<<abstract>>' und Feldern/Methoden erscheinen.\n"
-                + "Klicken Sie dann auf die Vererbungslinie Dog→Animal:\n"
-                + "Es sollte eine ClassRelation mit RelationType INHERITANCE erscheinen.",
+                "Klicken Sie auf Klassen. Im Edit-Panel können Sie\n"
+                + "den Namen ändern sowie Felder und Methoden hinzufügen/entfernen.",
                 "classDiagram\n"
                 + "    class Animal {\n"
                 + "        <<abstract>>\n"
@@ -158,22 +111,13 @@ public final class MermaidSelectionTest {
                 + "        +purr() void\n"
                 + "    }\n"
                 + "    Animal <|-- Dog\n"
-                + "    Animal <|-- Cat",
-                new String[][] {
-                    {"class-node", "Wird beim Klick auf eine Klasse ein 'ClassNode' erkannt?"},
-                    {"members", "Zeigt das Detail-Panel Felder und Methoden an?"},
-                    {"relation", "Wird die Vererbungslinie als 'ClassRelation' erkannt?"},
-                    {"rel-type", "Ist der RelationType als INHERITANCE angezeigt?"},
-                    {"all-three", "Lassen sich alle drei Klassen (Animal, Dog, Cat) einzeln selektieren?"}
-                }));
+                + "    Animal <|-- Cat"));
 
         // ── 4. Sequence diagram ──
         s.add(new SelectionSpec("seq-sel",
                 "4 — Sequenzdiagramm: Akteure und Nachrichten",
-                "Klicken Sie auf die Actor-Boxen (Chef, Alice, Bob):\n"
-                + "Es sollte ein SequenceActorNode mit ActorType PARTICIPANT erscheinen.\n"
-                + "Klicken Sie dann auf eine Nachrichtenlinie: Es sollte eine\n"
-                + "SequenceMessage mit dem korrekten MessageType (SYNC_SOLID oder SYNC_DOTTED) erscheinen.",
+                "Klicken Sie auf Actor-Boxen (oben oder unten).\n"
+                + "Im Edit-Panel können Sie den Akteur umbenennen.",
                 "sequenceDiagram\n"
                 + "    participant Chef\n"
                 + "    participant Alice\n"
@@ -184,22 +128,13 @@ public final class MermaidSelectionTest {
                 + "        Alice->>Bob: Vorschlag\n"
                 + "        Bob-->>Alice: Feedback\n"
                 + "    end\n"
-                + "    Alice->>Chef: Ergebnis",
-                new String[][] {
-                    {"actor-click", "Wird beim Klick auf eine Actor-Box ein 'SequenceActorNode' erkannt?"},
-                    {"actor-type", "Ist der ActorType als PARTICIPANT angezeigt?"},
-                    {"msg-click", "Wird beim Klick auf eine Nachrichtenlinie eine 'SequenceMessage' erkannt?"},
-                    {"msg-type", "Ist der MessageType korrekt (SYNC_SOLID vs. SYNC_DOTTED für Feedback)?"},
-                    {"msg-label", "Wird das Message-Label (z.B. 'Agenda') korrekt angezeigt?"}
-                }));
+                + "    Alice->>Chef: Ergebnis"));
 
         // ── 5. ER diagram ──
         s.add(new SelectionSpec("er-sel",
                 "5 — ER-Diagramm: Entitäten und Beziehungen",
-                "Klicken Sie auf die Entitäten BUCH, AUTOR, VERLAG.\n"
-                + "Es sollte ein ErEntityNode erkannt werden.\n"
-                + "Klicken Sie dann auf eine Beziehungslinie: Es sollte\n"
-                + "eine ErRelationship erscheinen.",
+                "Klicken Sie auf Entitäten.\n"
+                + "Im Edit-Panel können Sie den Entity-Namen ändern.",
                 "erDiagram\n"
                 + "    BUCH {\n"
                 + "        string isbn PK\n"
@@ -215,38 +150,25 @@ public final class MermaidSelectionTest {
                 + "        string name\n"
                 + "    }\n"
                 + "    AUTOR ||--o{ BUCH : schreibt\n"
-                + "    VERLAG ||--o{ BUCH : verlegt",
-                new String[][] {
-                    {"entity-click", "Wird beim Klick auf eine Entität ein 'ErEntityNode' erkannt?"},
-                    {"entity-id", "Stimmt die angezeigte Entity-ID (BUCH, AUTOR, VERLAG)?"},
-                    {"er-rel", "Wird eine Beziehungslinie als 'ErRelationship' erkannt?"},
-                    {"all-entities", "Lassen sich alle 3 Entitäten einzeln selektieren?"}
-                }));
+                + "    VERLAG ||--o{ BUCH : verlegt"));
 
         // ── 6. State diagram ──
         s.add(new SelectionSpec("state-sel",
                 "6 — Zustandsdiagramm: Zustände selektieren",
-                "Klicken Sie auf die Zustände (Rot, Rot_Gelb, Gruen, Gelb).\n"
-                + "Es sollte ein StateDiagramNode erkannt werden.\n"
-                + "Prüfen Sie, ob Start-/End-Marker korrekt angezeigt werden.",
+                "Klicken Sie auf Zustände. Im Edit-Panel\n"
+                + "können Sie den Zustandsnamen ändern.",
                 "stateDiagram-v2\n"
                 + "    [*] --> Rot\n"
                 + "    Rot --> Rot_Gelb : warten\n"
                 + "    Rot_Gelb --> Gruen\n"
                 + "    Gruen --> Gelb\n"
-                + "    Gelb --> Rot",
-                new String[][] {
-                    {"state-click", "Wird beim Klick auf einen Zustand ein 'StateDiagramNode' erkannt?"},
-                    {"state-id", "Stimmt die angezeigte State-ID?"},
-                    {"multiple", "Lassen sich mehrere Zustände nacheinander selektieren?"}
-                }));
+                + "    Gelb --> Rot"));
 
         // ── 7. Mindmap ──
         s.add(new SelectionSpec("mm-sel",
                 "7 — Mindmap: Knoten in der Baumstruktur",
-                "Klicken Sie auf den Wurzelknoten 'Humus' und dann auf Unterknoten.\n"
-                + "Es sollte jeweils ein MindmapItemNode erkannt werden.\n"
-                + "Der Root-Knoten sollte isRoot=true anzeigen.",
+                "Klicken Sie auf Mindmap-Knoten.\n"
+                + "Im Edit-Panel können Sie den Knotennamen ändern.",
                 "mindmap\n"
                 + "  root((Humus))\n"
                 + "    Arten\n"
@@ -257,13 +179,7 @@ public final class MermaidSelectionTest {
                 + "      Bodenorganismen\n"
                 + "    Bestandteile\n"
                 + "      Organische Substanz\n"
-                + "      Mineralstoffe",
-                new String[][] {
-                    {"mm-click", "Wird beim Klick auf einen Mindmap-Knoten ein 'MindmapItemNode' erkannt?"},
-                    {"root", "Zeigt der Wurzelknoten 'Humus' isRoot=true an?"},
-                    {"label", "Stimmen die Labels der selektierten Knoten?"},
-                    {"sub-click", "Lassen sich auch kleine Unterknoten (z.B. Naehrhumus) selektieren?"}
-                }));
+                + "      Mineralstoffe"));
 
         return s;
     }
@@ -274,80 +190,73 @@ public final class MermaidSelectionTest {
 
     public static void main(String[] args) throws Exception {
         System.err.println("[MermaidSelectionTest] Initialising renderer...");
-        MermaidRenderer renderer = MermaidRenderer.getInstance();
+        final MermaidRenderer renderer = MermaidRenderer.getInstance();
         if (!renderer.isAvailable()) {
-            System.out.println("{\"error\":\"mermaid.min.js not found on classpath\"}");
+            System.err.println("mermaid.min.js not found on classpath");
             System.exit(1);
             return;
         }
 
         List<SelectionSpec> specs = buildSpecs();
-        final List<RenderedCase> rendered = new ArrayList<RenderedCase>();
+        final List<CardState> cards = new ArrayList<CardState>();
 
         for (SelectionSpec spec : specs) {
-            System.err.println("[MermaidSelectionTest] Rendering: " + spec.title);
-            String svg = null;
-            boolean renderErr = false;
-            try {
-                svg = renderer.renderToSvg(spec.mermaidCode);
-                renderErr = (svg == null || !svg.contains("<svg"));
-            } catch (Exception e) {
-                System.err.println("[MermaidSelectionTest] Render error: " + e);
-                renderErr = true;
-            }
-            if (renderErr) {
-                rendered.add(new RenderedCase(spec, null, null, null, true, false));
-                continue;
-            }
-
-            // Extract layout BEFORE Batik fixup (the raw SVG has clean ids)
-            RenderedDiagram diagram = DiagramLayoutExtractor.extract(svg);
-
-            // Apply Batik fixup for rasterisation
-            svg = MermaidSvgFixup.fixForBatik(svg, spec.mermaidCode);
-
-            byte[] svgBytes = svg.getBytes("UTF-8");
-            BufferedImage img = null;
-            boolean rasterErr = false;
-            try {
-                img = SvgRenderer.renderToBufferedImage(svgBytes);
-                // NO auto-crop — we need pixel-perfect coordinate mapping
-            } catch (Exception e) {
-                System.err.println("[MermaidSelectionTest] Raster error: " + e);
-                rasterErr = true;
-            }
-            if (img == null) rasterErr = true;
-
-            rendered.add(new RenderedCase(spec, img, svg, diagram, false, rasterErr));
+            CardState card = new CardState(spec);
+            renderCard(renderer, card);
+            cards.add(card);
         }
 
         UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         SwingUtilities.invokeAndWait(new Runnable() {
-            @Override public void run() { showDialog(rendered); }
+            @Override public void run() { showDialog(cards, renderer); }
         });
     }
 
+    /** Render (or re-render) a single card from its currentSource. */
+    private static void renderCard(MermaidRenderer renderer, CardState card) {
+        System.err.println("[MermaidSelectionTest] Rendering: " + card.spec.title);
+        card.renderError = false;
+        card.rasterError = false;
+        card.selectedNode = null;
+        card.selectedEdge = null;
+
+        String svg = null;
+        try {
+            svg = renderer.renderToSvg(card.currentSource);
+            card.renderError = (svg == null || !svg.contains("<svg"));
+        } catch (Exception e) {
+            System.err.println("[MermaidSelectionTest] Render error: " + e);
+            card.renderError = true;
+        }
+        if (card.renderError) {
+            card.image = null;
+            card.svg = null;
+            card.diagram = null;
+            return;
+        }
+
+        card.diagram = DiagramLayoutExtractor.extract(svg);
+        svg = MermaidSvgFixup.fixForBatik(svg, card.currentSource);
+        card.svg = svg;
+
+        try {
+            byte[] svgBytes = svg.getBytes("UTF-8");
+            card.image = SvgRenderer.renderToBufferedImage(svgBytes);
+        } catch (Exception e) {
+            System.err.println("[MermaidSelectionTest] Raster error: " + e);
+            card.image = null;
+        }
+        if (card.image == null) card.rasterError = true;
+    }
+
     // ═══════════════════════════════════════════════════════════
-    //  Swing dialog — interactive selection UI
+    //  Swing dialog — interactive selection + editing UI
     // ═══════════════════════════════════════════════════════════
 
-    private static void showDialog(final List<RenderedCase> cases) {
-        final JFrame frame = new JFrame("Mermaid Selection Test — Klick-Selektion");
+    private static void showDialog(final List<CardState> cards, final MermaidRenderer renderer) {
+        final JFrame frame = new JFrame("Mermaid Selection Test — Selektion & Bearbeitung");
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         frame.setLayout(new BorderLayout(0, 0));
-        frame.setAlwaysOnTop(true);
-
-        final JTextArea[] annotationAreas = new JTextArea[cases.size()];
-        final String[][] questionAnswers = new String[cases.size()][];
-        // Track click counts and selected elements per case for JSON output
-        final int[] clickCounts = new int[cases.size()];
-        final List<List<String>> selectedElements = new ArrayList<List<String>>();
-        for (int i = 0; i < cases.size(); i++) {
-            int qCount = cases.get(i).spec.questions.size();
-            questionAnswers[i] = new String[qCount];
-            Arrays.fill(questionAnswers[i], "");
-            selectedElements.add(new ArrayList<String>());
-        }
 
         // ── TOP BAR ──
         JPanel topBar = new JPanel(new BorderLayout(12, 0));
@@ -356,75 +265,50 @@ public final class MermaidSelectionTest {
                 BorderFactory.createEmptyBorder(6, 12, 6, 12)));
         topBar.setBackground(new Color(40, 40, 40));
 
-        final JLabel countdownLabel = new JLabel(formatTime(COUNTDOWN_SECONDS));
-        countdownLabel.setFont(new Font(Font.MONOSPACED, Font.BOLD, 28));
-        countdownLabel.setForeground(Color.RED);
-        topBar.add(countdownLabel, BorderLayout.WEST);
+        JLabel titleLabel = new JLabel("  \u2699 Mermaid Diagramm-Editor  ");
+        titleLabel.setFont(new Font(Font.MONOSPACED, Font.BOLD, 22));
+        titleLabel.setForeground(new Color(100, 200, 255));
+        topBar.add(titleLabel, BorderLayout.WEST);
 
-        final JLabel hintLabel = new JLabel("Klicken Sie auf Diagramm-Elemente, dann alle Fragen beantworten");
+        JLabel hintLabel = new JLabel("Klicken Sie auf Diagramm-Elemente, dann bearbeiten Sie sie im Edit-Panel");
         hintLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 14));
         hintLabel.setForeground(new Color(200, 200, 200));
         hintLabel.setHorizontalAlignment(SwingConstants.CENTER);
         topBar.add(hintLabel, BorderLayout.CENTER);
 
-        final JButton submitBtn = new JButton("  \u2714 Ergebnisse absenden  ");
-        submitBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
-        submitBtn.setEnabled(false);
-        topBar.add(submitBtn, BorderLayout.EAST);
         frame.add(topBar, BorderLayout.NORTH);
-
-        final Runnable updateSubmitState = new Runnable() {
-            @Override public void run() {
-                int total = 0, answered = 0;
-                for (int i = 0; i < questionAnswers.length; i++)
-                    for (int j = 0; j < questionAnswers[i].length; j++) {
-                        total++;
-                        if (!questionAnswers[i][j].isEmpty()) answered++;
-                    }
-                boolean allDone = (answered == total);
-                submitBtn.setEnabled(allDone);
-                if (allDone) {
-                    hintLabel.setText("\u2705 Alle " + total + " Fragen beantwortet!");
-                    hintLabel.setForeground(new Color(100, 255, 100));
-                } else {
-                    hintLabel.setText("Noch " + (total - answered) + " von " + total + " Fragen offen");
-                    hintLabel.setForeground(new Color(200, 200, 200));
-                }
-            }
-        };
 
         // ── CENTER: card row ──
         JPanel cardRow = new JPanel();
         cardRow.setLayout(new BoxLayout(cardRow, BoxLayout.X_AXIS));
         cardRow.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        for (int idx = 0; idx < cases.size(); idx++) {
-            final int ci = idx;
-            final RenderedCase rc = cases.get(idx);
+        for (int idx = 0; idx < cards.size(); idx++) {
+            final CardState cs = cards.get(idx);
 
-            JPanel card = new JPanel();
+            final JPanel card = new JPanel();
             card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
             card.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createTitledBorder(
                             BorderFactory.createLineBorder(new Color(100, 100, 100), 2),
-                            rc.spec.title,
+                            cs.spec.title,
                             TitledBorder.CENTER, TitledBorder.TOP,
                             new Font(Font.SANS_SERIF, Font.BOLD, 14)),
                     BorderFactory.createEmptyBorder(6, 8, 8, 8)));
             card.setBackground(Color.WHITE);
 
             // ── Task instructions ──
-            JTextArea taskArea = new JTextArea("AUFGABE:\n" + rc.spec.task);
+            JTextArea taskArea = new JTextArea("AUFGABE:\n" + cs.spec.task);
             taskArea.setEditable(false);
             taskArea.setLineWrap(true);
             taskArea.setWrapStyleWord(true);
-            taskArea.setRows(5);
+            taskArea.setRows(3);
             taskArea.setBackground(new Color(220, 240, 255));
             taskArea.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
             taskArea.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(new Color(150, 180, 220)),
                     BorderFactory.createEmptyBorder(4, 6, 4, 6)));
-            taskArea.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+            taskArea.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
             card.add(taskArea);
             card.add(Box.createVerticalStrut(4));
 
@@ -433,7 +317,7 @@ public final class MermaidSelectionTest {
             detailArea.setEditable(false);
             detailArea.setLineWrap(true);
             detailArea.setWrapStyleWord(true);
-            detailArea.setRows(8);
+            detailArea.setRows(7);
             detailArea.setBackground(new Color(255, 255, 230));
             detailArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
             detailArea.setBorder(BorderFactory.createCompoundBorder(
@@ -443,212 +327,254 @@ public final class MermaidSelectionTest {
                             TitledBorder.LEFT, TitledBorder.TOP,
                             new Font(Font.SANS_SERIF, Font.BOLD, 11)),
                     BorderFactory.createEmptyBorder(2, 4, 2, 4)));
-            detailArea.setMaximumSize(new Dimension(Integer.MAX_VALUE, 180));
+            detailArea.setMaximumSize(new Dimension(Integer.MAX_VALUE, 160));
 
-            // ── Clickable diagram panel ──
-            JPanel imgContainer;
-            if (rc.image != null && rc.diagram != null) {
-                final BufferedImage baseImg = rc.image;
-                final RenderedDiagram diagram = rc.diagram;
-                final int imgW = baseImg.getWidth();
-                final int imgH = baseImg.getHeight();
+            // ── Edit panel (will be populated on selection) ──
+            final JPanel editPanel = new JPanel();
+            editPanel.setLayout(new BoxLayout(editPanel, BoxLayout.Y_AXIS));
+            editPanel.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createTitledBorder(
+                            BorderFactory.createLineBorder(new Color(80, 160, 80)),
+                            "\u270E Bearbeitung",
+                            TitledBorder.LEFT, TitledBorder.TOP,
+                            new Font(Font.SANS_SERIF, Font.BOLD, 11)),
+                    BorderFactory.createEmptyBorder(4, 6, 4, 6)));
+            editPanel.setBackground(new Color(235, 255, 235));
+            editPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 350));
+            JLabel noSelLabel = new JLabel("Kein Element ausgewählt");
+            noSelLabel.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 11));
+            noSelLabel.setForeground(Color.GRAY);
+            editPanel.add(noSelLabel);
 
-                // Selection state
-                final Rectangle[] highlightRect = {null};
-                final Color HIGHLIGHT_COLOR = new Color(255, 255, 0, 100);
-                final Color HIGHLIGHT_BORDER = new Color(255, 180, 0, 200);
+            // ── Mermaid source panel ──
+            final JTextArea sourceArea = new JTextArea(cs.currentSource);
+            sourceArea.setEditable(false);
+            sourceArea.setLineWrap(false);
+            sourceArea.setRows(5);
+            sourceArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 10));
+            sourceArea.setBackground(new Color(245, 245, 245));
+            JScrollPane sourceScroll = new JScrollPane(sourceArea);
+            sourceScroll.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createTitledBorder(
+                            BorderFactory.createLineBorder(new Color(180, 180, 180)),
+                            "Mermaid-Quelltext",
+                            TitledBorder.LEFT, TitledBorder.TOP,
+                            new Font(Font.SANS_SERIF, Font.BOLD, 10)),
+                    BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+            sourceScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 130));
 
-                final JPanel diagramPanel = new JPanel() {
-                    @Override
-                    protected void paintComponent(Graphics g) {
-                        super.paintComponent(g);
-                        Graphics2D g2 = (Graphics2D) g.create();
-                        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            // ── Diagram panel container (swappable) ──
+            final JPanel diagramContainer = new JPanel(new BorderLayout());
+            diagramContainer.setPreferredSize(new Dimension(500, 350));
+            diagramContainer.setMaximumSize(new Dimension(Integer.MAX_VALUE, 400));
 
-                        // Fit image to panel
-                        int pw = getWidth(), ph = getHeight();
-                        double scale = Math.min((double) pw / imgW, (double) ph / imgH);
-                        int dw = (int)(imgW * scale), dh = (int)(imgH * scale);
-                        int ox = (pw - dw) / 2, oy = (ph - dh) / 2;
+            // Selection state
+            final Rectangle[] highlightRect = {null};
 
-                        g2.drawImage(baseImg, ox, oy, dw, dh, null);
+            /** Callback to rebuild the diagram panel content */
+            final Runnable[] rebuildDiagram = new Runnable[1];
 
-                        // Draw highlight overlay
-                        if (highlightRect[0] != null) {
-                            Rectangle r = highlightRect[0];
-                            int hx = (int)(r.x * scale) + ox;
-                            int hy = (int)(r.y * scale) + oy;
-                            int hw = (int)(r.width * scale);
-                            int hh = (int)(r.height * scale);
+            /** Callback to refresh edit panel after selection */
+            final Runnable[] refreshEditPanel = new Runnable[1];
 
-                            g2.setColor(HIGHLIGHT_COLOR);
-                            g2.fillRect(hx, hy, hw, hh);
-                            g2.setColor(HIGHLIGHT_BORDER);
-                            g2.setStroke(new BasicStroke(2));
-                            g2.drawRect(hx, hy, hw, hh);
-                        }
-                        g2.dispose();
-                    }
-                };
-                diagramPanel.setBackground(Color.WHITE);
-                diagramPanel.setPreferredSize(new Dimension(500, 350));
-                diagramPanel.setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+            refreshEditPanel[0] = new Runnable() {
+                @Override public void run() {
+                    editPanel.removeAll();
 
-                // ── Click handler ──
-                diagramPanel.addMouseListener(new MouseAdapter() {
-                    @Override
-                    public void mouseClicked(MouseEvent e) {
-                        int pw = diagramPanel.getWidth(), ph = diagramPanel.getHeight();
-                        double scale = Math.min((double) pw / imgW, (double) ph / imgH);
-                        int dw = (int)(imgW * scale), dh = (int)(imgH * scale);
-                        int ox = (pw - dw) / 2, oy = (ph - dh) / 2;
-
-                        // Map panel click → image pixel
-                        double imgPx = (e.getX() - ox) / scale;
-                        double imgPy = (e.getY() - oy) / scale;
-
-                        // Map image pixel → SVG user-space
-                        double vbX = diagram.getViewBoxX();
-                        double vbY = diagram.getViewBoxY();
-                        double vbW = diagram.getViewBoxWidth();
-                        double vbH = diagram.getViewBoxHeight();
-
-                        double svgX = vbX + (imgPx / imgW) * vbW;
-                        double svgY = vbY + (imgPy / imgH) * vbH;
-
-                        clickCounts[ci]++;
-
-                        // ── Try to find a node ──
-                        DiagramNode foundNode = diagram.findNodeAt(svgX, svgY);
-                        if (foundNode != null) {
-                            // Map node bounds to image pixels for highlight
-                            int rx = (int)((foundNode.getX() - vbX) / vbW * imgW);
-                            int ry = (int)((foundNode.getY() - vbY) / vbH * imgH);
-                            int rw = (int)(foundNode.getWidth() / vbW * imgW);
-                            int rh = (int)(foundNode.getHeight() / vbH * imgH);
-                            highlightRect[0] = new Rectangle(rx, ry, rw, rh);
-
-                            String info = formatNodeDetails(foundNode);
-                            detailArea.setText(info);
-                            detailArea.setCaretPosition(0);
-                            selectedElements.get(ci).add("NODE:" + foundNode.getId());
-                            diagramPanel.repaint();
-                            return;
-                        }
-
-                        // ── Try to find an edge ──
-                        DiagramEdge foundEdge = null;
-                        for (DiagramEdge edge : diagram.getEdges()) {
-                            if (edge.containsApprox(svgX, svgY)) {
-                                foundEdge = edge;
-                                break;
+                    if (cs.selectedNode != null) {
+                        buildNodeEditPanel(editPanel, cs, renderer, new Runnable() {
+                            @Override public void run() {
+                                renderCard(renderer, cs);
+                                sourceArea.setText(cs.currentSource);
+                                highlightRect[0] = null;
+                                detailArea.setText("Diagramm neu gerendert.\nKlicken Sie erneut, um ein Element zu selektieren.");
+                                rebuildDiagram[0].run();
+                                editPanel.removeAll();
+                                JLabel done = new JLabel("\u2705 Änderung angewendet — neu gerendert");
+                                done.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+                                done.setForeground(new Color(0, 120, 0));
+                                editPanel.add(done);
+                                editPanel.revalidate();
+                                editPanel.repaint();
                             }
-                        }
-                        if (foundEdge != null) {
-                            int rx = (int)((foundEdge.getX() - vbX) / vbW * imgW);
-                            int ry = (int)((foundEdge.getY() - vbY) / vbH * imgH);
-                            int rw = (int)(foundEdge.getWidth() / vbW * imgW);
-                            int rh = (int)(foundEdge.getHeight() / vbH * imgH);
-                            highlightRect[0] = new Rectangle(rx, ry,
-                                    Math.max(rw, 10), Math.max(rh, 10));
-
-                            String info = formatEdgeDetails(foundEdge);
-                            detailArea.setText(info);
-                            detailArea.setCaretPosition(0);
-                            selectedElements.get(ci).add("EDGE:" + foundEdge.getId());
-                            diagramPanel.repaint();
-                            return;
-                        }
-
-                        // ── Nothing found ──
-                        highlightRect[0] = null;
-                        detailArea.setText(String.format(
-                                "Kein Element an Position (%.0f, %.0f) gefunden.\n"
-                                + "SVG-Koordinaten: (%.1f, %.1f)\n"
-                                + "Bild-Pixel: (%.0f, %.0f)\n\n"
-                                + "Vorhandene Nodes: %d\n"
-                                + "Vorhandene Edges: %d",
-                                (double)e.getX(), (double)e.getY(),
-                                svgX, svgY, imgPx, imgPy,
-                                diagram.getNodes().size(),
-                                diagram.getEdges().size()));
-                        diagramPanel.repaint();
+                        });
+                    } else if (cs.selectedEdge != null) {
+                        buildEdgeEditPanel(editPanel, cs, renderer, new Runnable() {
+                            @Override public void run() {
+                                renderCard(renderer, cs);
+                                sourceArea.setText(cs.currentSource);
+                                highlightRect[0] = null;
+                                detailArea.setText("Diagramm neu gerendert.\nKlicken Sie erneut, um ein Element zu selektieren.");
+                                rebuildDiagram[0].run();
+                                editPanel.removeAll();
+                                JLabel done = new JLabel("\u2705 Änderung angewendet — neu gerendert");
+                                done.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+                                done.setForeground(new Color(0, 120, 0));
+                                editPanel.add(done);
+                                editPanel.revalidate();
+                                editPanel.repaint();
+                            }
+                        });
+                    } else {
+                        JLabel noSel = new JLabel("Kein Element ausgewählt");
+                        noSel.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 11));
+                        noSel.setForeground(Color.GRAY);
+                        editPanel.add(noSel);
                     }
-                });
+                    editPanel.revalidate();
+                    editPanel.repaint();
+                }
+            };
 
-                imgContainer = diagramPanel;
-            } else {
-                // Render/raster error
-                JLabel errLabel = new JLabel(rc.renderError
-                        ? "\u274c SVG-Rendering fehlgeschlagen"
-                        : "\u274c Rasterisierung fehlgeschlagen");
-                errLabel.setForeground(Color.RED);
-                errLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
-                errLabel.setHorizontalAlignment(SwingConstants.CENTER);
-                imgContainer = new JPanel(new BorderLayout());
-                imgContainer.add(errLabel, BorderLayout.CENTER);
-                imgContainer.setPreferredSize(new Dimension(400, 250));
-            }
+            rebuildDiagram[0] = new Runnable() {
+                @Override public void run() {
+                    diagramContainer.removeAll();
 
-            imgContainer.setMaximumSize(new Dimension(Integer.MAX_VALUE, 400));
-            card.add(imgContainer);
+                    if (cs.image != null && cs.diagram != null) {
+                        final BufferedImage baseImg = cs.image;
+                        final RenderedDiagram diagram = cs.diagram;
+                        final int imgW = baseImg.getWidth();
+                        final int imgH = baseImg.getHeight();
+
+                        final Color HL_COLOR = new Color(255, 255, 0, 100);
+                        final Color HL_BORDER = new Color(255, 180, 0, 200);
+
+                        final JPanel dPanel = new JPanel() {
+                            @Override protected void paintComponent(Graphics g) {
+                                super.paintComponent(g);
+                                Graphics2D g2 = (Graphics2D) g.create();
+                                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                                        RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                                int pw = getWidth(), ph = getHeight();
+                                double scale = Math.min((double) pw / imgW, (double) ph / imgH);
+                                int dw = (int)(imgW * scale), dh = (int)(imgH * scale);
+                                int ox = (pw - dw) / 2, oy = (ph - dh) / 2;
+                                g2.drawImage(baseImg, ox, oy, dw, dh, null);
+
+                                if (highlightRect[0] != null) {
+                                    Rectangle r = highlightRect[0];
+                                    int hx = (int)(r.x * scale) + ox;
+                                    int hy = (int)(r.y * scale) + oy;
+                                    int hw = (int)(r.width * scale);
+                                    int hh = (int)(r.height * scale);
+                                    g2.setColor(HL_COLOR);
+                                    g2.fillRect(hx, hy, hw, hh);
+                                    g2.setColor(HL_BORDER);
+                                    g2.setStroke(new BasicStroke(2));
+                                    g2.drawRect(hx, hy, hw, hh);
+                                }
+                                g2.dispose();
+                            }
+                        };
+                        dPanel.setBackground(Color.WHITE);
+                        dPanel.setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+
+                        dPanel.addMouseListener(new MouseAdapter() {
+                            @Override public void mouseClicked(MouseEvent e) {
+                                int pw = dPanel.getWidth(), ph = dPanel.getHeight();
+                                double scale = Math.min((double) pw / imgW, (double) ph / imgH);
+                                int dw = (int)(imgW * scale), dh = (int)(imgH * scale);
+                                int ox = (pw - dw) / 2, oy = (ph - dh) / 2;
+                                double imgPx = (e.getX() - ox) / scale;
+                                double imgPy = (e.getY() - oy) / scale;
+                                double vbX = diagram.getViewBoxX();
+                                double vbY = diagram.getViewBoxY();
+                                double vbW = diagram.getViewBoxWidth();
+                                double vbH = diagram.getViewBoxHeight();
+                                double svgX = vbX + (imgPx / imgW) * vbW;
+                                double svgY = vbY + (imgPy / imgH) * vbH;
+
+                                // ── Try to find a node ──
+                                DiagramNode foundNode = diagram.findNodeAt(svgX, svgY);
+                                if (foundNode != null) {
+                                    int rx = (int)((foundNode.getX() - vbX) / vbW * imgW);
+                                    int ry = (int)((foundNode.getY() - vbY) / vbH * imgH);
+                                    int rw = (int)(foundNode.getWidth() / vbW * imgW);
+                                    int rh = (int)(foundNode.getHeight() / vbH * imgH);
+                                    highlightRect[0] = new Rectangle(rx, ry, rw, rh);
+                                    cs.selectedNode = foundNode;
+                                    cs.selectedEdge = null;
+                                    detailArea.setText(formatNodeDetails(foundNode));
+                                    detailArea.setCaretPosition(0);
+                                    refreshEditPanel[0].run();
+                                    dPanel.repaint();
+                                    return;
+                                }
+
+                                // ── Try to find an edge ──
+                                DiagramEdge foundEdge = null;
+                                for (DiagramEdge edge : diagram.getEdges()) {
+                                    if (edge.containsApprox(svgX, svgY)) {
+                                        foundEdge = edge;
+                                        break;
+                                    }
+                                }
+                                if (foundEdge != null) {
+                                    int rx = (int)((foundEdge.getX() - vbX) / vbW * imgW);
+                                    int ry = (int)((foundEdge.getY() - vbY) / vbH * imgH);
+                                    int rw = (int)(foundEdge.getWidth() / vbW * imgW);
+                                    int rh = (int)(foundEdge.getHeight() / vbH * imgH);
+                                    highlightRect[0] = new Rectangle(rx, ry,
+                                            Math.max(rw, 10), Math.max(rh, 10));
+                                    cs.selectedNode = null;
+                                    cs.selectedEdge = foundEdge;
+                                    detailArea.setText(formatEdgeDetails(foundEdge));
+                                    detailArea.setCaretPosition(0);
+                                    refreshEditPanel[0].run();
+                                    dPanel.repaint();
+                                    return;
+                                }
+
+                                // ── Nothing found ──
+                                highlightRect[0] = null;
+                                cs.selectedNode = null;
+                                cs.selectedEdge = null;
+                                detailArea.setText(String.format(
+                                        "Kein Element an Position (%.0f, %.0f) gefunden.\n"
+                                        + "SVG-Koordinaten: (%.1f, %.1f)\n"
+                                        + "Vorhandene Nodes: %d\n"
+                                        + "Vorhandene Edges: %d",
+                                        (double)e.getX(), (double)e.getY(),
+                                        svgX, svgY,
+                                        diagram.getNodes().size(),
+                                        diagram.getEdges().size()));
+                                refreshEditPanel[0].run();
+                                dPanel.repaint();
+                            }
+                        });
+
+                        diagramContainer.add(dPanel, BorderLayout.CENTER);
+                    } else {
+                        JLabel errLabel = new JLabel(cs.renderError
+                                ? "\u274c SVG-Rendering fehlgeschlagen"
+                                : "\u274c Rasterisierung fehlgeschlagen");
+                        errLabel.setForeground(Color.RED);
+                        errLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
+                        errLabel.setHorizontalAlignment(SwingConstants.CENTER);
+                        diagramContainer.add(errLabel, BorderLayout.CENTER);
+                    }
+                    diagramContainer.revalidate();
+                    diagramContainer.repaint();
+                }
+            };
+
+            // Initial render
+            rebuildDiagram[0].run();
+
+            card.add(diagramContainer);
             card.add(Box.createVerticalStrut(4));
             card.add(detailArea);
             card.add(Box.createVerticalStrut(4));
-
-            // ── Annotation ──
-            annotationAreas[ci] = new JTextArea("");
-            annotationAreas[ci].setRows(2);
-            annotationAreas[ci].setLineWrap(true);
-            annotationAreas[ci].setWrapStyleWord(true);
-            annotationAreas[ci].setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createTitledBorder("Anmerkung"),
-                    BorderFactory.createEmptyBorder(2, 4, 2, 4)));
-            annotationAreas[ci].setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
-            card.add(annotationAreas[ci]);
+            card.add(editPanel);
             card.add(Box.createVerticalStrut(4));
-
-            // ── Questions ──
-            JPanel qPanel = new JPanel();
-            qPanel.setLayout(new BoxLayout(qPanel, BoxLayout.Y_AXIS));
-            qPanel.setBackground(Color.WHITE);
-            int qi = 0;
-            for (Map.Entry<String, String> qEntry : rc.spec.questions.entrySet()) {
-                final int qIdx = qi;
-                JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-                row.setBackground(Color.WHITE);
-                JLabel qLabel = new JLabel("<html><b>" + qEntry.getValue() + "</b></html>");
-                qLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
-                row.add(qLabel);
-
-                ButtonGroup bg = new ButtonGroup();
-                for (final String answer : new String[]{"YES", "NO", "PARTIAL"}) {
-                    JRadioButton rb = new JRadioButton(answer);
-                    rb.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
-                    rb.setBackground(Color.WHITE);
-                    bg.add(rb);
-                    row.add(rb);
-                    rb.addActionListener(new ActionListener() {
-                        @Override public void actionPerformed(ActionEvent e) {
-                            questionAnswers[ci][qIdx] = answer;
-                            updateSubmitState.run();
-                        }
-                    });
-                }
-                qPanel.add(row);
-                qi++;
-            }
-            JScrollPane qScroll = new JScrollPane(qPanel);
-            qScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 200));
-            card.add(qScroll);
+            card.add(sourceScroll);
 
             card.setPreferredSize(new Dimension(550, 900));
             card.setMinimumSize(new Dimension(480, 700));
             card.setMaximumSize(new Dimension(600, 1200));
 
             cardRow.add(card);
-            if (idx < cases.size() - 1) cardRow.add(Box.createHorizontalStrut(12));
+            if (idx < cards.size() - 1) cardRow.add(Box.createHorizontalStrut(12));
         }
 
         JScrollPane mainScroll = new JScrollPane(cardRow,
@@ -657,93 +583,347 @@ public final class MermaidSelectionTest {
         mainScroll.getHorizontalScrollBar().setUnitIncrement(40);
         frame.add(mainScroll, BorderLayout.CENTER);
 
-        // ── Submit handler ──
-        submitBtn.addActionListener(new ActionListener() {
-            @Override public void actionPerformed(ActionEvent e) {
-                List<TestCaseResult> results = new ArrayList<TestCaseResult>();
-                for (int i = 0; i < cases.size(); i++) {
-                    RenderedCase rc = cases.get(i);
-                    TestCaseResult r = new TestCaseResult();
-                    r.id = rc.spec.id;
-                    r.title = rc.spec.title;
-                    r.mermaidCode = rc.spec.mermaidCode;
-                    r.annotation = annotationAreas[i].getText();
-                    r.renderError = rc.renderError;
-                    r.rasterError = rc.rasterError;
-                    r.clickCount = clickCounts[i];
-                    r.selectedElements = selectedElements.get(i);
-                    r.questionAnswers = new LinkedHashMap<String, String>();
-                    int qi2 = 0;
-                    for (String qid : rc.spec.questions.keySet()) {
-                        r.questionAnswers.put(qid, questionAnswers[i][qi2++]);
-                    }
-                    results.add(r);
-                }
-
-                Gson gson = new GsonBuilder().setPrettyPrinting().create();
-                String json = gson.toJson(results);
-                System.out.println(json);
-
-                try {
-                    File resultFile = new File(System.getProperty("user.dir"),
-                            "mermaid-selection-test-result.json");
-                    Writer w = new OutputStreamWriter(
-                            new FileOutputStream(resultFile), "UTF-8");
-                    try { w.write(json); } finally { w.close(); }
-                    System.err.println("[MermaidSelectionTest] Written: "
-                            + resultFile.getAbsolutePath());
-                } catch (Exception ex) {
-                    System.err.println("[MermaidSelectionTest] File write error: " + ex);
-                }
-                frame.dispose();
-            }
-        });
-
-        // ── Countdown timer ──
-        final int[] remaining = {COUNTDOWN_SECONDS};
-        final javax.swing.Timer timer = new javax.swing.Timer(1000, null);
-        timer.addActionListener(new ActionListener() {
-            @Override public void actionPerformed(ActionEvent e) {
-                remaining[0]--;
-                countdownLabel.setText(formatTime(remaining[0]));
-                if (remaining[0] <= 60) {
-                    countdownLabel.setForeground(new Color(255, 60, 60));
-                } else if (remaining[0] <= 180) {
-                    countdownLabel.setForeground(new Color(255, 140, 0));
-                }
-                if (remaining[0] <= 0) {
-                    timer.stop();
-                    countdownLabel.setText("ZEIT ABGELAUFEN");
-                    submitBtn.setEnabled(true);
-                    submitBtn.doClick();
-                }
-            }
-        });
-        timer.setRepeats(true);
-        timer.start();
-
-        frame.addWindowListener(new WindowAdapter() {
-            @Override public void windowClosed(WindowEvent e) { timer.stop(); }
-        });
-
         frame.pack();
         frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.setVisible(true);
         frame.toFront();
         frame.requestFocus();
-        SwingUtilities.invokeLater(new Runnable() {
-            @Override public void run() {
-                frame.setAlwaysOnTop(true);
-                frame.toFront();
-                javax.swing.Timer releaseTimer = new javax.swing.Timer(2000, new ActionListener() {
-                    @Override public void actionPerformed(ActionEvent e) {
-                        frame.setAlwaysOnTop(false);
-                    }
-                });
-                releaseTimer.setRepeats(false);
-                releaseTimer.start();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Polymorphic Edit Panel — Node
+    // ═══════════════════════════════════════════════════════════
+
+    private static void buildNodeEditPanel(JPanel panel, final CardState cs,
+                                           final MermaidRenderer renderer,
+                                           final Runnable onApplied) {
+        final DiagramNode node = cs.selectedNode;
+        if (node == null) return;
+
+        // ── Rename row (available for ALL node types) ──
+        JPanel renameRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        renameRow.setOpaque(false);
+        renameRow.add(label("Name:"));
+        final JTextField nameField = new JTextField(node.getId(), 14);
+        nameField.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        renameRow.add(nameField);
+        JButton renameBtn = new JButton("Umbenennen");
+        renameBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+        renameRow.add(renameBtn);
+        renameRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        panel.add(renameRow);
+
+        renameBtn.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) {
+                String newName = nameField.getText().trim();
+                if (newName.isEmpty() || newName.equals(node.getId())) return;
+                cs.currentSource = renameInSource(cs.currentSource, node.getId(), newName);
+                onApplied.run();
             }
         });
+
+        // ── ClassNode-specific: fields & methods ──
+        if (node instanceof ClassNode) {
+            buildClassMemberEditor(panel, (ClassNode) node, cs, onApplied);
+        }
+
+        // ── FlowchartNode-specific: shape selector ──
+        if (node instanceof FlowchartNode) {
+            buildShapeSelector(panel, (FlowchartNode) node, cs, onApplied);
+        }
+    }
+
+    /** Class diagram — add/remove fields and methods using polymorphism. */
+    private static void buildClassMemberEditor(JPanel panel, final ClassNode cn,
+                                                final CardState cs,
+                                                final Runnable onApplied) {
+        panel.add(Box.createVerticalStrut(4));
+        panel.add(separator("Klassen-Member"));
+
+        // ── Existing fields ──
+        final List<ClassMember> fields = cn.getFields();
+        if (!fields.isEmpty()) {
+            panel.add(label("Felder:"));
+            for (int i = 0; i < fields.size(); i++) {
+                final ClassMember f = fields.get(i);
+                JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+                row.setOpaque(false);
+                row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+                JLabel memberLabel = new JLabel("  " + f.toMermaid());
+                memberLabel.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+                row.add(memberLabel);
+                JButton delBtn = smallButton("\u2716");
+                delBtn.setToolTipText("Feld entfernen");
+                row.add(delBtn);
+                delBtn.addActionListener(new ActionListener() {
+                    @Override public void actionPerformed(ActionEvent e) {
+                        cs.currentSource = removeClassMember(cs.currentSource, cn.getId(), f.toMermaid());
+                        onApplied.run();
+                    }
+                });
+                panel.add(row);
+            }
+        }
+
+        // ── Existing methods ──
+        final List<ClassMember> methods = cn.getMethods();
+        if (!methods.isEmpty()) {
+            panel.add(label("Methoden:"));
+            for (int i = 0; i < methods.size(); i++) {
+                final ClassMember m = methods.get(i);
+                JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+                row.setOpaque(false);
+                row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+                JLabel memberLabel = new JLabel("  " + m.toMermaid());
+                memberLabel.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+                row.add(memberLabel);
+                JButton delBtn = smallButton("\u2716");
+                delBtn.setToolTipText("Methode entfernen");
+                row.add(delBtn);
+                delBtn.addActionListener(new ActionListener() {
+                    @Override public void actionPerformed(ActionEvent e) {
+                        cs.currentSource = removeClassMember(cs.currentSource, cn.getId(), m.toMermaid());
+                        onApplied.run();
+                    }
+                });
+                panel.add(row);
+            }
+        }
+
+        // ── Add field ──
+        panel.add(Box.createVerticalStrut(4));
+        JPanel addFieldRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        addFieldRow.setOpaque(false);
+        addFieldRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+
+        final JComboBox<String> fieldVis = new JComboBox<String>(new String[]{"+", "-", "#", "~"});
+        fieldVis.setFont(new Font(Font.MONOSPACED, Font.BOLD, 12));
+        addFieldRow.add(fieldVis);
+
+        final JTextField fieldType = new JTextField("String", 6);
+        fieldType.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        addFieldRow.add(fieldType);
+
+        final JTextField fieldName = new JTextField("newField", 8);
+        fieldName.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        addFieldRow.add(fieldName);
+
+        JButton addFieldBtn = smallButton("+ Feld");
+        addFieldRow.add(addFieldBtn);
+        panel.add(addFieldRow);
+
+        addFieldBtn.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) {
+                String vis = (String) fieldVis.getSelectedItem();
+                String type = fieldType.getText().trim();
+                String name = fieldName.getText().trim();
+                if (name.isEmpty()) return;
+                String member = vis + (type.isEmpty() ? "" : type + " ") + name;
+                cs.currentSource = addClassMember(cs.currentSource, cn.getId(), member);
+                onApplied.run();
+            }
+        });
+
+        // ── Add method ──
+        JPanel addMethodRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        addMethodRow.setOpaque(false);
+        addMethodRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+
+        final JComboBox<String> methodVis = new JComboBox<String>(new String[]{"+", "-", "#", "~"});
+        methodVis.setFont(new Font(Font.MONOSPACED, Font.BOLD, 12));
+        addMethodRow.add(methodVis);
+
+        final JTextField methodName = new JTextField("newMethod", 8);
+        methodName.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        addMethodRow.add(methodName);
+
+        final JTextField methodRet = new JTextField("void", 5);
+        methodRet.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        addMethodRow.add(methodRet);
+
+        JButton addMethodBtn = smallButton("+ Methode");
+        addMethodRow.add(addMethodBtn);
+        panel.add(addMethodRow);
+
+        addMethodBtn.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) {
+                String vis = (String) methodVis.getSelectedItem();
+                String name = methodName.getText().trim();
+                String ret = methodRet.getText().trim();
+                if (name.isEmpty()) return;
+                String member = vis + name + "()" + (ret.isEmpty() ? "" : " " + ret);
+                cs.currentSource = addClassMember(cs.currentSource, cn.getId(), member);
+                onApplied.run();
+            }
+        });
+    }
+
+    /** Flowchart node — shape selector dropdown. */
+    private static void buildShapeSelector(JPanel panel, final FlowchartNode fn,
+                                           final CardState cs,
+                                           final Runnable onApplied) {
+        panel.add(Box.createVerticalStrut(4));
+        JPanel shapeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        shapeRow.setOpaque(false);
+        shapeRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        shapeRow.add(label("Form:"));
+
+        final NodeShape[] shapes = NodeShape.values();
+        String[] shapeNames = new String[shapes.length];
+        int selected = 0;
+        for (int i = 0; i < shapes.length; i++) {
+            shapeNames[i] = shapes[i].name();
+            if (shapes[i] == fn.getShape()) selected = i;
+        }
+        final JComboBox<String> shapeCb = new JComboBox<String>(shapeNames);
+        shapeCb.setSelectedIndex(selected);
+        shapeCb.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+        shapeRow.add(shapeCb);
+
+        JButton applyShape = new JButton("Anwenden");
+        applyShape.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+        shapeRow.add(applyShape);
+        panel.add(shapeRow);
+
+        applyShape.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) {
+                NodeShape newShape = shapes[shapeCb.getSelectedIndex()];
+                if (newShape == fn.getShape()) return;
+                String oldSyntax = fn.getShape().toMermaid(fn.getId(), fn.getLabel());
+                String newSyntax = newShape.toMermaid(fn.getId(), fn.getLabel());
+                cs.currentSource = cs.currentSource.replace(oldSyntax, newSyntax);
+                onApplied.run();
+            }
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Polymorphic Edit Panel — Edge
+    // ═══════════════════════════════════════════════════════════
+
+    private static void buildEdgeEditPanel(JPanel panel, final CardState cs,
+                                           final MermaidRenderer renderer,
+                                           final Runnable onApplied) {
+        final DiagramEdge edge = cs.selectedEdge;
+        if (edge == null) return;
+
+        // ── Label edit (available for all edge types) ──
+        JPanel labelRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        labelRow.setOpaque(false);
+        labelRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        labelRow.add(label("Label:"));
+        final JTextField labelField = new JTextField(edge.getLabel(), 14);
+        labelField.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        labelRow.add(labelField);
+        JButton applyBtn = new JButton("Anwenden");
+        applyBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+        labelRow.add(applyBtn);
+        panel.add(labelRow);
+
+        applyBtn.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) {
+                String newLabel = labelField.getText().trim();
+                if (newLabel.equals(edge.getLabel())) return;
+                if (!edge.getLabel().isEmpty()) {
+                    // Flowchart/state edge labels use |label| syntax
+                    cs.currentSource = cs.currentSource.replace(
+                            "|" + edge.getLabel() + "|",
+                            newLabel.isEmpty() ? "" : "|" + newLabel + "|");
+                }
+                onApplied.run();
+            }
+        });
+
+        // ── SequenceMessage: message text edit ──
+        if (edge instanceof SequenceMessage) {
+            panel.add(Box.createVerticalStrut(4));
+            JPanel msgRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            msgRow.setOpaque(false);
+            msgRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+            msgRow.add(label("Nachricht:"));
+            final JTextField msgField = new JTextField(edge.getLabel(), 14);
+            msgField.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+            msgRow.add(msgField);
+            JButton msgBtn = new JButton("Anwenden");
+            msgBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+            msgRow.add(msgBtn);
+            panel.add(msgRow);
+
+            msgBtn.addActionListener(new ActionListener() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    String newMsg = msgField.getText().trim();
+                    String oldMsg = edge.getLabel();
+                    if (newMsg.equals(oldMsg) || oldMsg.isEmpty()) return;
+                    // Sequence messages: "Source->>Target: Label"
+                    cs.currentSource = cs.currentSource.replace(
+                            ": " + oldMsg, ": " + newMsg);
+                    onApplied.run();
+                }
+            });
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Source manipulation helpers
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Rename an element in the Mermaid source code.
+     * Uses word-boundary-aware replacement to avoid partial matches.
+     */
+    private static String renameInSource(String source, String oldName, String newName) {
+        String escaped = Pattern.quote(oldName);
+        return source.replaceAll("\\b" + escaped + "\\b", Matcher.quoteReplacement(newName));
+    }
+
+    /** Remove a class member line from a class block in the Mermaid source. */
+    private static String removeClassMember(String source, String className, String memberMermaid) {
+        String escaped = Pattern.quote(memberMermaid.trim());
+        String pattern = "(?m)^[ \\t]*" + escaped + "[ \\t]*$\\n?";
+        return source.replaceFirst(pattern, "");
+    }
+
+    /** Add a class member line to a class block in the Mermaid source. */
+    private static String addClassMember(String source, String className, String memberMermaid) {
+        String classBlockPattern = "(class\\s+" + Pattern.quote(className) + "\\s*\\{[^}]*)(\\})";
+        Matcher m = Pattern.compile(classBlockPattern, Pattern.DOTALL).matcher(source);
+        if (m.find()) {
+            String before = m.group(1);
+            if (!before.endsWith("\n")) before += "\n";
+            return source.substring(0, m.start())
+                    + before + "        " + memberMermaid + "\n"
+                    + "    }"
+                    + source.substring(m.end());
+        }
+        return source;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  UI helper methods
+    // ═══════════════════════════════════════════════════════════
+
+    private static JLabel label(String text) {
+        JLabel l = new JLabel(text);
+        l.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+        return l;
+    }
+
+    private static JButton smallButton(String text) {
+        JButton b = new JButton(text);
+        b.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10));
+        b.setMargin(new Insets(1, 4, 1, 4));
+        return b;
+    }
+
+    private static JPanel separator(String title) {
+        JPanel sep = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        sep.setOpaque(false);
+        sep.setMaximumSize(new Dimension(Integer.MAX_VALUE, 20));
+        JLabel l = new JLabel("\u2500\u2500 " + title + " \u2500\u2500");
+        l.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+        l.setForeground(new Color(60, 120, 60));
+        sep.add(l);
+        return sep;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -818,7 +998,6 @@ public final class MermaidSelectionTest {
             sb.append("Risk:      ").append(ri.getRisk()).append("\n");
         }
 
-        // Properties map
         if (!node.getProperties().isEmpty()) {
             sb.append("\nProperties:\n");
             for (Map.Entry<String, String> p : node.getProperties().entrySet()) {
@@ -842,7 +1021,6 @@ public final class MermaidSelectionTest {
                 "[%.0f, %.0f, %.0f x %.0f]",
                 edge.getX(), edge.getY(), edge.getWidth(), edge.getHeight())).append("\n");
 
-        // ── Type-specific properties ──
         if (edge instanceof FlowchartEdge) {
             FlowchartEdge fe = (FlowchartEdge) edge;
             sb.append("\n--- FlowchartEdge ---\n");
@@ -890,12 +1068,6 @@ public final class MermaidSelectionTest {
         }
 
         return sb.toString();
-    }
-
-    private static String formatTime(int totalSeconds) {
-        int m = totalSeconds / 60;
-        int s = totalSeconds % 60;
-        return String.format("  %02d:%02d  ", m, s);
     }
 }
 
