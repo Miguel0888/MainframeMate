@@ -89,11 +89,30 @@ public class ProxyResolver {
     // ── Registry proxy detection via reg.exe ─────────────────────
 
     /**
-     * Reads the static proxy from the Windows Registry via {@code reg.exe}.
+     * Reads proxy settings from the Windows Registry via {@code reg.exe}.
      * Works on all Windows machines regardless of PowerShell CLM restrictions.
+     * <p>
+     * Handles two cases:
+     * <ol>
+     *   <li><b>Static proxy</b> — reads {@code ProxyEnable} + {@code ProxyServer}</li>
+     *   <li><b>AutoConfig (WPAD/PAC)</b> — reads {@code AutoConfigURL}, downloads the PAC file,
+     *       and evaluates {@code FindProxyForURL()} via GraalJS</li>
+     * </ol>
      */
     private static ProxyResolution resolveViaRegistry(String url) {
         try {
+            // 1) Check for AutoConfigURL (WPAD/PAC)
+            String autoConfigUrl = regQueryValue(REG_KEY, "AutoConfigURL");
+            if (autoConfigUrl != null && !autoConfigUrl.trim().isEmpty()) {
+                LOG.fine("[Proxy] Registry: AutoConfigURL = " + autoConfigUrl);
+                ProxyResolution pacResult = evaluatePacFromUrl(autoConfigUrl.trim(), url);
+                if (pacResult != null) {
+                    return pacResult;
+                }
+                // PAC evaluation failed — fall through to static proxy check
+            }
+
+            // 2) Check static proxy
             String proxyEnable = regQueryValue(REG_KEY, "ProxyEnable");
             if (!"0x1".equals(proxyEnable != null ? proxyEnable.trim() : "")) {
                 return ProxyResolution.direct("registry-proxy-disabled");
@@ -135,7 +154,7 @@ public class ProxyResolver {
                 if (!portStr.isEmpty()) {
                     int port = Integer.parseInt(portStr);
                     if (port > 0 && port <= 65535) {
-                        LOG.fine("[Proxy] Registry resolved: " + host + ":" + port);
+                        LOG.fine("[Proxy] Registry static resolved: " + host + ":" + port);
                         return ProxyResolution.proxy(
                                 new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, port)), "registry");
                     }
@@ -146,6 +165,59 @@ public class ProxyResolver {
             LOG.log(Level.FINE, "[Proxy] Registry resolution failed", e);
             return ProxyResolution.direct("registry-error: " + e.getMessage());
         }
+    }
+
+    /**
+     * Evaluates a PAC file from a URL via GraalJS and parses the result.
+     *
+     * @return a {@link ProxyResolution}, or {@code null} if evaluation failed
+     */
+    private static ProxyResolution evaluatePacFromUrl(String pacUrl, String targetUrl) {
+        try {
+            String pacResult = PacEvaluator.evaluate(pacUrl, targetUrl);
+            if (pacResult == null) {
+                return null; // evaluation failed — caller should try other methods
+            }
+            return parsePacResult(pacResult.trim());
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[Proxy] PAC evaluation failed for " + pacUrl, e);
+            return null;
+        }
+    }
+
+    /**
+     * Parses a PAC result string like {@code "PROXY 10.0.0.1:3128"}, {@code "PROXY host:port; DIRECT"},
+     * or {@code "DIRECT"}.
+     */
+    private static ProxyResolution parsePacResult(String pacResult) {
+        if (pacResult == null || pacResult.isEmpty() || "DIRECT".equalsIgnoreCase(pacResult)) {
+            return ProxyResolution.direct("registry-pac-direct");
+        }
+
+        // PAC can return multiple entries separated by ";"
+        // e.g. "PROXY 10.0.0.1:3128; SOCKS 10.0.0.2:1080; DIRECT"
+        for (String entry : pacResult.split(";")) {
+            String trimmed = entry.trim();
+            if (trimmed.toUpperCase(Locale.ROOT).startsWith("PROXY ")) {
+                String hostPort = trimmed.substring(6).trim();
+                int idx = hostPort.lastIndexOf(':');
+                if (idx > 0 && idx < hostPort.length() - 1) {
+                    String host = hostPort.substring(0, idx).trim();
+                    String portStr = hostPort.substring(idx + 1).trim().replaceAll("[^0-9]", "");
+                    if (!portStr.isEmpty()) {
+                        try {
+                            int port = Integer.parseInt(portStr);
+                            if (port > 0 && port <= 65535) {
+                                LOG.fine("[Proxy] Registry PAC resolved: " + host + ":" + port);
+                                return ProxyResolution.proxy(
+                                        new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, port)), "registry-pac");
+                            }
+                        } catch (NumberFormatException ignore) { }
+                    }
+                }
+            }
+        }
+        return ProxyResolution.direct("registry-pac-direct");
     }
 
     /** Queries a single registry value via {@code reg.exe}. Returns {@code null} if not found. */
