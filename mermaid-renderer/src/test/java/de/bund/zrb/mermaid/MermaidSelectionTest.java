@@ -57,6 +57,12 @@ public final class MermaidSelectionTest {
         DiagramNode selectedNode;
         DiagramEdge selectedEdge;
 
+        // Drag state for edge creation / reconnection
+        DiagramNode dragSourceNode;
+        Point dragStart;
+        Point dragCurrent;
+        boolean dragging;
+
         CardState(SelectionSpec spec) {
             this.spec = spec;
             this.currentSource = spec.mermaidCode;
@@ -463,14 +469,26 @@ public final class MermaidSelectionTest {
                                     g2.setStroke(new BasicStroke(2));
                                     g2.drawRect(hx, hy, hw, hh);
                                 }
+
+                                // Draw drag line for edge creation
+                                if (cs.dragging && cs.dragStart != null && cs.dragCurrent != null) {
+                                    g2.setColor(new Color(0, 100, 255, 180));
+                                    g2.setStroke(new BasicStroke(2.5f, BasicStroke.CAP_ROUND,
+                                            BasicStroke.JOIN_ROUND, 0, new float[]{6, 4}, 0));
+                                    g2.drawLine(cs.dragStart.x, cs.dragStart.y,
+                                            cs.dragCurrent.x, cs.dragCurrent.y);
+                                    // Arrow head at current position
+                                    drawArrowHead(g2, cs.dragStart, cs.dragCurrent);
+                                }
                                 g2.dispose();
                             }
                         };
                         dPanel.setBackground(Color.WHITE);
                         dPanel.setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
 
+                        // ── Mouse press: start drag or prepare for click ──
                         dPanel.addMouseListener(new MouseAdapter() {
-                            @Override public void mouseClicked(MouseEvent e) {
+                            @Override public void mousePressed(MouseEvent e) {
                                 int pw = dPanel.getWidth(), ph = dPanel.getHeight();
                                 double scale = Math.min((double) pw / imgW, (double) ph / imgH);
                                 int dw = (int)(imgW * scale), dh = (int)(imgH * scale);
@@ -484,62 +502,85 @@ public final class MermaidSelectionTest {
                                 double svgX = vbX + (imgPx / imgW) * vbW;
                                 double svgY = vbY + (imgPy / imgH) * vbH;
 
-                                // ── Try to find a node ──
-                                DiagramNode foundNode = diagram.findNodeAt(svgX, svgY);
-                                if (foundNode != null) {
-                                    int rx = (int)((foundNode.getX() - vbX) / vbW * imgW);
-                                    int ry = (int)((foundNode.getY() - vbY) / vbH * imgH);
-                                    int rw = (int)(foundNode.getWidth() / vbW * imgW);
-                                    int rh = (int)(foundNode.getHeight() / vbH * imgH);
-                                    highlightRect[0] = new Rectangle(rx, ry, rw, rh);
-                                    cs.selectedNode = foundNode;
-                                    cs.selectedEdge = null;
-                                    detailArea.setText(formatNodeDetails(foundNode));
-                                    detailArea.setCaretPosition(0);
-                                    refreshEditPanel[0].run();
-                                    dPanel.repaint();
-                                    return;
+                                DiagramNode nodeAtPress = diagram.findNodeAt(svgX, svgY);
+                                if (nodeAtPress != null && !(nodeAtPress instanceof SequenceFragment)) {
+                                    cs.dragSourceNode = nodeAtPress;
+                                    cs.dragStart = new Point(e.getX(), e.getY());
+                                    cs.dragging = false; // will become true on drag
+                                } else {
+                                    cs.dragSourceNode = null;
+                                    cs.dragStart = null;
+                                    cs.dragging = false;
                                 }
+                            }
 
-                                // ── Try to find an edge ──
-                                DiagramEdge foundEdge = null;
-                                for (DiagramEdge edge : diagram.getEdges()) {
-                                    if (edge.containsApprox(svgX, svgY)) {
-                                        foundEdge = edge;
-                                        break;
+                            @Override public void mouseReleased(MouseEvent e) {
+                                if (cs.dragging && cs.dragSourceNode != null) {
+                                    // Complete drag: find target node
+                                    int pw = dPanel.getWidth(), ph = dPanel.getHeight();
+                                    double scale = Math.min((double) pw / imgW, (double) ph / imgH);
+                                    int dw = (int)(imgW * scale), dh = (int)(imgH * scale);
+                                    int ox = (pw - dw) / 2, oy = (ph - dh) / 2;
+                                    double imgPx = (e.getX() - ox) / scale;
+                                    double imgPy = (e.getY() - oy) / scale;
+                                    double vbX = diagram.getViewBoxX();
+                                    double vbY = diagram.getViewBoxY();
+                                    double vbW = diagram.getViewBoxWidth();
+                                    double vbH = diagram.getViewBoxHeight();
+                                    double svgX = vbX + (imgPx / imgW) * vbW;
+                                    double svgY = vbY + (imgPy / imgH) * vbH;
+                                    DiagramNode targetNode = diagram.findNodeAt(svgX, svgY);
+
+                                    if (targetNode != null && targetNode != cs.dragSourceNode
+                                            && !(targetNode instanceof SequenceFragment)) {
+                                        // Determine direction from drag vector
+                                        boolean leftToRight = e.getX() >= cs.dragStart.x;
+                                        String srcId = leftToRight ? cs.dragSourceNode.getId() : targetNode.getId();
+                                        String tgtId = leftToRight ? targetNode.getId() : cs.dragSourceNode.getId();
+                                        cs.currentSource = addEdgeToSource(cs.currentSource,
+                                                cs.diagram.getDiagramType(), srcId, tgtId);
+                                        cs.dragging = false;
+                                        cs.dragSourceNode = null;
+                                        cs.dragStart = null;
+                                        cs.dragCurrent = null;
+                                        renderCard(renderer, cs);
+                                        sourceArea.setText(cs.currentSource);
+                                        highlightRect[0] = null;
+                                        detailArea.setText("\u2705 Neue Kante erzeugt: " + srcId + " \u2192 " + tgtId);
+                                        rebuildDiagram[0].run();
+                                        refreshEditPanel[0].run();
+                                        return;
                                     }
                                 }
-                                if (foundEdge != null) {
-                                    int rx = (int)((foundEdge.getX() - vbX) / vbW * imgW);
-                                    int ry = (int)((foundEdge.getY() - vbY) / vbH * imgH);
-                                    int rw = (int)(foundEdge.getWidth() / vbW * imgW);
-                                    int rh = (int)(foundEdge.getHeight() / vbH * imgH);
-                                    highlightRect[0] = new Rectangle(rx, ry,
-                                            Math.max(rw, 10), Math.max(rh, 10));
-                                    cs.selectedNode = null;
-                                    cs.selectedEdge = foundEdge;
-                                    detailArea.setText(formatEdgeDetails(foundEdge));
-                                    detailArea.setCaretPosition(0);
-                                    refreshEditPanel[0].run();
-                                    dPanel.repaint();
-                                    return;
-                                }
-
-                                // ── Nothing found ──
-                                highlightRect[0] = null;
-                                cs.selectedNode = null;
-                                cs.selectedEdge = null;
-                                detailArea.setText(String.format(
-                                        "Kein Element an Position (%.0f, %.0f) gefunden.\n"
-                                        + "SVG-Koordinaten: (%.1f, %.1f)\n"
-                                        + "Vorhandene Nodes: %d\n"
-                                        + "Vorhandene Edges: %d",
-                                        (double)e.getX(), (double)e.getY(),
-                                        svgX, svgY,
-                                        diagram.getNodes().size(),
-                                        diagram.getEdges().size()));
-                                refreshEditPanel[0].run();
+                                cs.dragging = false;
+                                cs.dragSourceNode = null;
+                                cs.dragStart = null;
+                                cs.dragCurrent = null;
                                 dPanel.repaint();
+                            }
+
+                            @Override public void mouseClicked(MouseEvent e) {
+                                // Only handle click if not a drag
+                                if (cs.dragging) return;
+                                handleClick(e, dPanel, cs, diagram, imgW, imgH,
+                                        highlightRect, detailArea, refreshEditPanel[0]);
+                            }
+                        });
+
+                        // ── Mouse drag: draw rubber-band line ──
+                        dPanel.addMouseMotionListener(new MouseMotionAdapter() {
+                            @Override public void mouseDragged(MouseEvent e) {
+                                if (cs.dragSourceNode != null && cs.dragStart != null) {
+                                    int dx = e.getX() - cs.dragStart.x;
+                                    int dy = e.getY() - cs.dragStart.y;
+                                    if (!cs.dragging && (dx * dx + dy * dy) > 25) {
+                                        cs.dragging = true;
+                                    }
+                                    if (cs.dragging) {
+                                        cs.dragCurrent = new Point(e.getX(), e.getY());
+                                        dPanel.repaint();
+                                    }
+                                }
                             }
                         });
 
@@ -562,7 +603,62 @@ public final class MermaidSelectionTest {
             rebuildDiagram[0].run();
 
             card.add(diagramContainer);
-            card.add(Box.createVerticalStrut(4));
+            card.add(Box.createVerticalStrut(2));
+
+            // ── Node creation toolbar ──
+            final JPanel createBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            createBar.setOpaque(true);
+            createBar.setBackground(new Color(230, 240, 255));
+            createBar.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(new Color(150, 170, 220)),
+                    BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+            createBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+
+            createBar.add(label("\u2795 Neuer Knoten:"));
+            final JTextField newNodeName = new JTextField("Neu", 8);
+            newNodeName.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+            createBar.add(newNodeName);
+
+            // Shape/type combo adapts to diagram type
+            final JComboBox<String> newNodeType = new JComboBox<String>(new String[]{
+                    "RECTANGLE", "ROUND_RECT", "STADIUM", "CIRCLE", "DIAMOND",
+                    "HEXAGON", "CYLINDER"});
+            newNodeType.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+            createBar.add(newNodeType);
+
+            JButton addNodeBtn = new JButton("Hinzufügen");
+            addNodeBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10));
+            addNodeBtn.setMargin(new Insets(1, 4, 1, 4));
+            createBar.add(addNodeBtn);
+
+            JLabel dragHint = new JLabel(" | Drag: Knoten \u2192 Knoten = Kante");
+            dragHint.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 9));
+            dragHint.setForeground(new Color(80, 80, 130));
+            createBar.add(dragHint);
+
+            addNodeBtn.addActionListener(new ActionListener() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    String name = newNodeName.getText().trim();
+                    if (name.isEmpty()) return;
+                    // Check for duplicates
+                    if (cs.diagram != null && cs.diagram.findNodeById(name) != null) {
+                        name = name + "_" + (cs.diagram.getNodes().size() + 1);
+                    }
+                    String shapeStr = (String) newNodeType.getSelectedItem();
+                    cs.currentSource = addNodeToSource(cs.currentSource,
+                            cs.diagram != null ? cs.diagram.getDiagramType() : "flowchart",
+                            name, shapeStr);
+                    renderCard(renderer, cs);
+                    sourceArea.setText(cs.currentSource);
+                    highlightRect[0] = null;
+                    detailArea.setText("\u2705 Neuer Knoten hinzugefügt: " + name);
+                    rebuildDiagram[0].run();
+                    refreshEditPanel[0].run();
+                }
+            });
+
+            card.add(createBar);
+            card.add(Box.createVerticalStrut(2));
             card.add(detailArea);
             card.add(Box.createVerticalStrut(4));
             card.add(editPanel);
@@ -600,27 +696,54 @@ public final class MermaidSelectionTest {
         final DiagramNode node = cs.selectedNode;
         if (node == null) return;
 
-        // ── Rename row (available for ALL node types) ──
-        JPanel renameRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        renameRow.setOpaque(false);
-        renameRow.add(label("Name:"));
-        final JTextField nameField = new JTextField(node.getId(), 14);
-        nameField.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-        renameRow.add(nameField);
-        JButton renameBtn = new JButton("Umbenennen");
-        renameBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
-        renameRow.add(renameBtn);
-        renameRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
-        panel.add(renameRow);
+        // ── Rename row (available for ALL node types except fragments) ──
+        if (!(node instanceof SequenceFragment)) {
+            JPanel renameRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            renameRow.setOpaque(false);
+            renameRow.add(label("Name/ID:"));
+            final JTextField nameField = new JTextField(node.getId(), 14);
+            nameField.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+            renameRow.add(nameField);
+            JButton renameBtn = new JButton("Umbenennen");
+            renameBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+            renameRow.add(renameBtn);
+            renameRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+            panel.add(renameRow);
 
-        renameBtn.addActionListener(new ActionListener() {
-            @Override public void actionPerformed(ActionEvent e) {
-                String newName = nameField.getText().trim();
-                if (newName.isEmpty() || newName.equals(node.getId())) return;
-                cs.currentSource = renameInSource(cs.currentSource, node.getId(), newName);
-                onApplied.run();
+            renameBtn.addActionListener(new ActionListener() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    String newName = nameField.getText().trim();
+                    if (newName.isEmpty() || newName.equals(node.getId())) return;
+                    cs.currentSource = renameNodeInSource(cs.currentSource,
+                            cs.diagram.getDiagramType(), node.getId(), node.getLabel(), newName);
+                    onApplied.run();
+                }
+            });
+
+            // If label differs from ID, offer separate label edit
+            if (!node.getLabel().equals(node.getId()) && !node.getLabel().isEmpty()) {
+                JPanel labelRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+                labelRow.setOpaque(false);
+                labelRow.add(label("Label:"));
+                final JTextField labelField = new JTextField(node.getLabel(), 14);
+                labelField.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+                labelRow.add(labelField);
+                JButton labelBtn = new JButton("Label ändern");
+                labelBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+                labelRow.add(labelBtn);
+                labelRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+                panel.add(labelRow);
+
+                labelBtn.addActionListener(new ActionListener() {
+                    @Override public void actionPerformed(ActionEvent e) {
+                        String newLabel = labelField.getText().trim();
+                        if (newLabel.isEmpty() || newLabel.equals(node.getLabel())) return;
+                        cs.currentSource = cs.currentSource.replace(node.getLabel(), newLabel);
+                        onApplied.run();
+                    }
+                });
             }
-        });
+        }
 
         // ── ClassNode-specific: fields & methods ──
         if (node instanceof ClassNode) {
@@ -630,6 +753,16 @@ public final class MermaidSelectionTest {
         // ── FlowchartNode-specific: shape selector ──
         if (node instanceof FlowchartNode) {
             buildShapeSelector(panel, (FlowchartNode) node, cs, onApplied);
+        }
+
+        // ── ErEntityNode-specific: attribute editing ──
+        if (node instanceof ErEntityNode) {
+            buildErEntityEditor(panel, (ErEntityNode) node, cs, onApplied);
+        }
+
+        // ── SequenceFragment-specific: type + condition ──
+        if (node instanceof SequenceFragment) {
+            buildSequenceFragmentEditor(panel, (SequenceFragment) node, cs, onApplied);
         }
     }
 
@@ -815,28 +948,195 @@ public final class MermaidSelectionTest {
         final JTextField labelField = new JTextField(edge.getLabel(), 14);
         labelField.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
         labelRow.add(labelField);
-        JButton applyBtn = new JButton("Anwenden");
-        applyBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
-        labelRow.add(applyBtn);
+        JButton applyLabelBtn = new JButton("Anwenden");
+        applyLabelBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+        labelRow.add(applyLabelBtn);
         panel.add(labelRow);
 
-        applyBtn.addActionListener(new ActionListener() {
+        applyLabelBtn.addActionListener(new ActionListener() {
             @Override public void actionPerformed(ActionEvent e) {
                 String newLabel = labelField.getText().trim();
                 if (newLabel.equals(edge.getLabel())) return;
-                if (!edge.getLabel().isEmpty()) {
-                    // Flowchart/state edge labels use |label| syntax
-                    cs.currentSource = cs.currentSource.replace(
-                            "|" + edge.getLabel() + "|",
-                            newLabel.isEmpty() ? "" : "|" + newLabel + "|");
-                }
+                cs.currentSource = changeEdgeLabelInSource(cs.currentSource,
+                        cs.diagram.getDiagramType(), edge, newLabel);
                 onApplied.run();
             }
         });
 
-        // ── SequenceMessage: message text edit ──
-        if (edge instanceof SequenceMessage) {
+        // ── FlowchartEdge: line style + arrowhead editing ──
+        if (edge instanceof FlowchartEdge) {
+            final FlowchartEdge fe = (FlowchartEdge) edge;
             panel.add(Box.createVerticalStrut(4));
+            panel.add(separator("Kantenstil"));
+
+            // Line style combo
+            JPanel styleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            styleRow.setOpaque(false);
+            styleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+            styleRow.add(label("Linie:"));
+            final LineStyle[] lineStyles = LineStyle.values();
+            String[] styleNames = new String[lineStyles.length];
+            int selStyle = 0;
+            for (int i = 0; i < lineStyles.length; i++) {
+                styleNames[i] = lineStyles[i].getDisplayName();
+                if (lineStyles[i] == fe.getLineStyle()) selStyle = i;
+            }
+            final JComboBox<String> styleCb = new JComboBox<String>(styleNames);
+            styleCb.setSelectedIndex(selStyle);
+            styleCb.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+            styleRow.add(styleCb);
+
+            // Head type combo
+            styleRow.add(label(" Spitze:"));
+            final ArrowHead[] arrowHeads = {ArrowHead.NORMAL, ArrowHead.NONE,
+                    ArrowHead.CIRCLE, ArrowHead.CROSS};
+            String[] headNames = new String[arrowHeads.length];
+            int selHead = 0;
+            for (int i = 0; i < arrowHeads.length; i++) {
+                headNames[i] = arrowHeads[i].getDisplayName();
+                if (arrowHeads[i] == fe.getHeadType()) selHead = i;
+            }
+            final JComboBox<String> headCb = new JComboBox<String>(headNames);
+            headCb.setSelectedIndex(selHead);
+            headCb.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+            styleRow.add(headCb);
+
+            JButton applyStyle = new JButton("Stil ändern");
+            applyStyle.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+            styleRow.add(applyStyle);
+            panel.add(styleRow);
+
+            applyStyle.addActionListener(new ActionListener() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    LineStyle newStyle = lineStyles[styleCb.getSelectedIndex()];
+                    ArrowHead newHead = arrowHeads[headCb.getSelectedIndex()];
+                    cs.currentSource = changeFlowchartEdgeStyle(cs.currentSource,
+                            fe.getSourceId(), fe.getTargetId(), fe.getLabel(),
+                            fe.getLineStyle(), fe.getHeadType(),
+                            newStyle, newHead);
+                    onApplied.run();
+                }
+            });
+
+            // Direction reversal
+            JPanel dirRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            dirRow.setOpaque(false);
+            dirRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+            JButton reverseBtn = new JButton("\u21C4 Richtung umkehren");
+            reverseBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+            dirRow.add(reverseBtn);
+            panel.add(dirRow);
+
+            reverseBtn.addActionListener(new ActionListener() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    cs.currentSource = reverseEdgeInSource(cs.currentSource,
+                            fe.getSourceId(), fe.getTargetId(), fe.getLabel());
+                    onApplied.run();
+                }
+            });
+        }
+
+        // ── ClassRelation: relation type editing ──
+        if (edge instanceof ClassRelation) {
+            final ClassRelation cr = (ClassRelation) edge;
+            panel.add(Box.createVerticalStrut(4));
+            panel.add(separator("Beziehungstyp"));
+
+            JPanel relRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            relRow.setOpaque(false);
+            relRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+            relRow.add(label("Typ:"));
+
+            final RelationType[] relTypes = RelationType.values();
+            String[] relNames = new String[relTypes.length];
+            int selRel = 0;
+            for (int i = 0; i < relTypes.length; i++) {
+                relNames[i] = relTypes[i].getDisplayName() + " (" + relTypes[i].getMermaidSyntax() + ")";
+                if (relTypes[i] == cr.getRelationType()) selRel = i;
+            }
+            final JComboBox<String> relCb = new JComboBox<String>(relNames);
+            relCb.setSelectedIndex(selRel);
+            relCb.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+            relRow.add(relCb);
+
+            JButton applyRel = new JButton("Anwenden");
+            applyRel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+            relRow.add(applyRel);
+            panel.add(relRow);
+
+            applyRel.addActionListener(new ActionListener() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    RelationType newType = relTypes[relCb.getSelectedIndex()];
+                    if (newType == cr.getRelationType()) return;
+                    String oldLine = cr.getRelationType().toMermaid(
+                            cr.getSourceId(), cr.getTargetId(), cr.getLabel());
+                    String newLine = newType.toMermaid(
+                            cr.getSourceId(), cr.getTargetId(), cr.getLabel());
+                    cs.currentSource = cs.currentSource.replace(
+                            oldLine.trim(), newLine.trim());
+                    onApplied.run();
+                }
+            });
+        }
+
+        // ── ErRelationship: cardinality editing ──
+        if (edge instanceof ErRelationship) {
+            final ErRelationship er = (ErRelationship) edge;
+            panel.add(Box.createVerticalStrut(4));
+            panel.add(separator("Kardinalitäten"));
+
+            JPanel cardRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            cardRow.setOpaque(false);
+            cardRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+
+            cardRow.add(label(er.getSourceId() + ":"));
+            final ErCardinality[] cards = ErCardinality.values();
+            String[] srcNames = new String[cards.length];
+            String[] tgtNames = new String[cards.length];
+            int selSrc = 0, selTgt = 0;
+            for (int i = 0; i < cards.length; i++) {
+                srcNames[i] = cards[i].getDisplayName() + " (" + cards[i].getMermaidSyntax() + ")";
+                tgtNames[i] = srcNames[i];
+                if (cards[i] == er.getSourceCardinality()) selSrc = i;
+                if (cards[i] == er.getTargetCardinality()) selTgt = i;
+            }
+
+            final JComboBox<String> srcCardCb = new JComboBox<String>(srcNames);
+            srcCardCb.setSelectedIndex(selSrc);
+            srcCardCb.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+            cardRow.add(srcCardCb);
+
+            cardRow.add(label(" " + er.getTargetId() + ":"));
+            final JComboBox<String> tgtCardCb = new JComboBox<String>(tgtNames);
+            tgtCardCb.setSelectedIndex(selTgt);
+            tgtCardCb.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+            cardRow.add(tgtCardCb);
+
+            JButton applyCard = new JButton("Anwenden");
+            applyCard.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+            cardRow.add(applyCard);
+            panel.add(cardRow);
+
+            applyCard.addActionListener(new ActionListener() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    ErCardinality newSrc = cards[srcCardCb.getSelectedIndex()];
+                    ErCardinality newTgt = cards[tgtCardCb.getSelectedIndex()];
+                    cs.currentSource = changeErCardinalityInSource(cs.currentSource,
+                            er.getSourceId(), er.getTargetId(), er.getLabel(),
+                            er.getSourceCardinality(), er.getTargetCardinality(),
+                            newSrc, newTgt, er.isIdentifying());
+                    onApplied.run();
+                }
+            });
+        }
+
+        // ── SequenceMessage: message type editing ──
+        if (edge instanceof SequenceMessage) {
+            final SequenceMessage sm = (SequenceMessage) edge;
+            panel.add(Box.createVerticalStrut(4));
+            panel.add(separator("Nachrichtentyp"));
+
+            // Message text rename
             JPanel msgRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
             msgRow.setOpaque(false);
             msgRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
@@ -853,14 +1153,221 @@ public final class MermaidSelectionTest {
                 @Override public void actionPerformed(ActionEvent e) {
                     String newMsg = msgField.getText().trim();
                     String oldMsg = edge.getLabel();
-                    if (newMsg.equals(oldMsg) || oldMsg.isEmpty()) return;
-                    // Sequence messages: "Source->>Target: Label"
-                    cs.currentSource = cs.currentSource.replace(
-                            ": " + oldMsg, ": " + newMsg);
+                    if (newMsg.equals(oldMsg)) return;
+                    if (!oldMsg.isEmpty()) {
+                        cs.currentSource = cs.currentSource.replace(": " + oldMsg, ": " + newMsg);
+                    }
+                    onApplied.run();
+                }
+            });
+
+            // Message type combo
+            JPanel typeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            typeRow.setOpaque(false);
+            typeRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+            typeRow.add(label("Typ:"));
+
+            final MessageType[] msgTypes = MessageType.values();
+            String[] typeNames = new String[msgTypes.length];
+            int selType = 0;
+            for (int i = 0; i < msgTypes.length; i++) {
+                typeNames[i] = msgTypes[i].getDisplayName() + " (" + msgTypes[i].getMermaidSyntax() + ")";
+                if (msgTypes[i] == sm.getMessageType()) selType = i;
+            }
+            final JComboBox<String> typeCb = new JComboBox<String>(typeNames);
+            typeCb.setSelectedIndex(selType);
+            typeCb.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+            typeRow.add(typeCb);
+
+            JButton applyType = new JButton("Typ ändern");
+            applyType.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+            typeRow.add(applyType);
+            panel.add(typeRow);
+
+            applyType.addActionListener(new ActionListener() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    MessageType newType = msgTypes[typeCb.getSelectedIndex()];
+                    if (newType == sm.getMessageType()) return;
+                    cs.currentSource = changeSequenceMessageType(cs.currentSource,
+                            sm.getSourceId(), sm.getTargetId(), sm.getLabel(),
+                            sm.getMessageType(), newType);
                     onApplied.run();
                 }
             });
         }
+
+        // ── Edge reconnection (change source or target) ──
+        panel.add(Box.createVerticalStrut(4));
+        panel.add(separator("Endpunkte ändern"));
+        JPanel reconnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        reconnRow.setOpaque(false);
+        reconnRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        reconnRow.add(label("Quelle:"));
+        final JTextField srcField = new JTextField(edge.getSourceId(), 8);
+        srcField.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        reconnRow.add(srcField);
+        reconnRow.add(label("Ziel:"));
+        final JTextField tgtField = new JTextField(edge.getTargetId(), 8);
+        tgtField.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        reconnRow.add(tgtField);
+        JButton reconnBtn = new JButton("Umhängen");
+        reconnBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+        reconnRow.add(reconnBtn);
+        panel.add(reconnRow);
+
+        reconnBtn.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) {
+                String newSrc = srcField.getText().trim();
+                String newTgt = tgtField.getText().trim();
+                if (newSrc.equals(edge.getSourceId()) && newTgt.equals(edge.getTargetId())) return;
+                cs.currentSource = reconnectEdgeInSource(cs.currentSource,
+                        cs.diagram.getDiagramType(), edge, newSrc, newTgt);
+                onApplied.run();
+            }
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ER Entity attribute editor
+    // ═══════════════════════════════════════════════════════════
+
+    private static void buildErEntityEditor(JPanel panel, final ErEntityNode en,
+                                            final CardState cs,
+                                            final Runnable onApplied) {
+        panel.add(Box.createVerticalStrut(4));
+        panel.add(separator("Entity-Attribute"));
+
+        // Show existing attributes with delete buttons
+        for (int i = 0; i < en.getAttributes().size(); i++) {
+            final ErAttribute attr = en.getAttributes().get(i);
+            JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+            row.setOpaque(false);
+            row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+            JLabel attrLabel = new JLabel("  " + attr.toMermaid());
+            attrLabel.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+            row.add(attrLabel);
+            JButton delBtn = smallButton("\u2716");
+            delBtn.setToolTipText("Attribut entfernen");
+            row.add(delBtn);
+            delBtn.addActionListener(new ActionListener() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    cs.currentSource = removeErAttribute(cs.currentSource, en.getId(), attr.toMermaid());
+                    onApplied.run();
+                }
+            });
+            panel.add(row);
+        }
+
+        // Add new attribute row
+        panel.add(Box.createVerticalStrut(4));
+        JPanel addRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        addRow.setOpaque(false);
+        addRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+
+        final JTextField attrType = new JTextField("string", 6);
+        attrType.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        addRow.add(attrType);
+
+        final JTextField attrName = new JTextField("new_field", 8);
+        attrName.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        addRow.add(attrName);
+
+        final JComboBox<String> attrKey = new JComboBox<String>(new String[]{"-", "PK", "FK"});
+        attrKey.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 10));
+        addRow.add(attrKey);
+
+        JButton addBtn = smallButton("+ Attribut");
+        addRow.add(addBtn);
+        panel.add(addRow);
+
+        addBtn.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) {
+                String type = attrType.getText().trim();
+                String name = attrName.getText().trim();
+                if (name.isEmpty()) return;
+                String key = (String) attrKey.getSelectedItem();
+                String member = type + " " + name;
+                if ("PK".equals(key)) member += " PK";
+                else if ("FK".equals(key)) member += " FK";
+                cs.currentSource = addErAttribute(cs.currentSource, en.getId(), member);
+                onApplied.run();
+            }
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Sequence Fragment editor (loop, alt, opt, …)
+    // ═══════════════════════════════════════════════════════════
+
+    private static void buildSequenceFragmentEditor(JPanel panel, final SequenceFragment frag,
+                                                     final CardState cs,
+                                                     final Runnable onApplied) {
+        panel.add(separator("Sequenz-Fragment"));
+
+        // Fragment type combo
+        JPanel typeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        typeRow.setOpaque(false);
+        typeRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        typeRow.add(label("Typ:"));
+
+        final SequenceFragment.FragmentType[] fragTypes = SequenceFragment.FragmentType.values();
+        String[] typeNames = new String[fragTypes.length];
+        int selType = 0;
+        for (int i = 0; i < fragTypes.length; i++) {
+            typeNames[i] = fragTypes[i].getDisplayName() + " (" + fragTypes[i].getKeyword() + ")";
+            if (fragTypes[i] == frag.getFragmentType()) selType = i;
+        }
+        final JComboBox<String> typeCb = new JComboBox<String>(typeNames);
+        typeCb.setSelectedIndex(selType);
+        typeCb.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+        typeRow.add(typeCb);
+        panel.add(typeRow);
+
+        // Condition text
+        JPanel condRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        condRow.setOpaque(false);
+        condRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        condRow.add(label("Bedingung:"));
+        final JTextField condField = new JTextField(frag.getCondition(), 14);
+        condField.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        condRow.add(condField);
+
+        JButton applyFrag = new JButton("Anwenden");
+        applyFrag.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+        condRow.add(applyFrag);
+        panel.add(condRow);
+
+        applyFrag.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) {
+                SequenceFragment.FragmentType newType = fragTypes[typeCb.getSelectedIndex()];
+                String newCond = condField.getText().trim();
+                String oldHeader = frag.getFragmentType().getKeyword()
+                        + (frag.getCondition().isEmpty() ? "" : " " + frag.getCondition());
+                String newHeader = newType.getKeyword()
+                        + (newCond.isEmpty() ? "" : " " + newCond);
+                if (oldHeader.equals(newHeader)) return;
+                cs.currentSource = cs.currentSource.replace(oldHeader, newHeader);
+                onApplied.run();
+            }
+        });
+
+        // Button to insert a new fragment
+        panel.add(Box.createVerticalStrut(4));
+        JPanel insertRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        insertRow.setOpaque(false);
+        insertRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        JButton insertBtn = new JButton("\u2795 Neues Fragment einfügen");
+        insertBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+        insertRow.add(insertBtn);
+        panel.add(insertRow);
+
+        insertBtn.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) {
+                // Insert a new loop block before "end" of the current fragment
+                cs.currentSource = insertSequenceFragment(cs.currentSource, "loop", "Neu");
+                onApplied.run();
+            }
+        });
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -868,12 +1375,362 @@ public final class MermaidSelectionTest {
     // ═══════════════════════════════════════════════════════════
 
     /**
-     * Rename an element in the Mermaid source code.
-     * Uses word-boundary-aware replacement to avoid partial matches.
+     * Rename a node in the Mermaid source code.
+     * Handles different diagram types and ID vs. label contexts.
      */
-    private static String renameInSource(String source, String oldName, String newName) {
-        String escaped = Pattern.quote(oldName);
-        return source.replaceAll("\\b" + escaped + "\\b", Matcher.quoteReplacement(newName));
+    private static String renameNodeInSource(String source, String diagramType, String oldId,
+                                              String oldLabel, String newName) {
+        // For flowcharts: handle the ID[Label] pattern
+        if ("flowchart".equals(diagramType)) {
+            // First try to replace explicit shape syntax: oldId[oldLabel] or oldId([oldLabel]) etc.
+            for (NodeShape shape : NodeShape.values()) {
+                String oldSyntax = oldId + shape.getOpenSyntax() + oldLabel + shape.getCloseSyntax();
+                String newSyntax = newName + shape.getOpenSyntax() + newName + shape.getCloseSyntax();
+                if (source.contains(oldSyntax)) {
+                    source = source.replace(oldSyntax, newSyntax);
+                }
+            }
+        }
+        // General word-boundary replacement for all remaining occurrences
+        String escaped = Pattern.quote(oldId);
+        source = source.replaceAll("(?<=^|[\\s,;:{}()|<>\\[\\]])(" + escaped + ")(?=$|[\\s,;:{}()|<>\\[\\]])",
+                Matcher.quoteReplacement(newName));
+        // Fallback: simple \b replacement
+        if (source.contains(oldId)) {
+            source = source.replaceAll("\\b" + escaped + "\\b", Matcher.quoteReplacement(newName));
+        }
+        return source;
+    }
+
+    /**
+     * Change an edge label in the source. Handles both existing labels
+     * and adding labels to previously unlabelled edges.
+     */
+    private static String changeEdgeLabelInSource(String source, String diagramType,
+                                                   DiagramEdge edge, String newLabel) {
+        String oldLabel = edge.getLabel();
+
+        if (edge instanceof SequenceMessage) {
+            // Sequence: "Source->>Target: OldLabel"
+            if (!oldLabel.isEmpty()) {
+                return source.replace(": " + oldLabel, ": " + newLabel);
+            } else {
+                // Add label to unlabelled message — find the arrow line
+                String pattern = Pattern.quote(edge.getSourceId()) + "\\s*(->>|-->>|-\\)|--\\)|->|-->|-x|--x)\\s*"
+                        + Pattern.quote(edge.getTargetId());
+                return source.replaceFirst(pattern,
+                        Matcher.quoteReplacement(edge.getSourceId()) + "$1"
+                                + Matcher.quoteReplacement(edge.getTargetId())
+                                + ": " + Matcher.quoteReplacement(newLabel));
+            }
+        }
+
+        if (edge instanceof ErRelationship) {
+            // ER: "A ||--o{ B : label"
+            if (!oldLabel.isEmpty()) {
+                return source.replace(": " + oldLabel, newLabel.isEmpty() ? "" : ": " + newLabel);
+            } else if (!newLabel.isEmpty()) {
+                // Add label: find the ER line and append " : label"
+                String srcId = Pattern.quote(edge.getSourceId());
+                String tgtId = Pattern.quote(edge.getTargetId());
+                // Match the ER relationship line
+                String pattern = "(" + srcId + "\\s+[|o}{]+--[|o}{]+\\s+" + tgtId + ")";
+                return source.replaceFirst(pattern, "$1 : " + Matcher.quoteReplacement(newLabel));
+            }
+            return source;
+        }
+
+        if (edge instanceof ClassRelation) {
+            // Class: "A <|-- B : label"
+            if (!oldLabel.isEmpty()) {
+                return source.replace(": " + oldLabel, newLabel.isEmpty() ? "" : ": " + newLabel);
+            } else if (!newLabel.isEmpty()) {
+                String srcId = Pattern.quote(edge.getSourceId());
+                String tgtId = Pattern.quote(edge.getTargetId());
+                String pattern = "(" + srcId + "\\s+(?:<\\|--|<\\|\\.\\.|\\*--|o--|-->|\\.\\.>|--)\\s+" + tgtId + ")";
+                return source.replaceFirst(pattern, "$1 : " + Matcher.quoteReplacement(newLabel));
+            }
+            return source;
+        }
+
+        // Flowchart/state edges: "|label|" syntax
+        if (!oldLabel.isEmpty()) {
+            return source.replace("|" + oldLabel + "|",
+                    newLabel.isEmpty() ? "" : "|" + newLabel + "|");
+        } else if (!newLabel.isEmpty()) {
+            // Add label to unlabelled edge: find arrow between source and target, insert |label|
+            String srcId = Pattern.quote(edge.getSourceId());
+            String tgtId = Pattern.quote(edge.getTargetId());
+            // Match arrow operators: -->, --.-> , ==>, ---, -.- , ===
+            String pattern = "(" + srcId + "\\s*(?:-->|-.->|==>|---|-\\.-|===))\\s*(" + tgtId + ")";
+            return source.replaceFirst(pattern, "$1|" + Matcher.quoteReplacement(newLabel) + "| $2");
+        }
+        return source;
+    }
+
+    /**
+     * Change the line style and arrowhead of a flowchart edge.
+     */
+    private static String changeFlowchartEdgeStyle(String source,
+                                                    String sourceId, String targetId, String label,
+                                                    LineStyle oldStyle, ArrowHead oldHead,
+                                                    LineStyle newStyle, ArrowHead newHead) {
+        String oldArrow = buildFlowchartArrow(oldStyle, oldHead);
+        String newArrow = buildFlowchartArrow(newStyle, newHead);
+        if (oldArrow.equals(newArrow)) return source;
+
+        // Build the old and new edge patterns
+        String labelPart = (label != null && !label.isEmpty()) ? "|" + label + "|" : "";
+        String escaped = Pattern.quote(sourceId) + "\\s*" + Pattern.quote(oldArrow + labelPart) + "\\s*" + Pattern.quote(targetId);
+        String replacement = Matcher.quoteReplacement(sourceId + " " + newArrow + labelPart + " " + targetId);
+        String result = source.replaceFirst(escaped, replacement);
+
+        // Fallback: try simple string replace
+        if (result.equals(source)) {
+            String oldFrag = oldArrow + labelPart;
+            String newFrag = newArrow + labelPart;
+            result = source.replace(sourceId + " " + oldFrag + " " + targetId,
+                    sourceId + " " + newFrag + " " + targetId);
+        }
+        if (result.equals(source)) {
+            // Try without spaces
+            String oldFrag = oldArrow + labelPart;
+            String newFrag = newArrow + labelPart;
+            result = source.replace(oldFrag, newFrag);
+        }
+        return result;
+    }
+
+    /** Build a Mermaid arrow operator from line style and arrowhead. */
+    private static String buildFlowchartArrow(LineStyle style, ArrowHead head) {
+        boolean hasHead = (head != ArrowHead.NONE);
+        switch (style) {
+            case DASHED:  return hasHead ? "-.->" : "-.-";
+            case THICK:   return hasHead ? "==>" : "===";
+            case DOTTED:  return hasHead ? "-.->" : "-.-";
+            default:      return hasHead ? "-->" : "---";
+        }
+    }
+
+    /** Reverse the direction of an edge in the source. */
+    private static String reverseEdgeInSource(String source, String sourceId,
+                                               String targetId, String label) {
+        // Try all known arrow patterns
+        String[] arrows = {"-->", "-.->", "==>", "---", "-.-", "===",
+                "<-->", "<-.->", "<==>"};
+        for (String arrow : arrows) {
+            String labelPart = (label != null && !label.isEmpty()) ? "|" + label + "|" : "";
+            String old = sourceId + " " + arrow + labelPart + " " + targetId;
+            String rev = targetId + " " + arrow + labelPart + " " + sourceId;
+            if (source.contains(old)) {
+                return source.replace(old, rev);
+            }
+        }
+        return source;
+    }
+
+    /**
+     * Change ER diagram cardinalities.
+     */
+    private static String changeErCardinalityInSource(String source,
+                                                       String sourceId, String targetId, String label,
+                                                       ErCardinality oldSrcCard, ErCardinality oldTgtCard,
+                                                       ErCardinality newSrcCard, ErCardinality newTgtCard,
+                                                       boolean identifying) {
+        String connector = identifying ? "==" : "--";
+        // Build old and new relationship syntax
+        // ER syntax: SOURCE srcCard--tgtCard TARGET : label
+        // e.g.: AUTOR ||--o{ BUCH : schreibt
+        String oldRel = sourceId + " " + oldSrcCard.getMermaidSyntax() + connector
+                + reverseSyntax(oldTgtCard.getMermaidSyntax()) + " " + targetId;
+        String newRel = sourceId + " " + newSrcCard.getMermaidSyntax() + connector
+                + reverseSyntax(newTgtCard.getMermaidSyntax()) + " " + targetId;
+        return source.replace(oldRel, newRel);
+    }
+
+    /** Reverse ER cardinality syntax for target side: |{ → }|, o{ → }o, etc. */
+    private static String reverseSyntax(String syntax) {
+        // Reverse the characters in the cardinality syntax
+        StringBuilder sb = new StringBuilder();
+        for (int i = syntax.length() - 1; i >= 0; i--) {
+            char c = syntax.charAt(i);
+            // Mirror brackets
+            if (c == '{') sb.append('}');
+            else if (c == '}') sb.append('{');
+            else sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Change a sequence message type (arrow style).
+     */
+    private static String changeSequenceMessageType(String source,
+                                                     String sourceId, String targetId, String label,
+                                                     MessageType oldType, MessageType newType) {
+        String oldArrow = oldType.getMermaidSyntax();
+        String newArrow = newType.getMermaidSyntax();
+        // Pattern: SourceId->>TargetId: label
+        String oldLine = sourceId + oldArrow + targetId;
+        String newLine = sourceId + newArrow + targetId;
+        return source.replace(oldLine, newLine);
+    }
+
+    /**
+     * Reconnect an edge to different source/target nodes.
+     */
+    private static String reconnectEdgeInSource(String source, String diagramType,
+                                                 DiagramEdge edge,
+                                                 String newSourceId, String newTargetId) {
+        if (edge instanceof SequenceMessage) {
+            SequenceMessage sm = (SequenceMessage) edge;
+            String oldLine = edge.getSourceId() + sm.getMessageType().getMermaidSyntax()
+                    + edge.getTargetId();
+            String newLine = newSourceId + sm.getMessageType().getMermaidSyntax() + newTargetId;
+            return source.replace(oldLine, newLine);
+        }
+
+        if (edge instanceof FlowchartEdge) {
+            FlowchartEdge fe = (FlowchartEdge) edge;
+            String arrow = buildFlowchartArrow(fe.getLineStyle(), fe.getHeadType());
+            String label = fe.getLabel().isEmpty() ? "" : "|" + fe.getLabel() + "|";
+            String oldLine = edge.getSourceId() + " " + arrow + label + " " + edge.getTargetId();
+            String newLine = newSourceId + " " + arrow + label + " " + newTargetId;
+            return source.replace(oldLine, newLine);
+        }
+
+        if (edge instanceof ErRelationship) {
+            // Simple replace of entity names in the relationship line
+            String escaped = Pattern.quote(edge.getSourceId());
+            // Find the ER line containing both old source and target
+            String[] lines = source.split("\n");
+            StringBuilder sb = new StringBuilder();
+            for (String line : lines) {
+                if (line.contains(edge.getSourceId()) && line.contains(edge.getTargetId())
+                        && (line.contains("--") || line.contains("=="))) {
+                    line = line.replace(edge.getSourceId(), newSourceId)
+                               .replace(edge.getTargetId(), newTargetId);
+                }
+                if (sb.length() > 0) sb.append("\n");
+                sb.append(line);
+            }
+            return sb.toString();
+        }
+
+        // Generic fallback: replace IDs in the relevant source line
+        String[] lines = source.split("\n");
+        StringBuilder sb = new StringBuilder();
+        for (String line : lines) {
+            if (line.contains(edge.getSourceId()) && line.contains(edge.getTargetId())) {
+                line = line.replace(edge.getSourceId(), newSourceId)
+                           .replace(edge.getTargetId(), newTargetId);
+            }
+            if (sb.length() > 0) sb.append("\n");
+            sb.append(line);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Add a new node to the Mermaid source, adapting to the diagram type.
+     */
+    private static String addNodeToSource(String source, String diagramType,
+                                           String nodeName, String shapeStr) {
+        if ("erDiagram".equals(diagramType)) {
+            return source + "\n    " + nodeName + " {\n        int id PK\n    }";
+        }
+        if ("classDiagram".equals(diagramType)) {
+            return source + "\n    class " + nodeName + " {\n    }";
+        }
+        if ("sequence".equals(diagramType)) {
+            // Add participant after the first line
+            String[] lines = source.split("\n");
+            StringBuilder sb = new StringBuilder();
+            boolean inserted = false;
+            for (String line : lines) {
+                sb.append(line).append("\n");
+                if (!inserted && line.trim().startsWith("participant")) {
+                    sb.append("    participant ").append(nodeName).append("\n");
+                    inserted = true;
+                }
+            }
+            if (!inserted) {
+                sb.append("    participant ").append(nodeName).append("\n");
+            }
+            return sb.toString().trim();
+        }
+        if ("stateDiagram".equals(diagramType)) {
+            return source + "\n    " + nodeName;
+        }
+        if ("mindmap".equals(diagramType)) {
+            return source + "\n    " + nodeName;
+        }
+
+        // Flowchart (default)
+        NodeShape shape = NodeShape.RECTANGLE;
+        try {
+            shape = NodeShape.valueOf(shapeStr);
+        } catch (Exception ignored) {}
+        return source + "\n    " + shape.toMermaid(nodeName, nodeName);
+    }
+
+    /**
+     * Add a new edge between two nodes, adapting to the diagram type.
+     */
+    private static String addEdgeToSource(String source, String diagramType,
+                                           String sourceId, String targetId) {
+        if ("erDiagram".equals(diagramType)) {
+            return source + "\n    " + sourceId + " ||--o{ " + targetId + " : verknüpft";
+        }
+        if ("classDiagram".equals(diagramType)) {
+            return source + "\n    " + sourceId + " --> " + targetId;
+        }
+        if ("sequence".equals(diagramType)) {
+            return source + "\n    " + sourceId + "->>" + targetId + ": Nachricht";
+        }
+        if ("stateDiagram".equals(diagramType)) {
+            return source + "\n    " + sourceId + " --> " + targetId;
+        }
+        // Flowchart default
+        return source + "\n    " + sourceId + " --> " + targetId;
+    }
+
+    /**
+     * Insert a new sequence fragment (loop/alt/opt) into the source.
+     */
+    private static String insertSequenceFragment(String source, String keyword, String condition) {
+        // Find a good position: after the last message line, before any trailing "end"
+        String[] lines = source.split("\n");
+        StringBuilder sb = new StringBuilder();
+        int lastMsgLine = -1;
+        for (int i = 0; i < lines.length; i++) {
+            String trimmed = lines[i].trim();
+            if (trimmed.contains("->>") || trimmed.contains("-->>")
+                    || trimmed.contains("->") || trimmed.contains("-->")) {
+                lastMsgLine = i;
+            }
+        }
+        int insertAfter = lastMsgLine >= 0 ? lastMsgLine : lines.length - 1;
+        for (int i = 0; i < lines.length; i++) {
+            sb.append(lines[i]).append("\n");
+            if (i == insertAfter) {
+                // Determine actors from source for a placeholder message
+                String actor1 = "Alice";
+                String actor2 = "Bob";
+                for (String line : lines) {
+                    String t = line.trim();
+                    if (t.startsWith("participant ")) {
+                        String name = t.substring("participant ".length()).trim();
+                        if (actor1.equals("Alice")) actor1 = name;
+                        else if (actor2.equals("Bob")) actor2 = name;
+                    }
+                }
+                sb.append("    ").append(keyword).append(" ").append(condition).append("\n");
+                sb.append("        ").append(actor1).append("->>").append(actor2).append(": Nachricht\n");
+                sb.append("    end\n");
+            }
+        }
+        return sb.toString().trim();
     }
 
     /** Remove a class member line from a class block in the Mermaid source. */
@@ -898,9 +1755,128 @@ public final class MermaidSelectionTest {
         return source;
     }
 
+    /** Remove an ER attribute line from an entity block. */
+    private static String removeErAttribute(String source, String entityName, String attrMermaid) {
+        String escaped = Pattern.quote(attrMermaid.trim());
+        String pattern = "(?m)^[ \\t]*" + escaped + "[ \\t]*$\\n?";
+        return source.replaceFirst(pattern, "");
+    }
+
+    /** Add an ER attribute line to an entity block. */
+    private static String addErAttribute(String source, String entityName, String attrMermaid) {
+        String blockPattern = "(" + Pattern.quote(entityName) + "\\s*\\{[^}]*)(\\})";
+        Matcher m = Pattern.compile(blockPattern, Pattern.DOTALL).matcher(source);
+        if (m.find()) {
+            String before = m.group(1);
+            if (!before.endsWith("\n")) before += "\n";
+            return source.substring(0, m.start())
+                    + before + "        " + attrMermaid + "\n"
+                    + "    }"
+                    + source.substring(m.end());
+        }
+        return source;
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  UI helper methods
     // ═══════════════════════════════════════════════════════════
+
+    /** Handle a click on the diagram panel — find and select the element at the click position. */
+    private static void handleClick(MouseEvent e, JPanel dPanel, CardState cs,
+                                     RenderedDiagram diagram, int imgW, int imgH,
+                                     Rectangle[] highlightRect,
+                                     JTextArea detailArea, Runnable refreshEditPanel) {
+        int pw = dPanel.getWidth(), ph = dPanel.getHeight();
+        double scale = Math.min((double) pw / imgW, (double) ph / imgH);
+        int dw = (int)(imgW * scale), dh = (int)(imgH * scale);
+        int ox = (pw - dw) / 2, oy = (ph - dh) / 2;
+        double imgPx = (e.getX() - ox) / scale;
+        double imgPy = (e.getY() - oy) / scale;
+        double vbX = diagram.getViewBoxX();
+        double vbY = diagram.getViewBoxY();
+        double vbW = diagram.getViewBoxWidth();
+        double vbH = diagram.getViewBoxHeight();
+        double svgX = vbX + (imgPx / imgW) * vbW;
+        double svgY = vbY + (imgPy / imgH) * vbH;
+
+        // ── Try to find a node (non-fragment first, then fragment) ──
+        DiagramNode foundNode = null;
+        for (DiagramNode n : diagram.getNodes()) {
+            if (n.contains(svgX, svgY)) {
+                // Prefer non-fragment nodes over fragments (fragments are larger containers)
+                if (foundNode == null || foundNode instanceof SequenceFragment) {
+                    foundNode = n;
+                }
+            }
+        }
+        if (foundNode != null) {
+            int rx = (int)((foundNode.getX() - vbX) / vbW * imgW);
+            int ry = (int)((foundNode.getY() - vbY) / vbH * imgH);
+            int rw = (int)(foundNode.getWidth() / vbW * imgW);
+            int rh = (int)(foundNode.getHeight() / vbH * imgH);
+            highlightRect[0] = new Rectangle(rx, ry, rw, rh);
+            cs.selectedNode = foundNode;
+            cs.selectedEdge = null;
+            detailArea.setText(formatNodeDetails(foundNode));
+            detailArea.setCaretPosition(0);
+            refreshEditPanel.run();
+            dPanel.repaint();
+            return;
+        }
+
+        // ── Try to find an edge ──
+        DiagramEdge foundEdge = null;
+        for (DiagramEdge edge : diagram.getEdges()) {
+            if (edge.containsApprox(svgX, svgY)) {
+                foundEdge = edge;
+                break;
+            }
+        }
+        if (foundEdge != null) {
+            int rx = (int)((foundEdge.getX() - vbX) / vbW * imgW);
+            int ry = (int)((foundEdge.getY() - vbY) / vbH * imgH);
+            int rw = (int)(foundEdge.getWidth() / vbW * imgW);
+            int rh = (int)(foundEdge.getHeight() / vbH * imgH);
+            highlightRect[0] = new Rectangle(rx, ry, Math.max(rw, 10), Math.max(rh, 10));
+            cs.selectedNode = null;
+            cs.selectedEdge = foundEdge;
+            detailArea.setText(formatEdgeDetails(foundEdge));
+            detailArea.setCaretPosition(0);
+            refreshEditPanel.run();
+            dPanel.repaint();
+            return;
+        }
+
+        // ── Nothing found ──
+        highlightRect[0] = null;
+        cs.selectedNode = null;
+        cs.selectedEdge = null;
+        detailArea.setText(String.format(
+                "Kein Element an Position (%.0f, %.0f) gefunden.\n"
+                        + "SVG-Koordinaten: (%.1f, %.1f)\n"
+                        + "Vorhandene Nodes: %d\n"
+                        + "Vorhandene Edges: %d",
+                (double) e.getX(), (double) e.getY(),
+                svgX, svgY,
+                diagram.getNodes().size(),
+                diagram.getEdges().size()));
+        refreshEditPanel.run();
+        dPanel.repaint();
+    }
+
+    /** Draw a small arrowhead at the 'to' point on the drag line. */
+    private static void drawArrowHead(Graphics2D g2, Point from, Point to) {
+        double angle = Math.atan2(to.y - from.y, to.x - from.x);
+        int arrowLen = 12;
+        double spread = Math.toRadians(25);
+        int x1 = to.x - (int)(arrowLen * Math.cos(angle - spread));
+        int y1 = to.y - (int)(arrowLen * Math.sin(angle - spread));
+        int x2 = to.x - (int)(arrowLen * Math.cos(angle + spread));
+        int y2 = to.y - (int)(arrowLen * Math.sin(angle + spread));
+        g2.setStroke(new BasicStroke(2.5f));
+        g2.drawLine(to.x, to.y, x1, y1);
+        g2.drawLine(to.x, to.y, x2, y2);
+    }
 
     private static JLabel label(String text) {
         JLabel l = new JLabel(text);
@@ -996,6 +1972,13 @@ public final class MermaidSelectionTest {
             sb.append("ReqNodeType: ").append(ri.getReqNodeType()).append("\n");
             sb.append("ReqID:     ").append(ri.getReqId()).append("\n");
             sb.append("Risk:      ").append(ri.getRisk()).append("\n");
+        }
+        else if (node instanceof SequenceFragment) {
+            SequenceFragment sf = (SequenceFragment) node;
+            sb.append("\n--- SequenceFragment ---\n");
+            sb.append("FragType:  ").append(sf.getFragmentType()).append(" (").append(sf.getFragmentType().getKeyword()).append(")\n");
+            sb.append("Condition: ").append(sf.getCondition().isEmpty() ? "(keine)" : sf.getCondition()).append("\n");
+            sb.append("Header:    ").append(sf.toMermaidHeader()).append("\n");
         }
 
         if (!node.getProperties().isEmpty()) {

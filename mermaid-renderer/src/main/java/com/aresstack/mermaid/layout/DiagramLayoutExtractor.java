@@ -100,6 +100,9 @@ public final class DiagramLayoutExtractor {
             if ("sequence".equals(diagramType)) {
                 nodes = extractSequenceActors(doc);
                 edges = extractSequenceMessages(doc, nodes);
+                // Also extract combined fragments (loop, alt, opt, etc.)
+                List<DiagramNode> fragments = extractSequenceFragments(doc);
+                nodes.addAll(fragments);
             } else {
                 nodes = extractNodes(doc);
                 edges = extractEdges(doc, nodes, diagramType);
@@ -636,6 +639,94 @@ public final class DiagramLayoutExtractor {
     }
 
     // ═══════════════════════════════════════════════════════════
+    //  Sequence diagram fragment extraction (loop, alt, opt…)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Extract combined fragments (loop, alt, opt, par, critical, break, rect)
+     * from a sequence diagram SVG.
+     *
+     * <p>Mermaid renders these as {@code <rect class="loopLine">} rectangles
+     * paired with {@code <text class="loopText">} labels inside a parent
+     * {@code <g>} group.
+     */
+    private static List<DiagramNode> extractSequenceFragments(Document doc) {
+        List<DiagramNode> result = new ArrayList<DiagramNode>();
+
+        NodeList rects = doc.getElementsByTagNameNS("*", "rect");
+        for (int i = 0; i < rects.getLength(); i++) {
+            Node n = rects.item(i);
+            if (!(n instanceof Element)) continue;
+            Element rect = (Element) n;
+            String cls = attr(rect, "class");
+            if (!cls.contains("loopLine")) continue;
+
+            double rx = parseDoubleAttr(rect, "x", 0);
+            double ry = parseDoubleAttr(rect, "y", 0);
+            double rw = parseDoubleAttr(rect, "width", 0);
+            double rh = parseDoubleAttr(rect, "height", 0);
+            if (rw < 1 || rh < 1) continue;
+
+            // Walk up to the parent <g> and find sibling <text class="loopText"> elements
+            String fragmentKeyword = "";
+            String fragmentCondition = "";
+            Node parent = rect.getParentNode();
+            if (parent instanceof Element) {
+                Element pg = (Element) parent;
+                NodeList texts = pg.getElementsByTagNameNS("*", "text");
+                for (int t = 0; t < texts.getLength(); t++) {
+                    Element txt = (Element) texts.item(t);
+                    String txtCls = attr(txt, "class");
+                    if (!txtCls.contains("loopText")) continue;
+                    String content = txt.getTextContent();
+                    if (content == null) continue;
+                    content = content.trim();
+                    if (content.isEmpty()) continue;
+
+                    // First loopText is typically the keyword (loop, alt, opt…)
+                    // Second loopText (if any) is the condition
+                    if (fragmentKeyword.isEmpty()) {
+                        // Sometimes keyword and condition are in one text node: "loop Diskussion"
+                        // or just "loop" with condition in brackets as separate text
+                        String lower = content.toLowerCase();
+                        if (lower.startsWith("loop") || lower.startsWith("alt") || lower.startsWith("opt")
+                                || lower.startsWith("par") || lower.startsWith("critical")
+                                || lower.startsWith("break") || lower.startsWith("rect")
+                                || lower.startsWith("else")) {
+                            // Split keyword from condition
+                            int spaceIdx = content.indexOf(' ');
+                            if (spaceIdx > 0) {
+                                fragmentKeyword = content.substring(0, spaceIdx);
+                                fragmentCondition = content.substring(spaceIdx + 1).trim();
+                            } else {
+                                fragmentKeyword = content;
+                            }
+                        } else {
+                            // Might be a condition in brackets like "[Diskussion]"
+                            fragmentCondition = content.replace("[", "").replace("]", "").trim();
+                        }
+                    } else if (fragmentCondition.isEmpty()) {
+                        fragmentCondition = content.replace("[", "").replace("]", "").trim();
+                    }
+                }
+            }
+
+            if (fragmentKeyword.isEmpty()) fragmentKeyword = "loop"; // fallback
+
+            String fragId = "fragment-" + result.size();
+            String svgId = "loopRect-" + result.size();
+            String label = fragmentKeyword + (fragmentCondition.isEmpty() ? "" : " " + fragmentCondition);
+
+            SequenceFragment.FragmentType fragType =
+                    SequenceFragment.FragmentType.fromKeyword(fragmentKeyword);
+            result.add(new SequenceFragment(
+                    fragId, label, rx, ry, rw, rh, svgId,
+                    fragType, fragmentCondition));
+        }
+        return result;
+    }
+
+    // ═══════════════════════════════════════════════════════════
     //  Edge extraction (flowchart, class, ER, etc.)
     // ═══════════════════════════════════════════════════════════
 
@@ -766,6 +857,7 @@ public final class DiagramLayoutExtractor {
         }
 
         // ═══ ER relationship lines ═══
+        int erRelIdx = 0;
         for (int i = 0; i < allPaths.getLength(); i++) {
             Node n = allPaths.item(i);
             if (!(n instanceof Element)) continue;
@@ -777,13 +869,48 @@ public final class DiagramLayoutExtractor {
             double[] bounds = (d != null && !d.isEmpty()) ? parsePathBounds(d) : null;
             if (bounds == null) bounds = new double[]{0, 0, 0, 0};
 
+            // Resolve source/target by proximity to entity nodes
+            double startX = bounds[0], startY = (bounds[1] + bounds[3]) / 2;
+            double endX = bounds[2], endY = (bounds[1] + bounds[3]) / 2;
+            String srcId = "", tgtId = "";
+            double srcDist = Double.MAX_VALUE, tgtDist = Double.MAX_VALUE;
+            for (DiagramNode node : nodes) {
+                if (!"entity".equals(node.getKind())) continue;
+                double ncx = node.getCenterX(), ncy = node.getCenterY();
+                double dStart = Math.hypot(ncx - startX, ncy - startY);
+                double dEnd = Math.hypot(ncx - endX, ncy - endY);
+                if (dStart < srcDist) { srcDist = dStart; srcId = node.getId(); }
+                if (dEnd < tgtDist) { tgtDist = dEnd; tgtId = node.getId(); }
+            }
+
+            // Try to detect cardinality from marker references
+            ErCardinality srcCard = detectErCardinality(path, "marker-start");
+            ErCardinality tgtCard = detectErCardinality(path, "marker-end");
+            boolean identifying = cls.contains("identify") || d != null && d.contains("==");
+
+            // Try to find the relationship label from nearby text elements
+            String erLabel = "";
+            Node parent = path.getParentNode();
+            if (parent instanceof Element) {
+                NodeList texts = ((Element) parent).getElementsByTagNameNS("*", "text");
+                for (int t = 0; t < texts.getLength(); t++) {
+                    String txt = texts.item(t).getTextContent();
+                    if (txt != null && !txt.trim().isEmpty()) {
+                        erLabel = txt.trim();
+                        break;
+                    }
+                }
+            }
+
             result.add(new ErRelationship(
-                    "er-relation-" + i, "", "", "",
+                    srcId.isEmpty() ? "er-relation-" + erRelIdx : srcId + "->" + tgtId,
+                    srcId, tgtId, erLabel,
                     d,
                     bounds[0], bounds[1],
                     bounds[2] - bounds[0], bounds[3] - bounds[1],
-                    ErCardinality.EXACTLY_ONE, ErCardinality.EXACTLY_ONE, false
+                    srcCard, tgtCard, identifying
             ));
+            erRelIdx++;
         }
 
         return result;
@@ -1235,6 +1362,43 @@ public final class DiagramLayoutExtractor {
             }
         }
         return null;
+    }
+
+    /**
+     * Detect ER cardinality from a marker reference on a relationship path.
+     *
+     * @param path       the SVG path element for the relationship line
+     * @param markerAttr "marker-start" or "marker-end"
+     * @return detected cardinality
+     */
+    private static ErCardinality detectErCardinality(Element path, String markerAttr) {
+        String style = attr(path, "style");
+        String markerUrl = extractStyleProperty(style, markerAttr);
+        if (markerUrl == null || markerUrl.isEmpty()) {
+            markerUrl = path.getAttribute(markerAttr);
+        }
+        if (markerUrl == null || markerUrl.isEmpty() || "none".equals(markerUrl)) {
+            return ErCardinality.EXACTLY_ONE;
+        }
+
+        String markerId = markerUrl.replaceAll(".*#([^)\"]+).*", "$1");
+        String lower = markerId.toLowerCase();
+
+        // Mermaid ER marker IDs typically contain cardinality hints
+        if (lower.contains("zero_or_more") || lower.contains("crowfoot") && lower.contains("zero")) {
+            return ErCardinality.ZERO_OR_MORE;
+        }
+        if (lower.contains("one_or_more") || lower.contains("crowfoot") && !lower.contains("zero")) {
+            return ErCardinality.ONE_OR_MORE;
+        }
+        if (lower.contains("zero_or_one") || lower.contains("optionality")) {
+            return ErCardinality.ZERO_OR_ONE;
+        }
+        if (lower.contains("one") || lower.contains("only_one")) {
+            return ErCardinality.EXACTLY_ONE;
+        }
+
+        return ErCardinality.EXACTLY_ONE;
     }
 
     // ═══════════════════════════════════════════════════════════
