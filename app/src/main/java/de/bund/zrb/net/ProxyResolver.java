@@ -1,6 +1,7 @@
 package de.bund.zrb.net;
 
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.winproxy.PacUrlSource;
 import de.bund.zrb.winproxy.WindowsProxyResolver;
 
 import java.io.BufferedReader;
@@ -123,8 +124,8 @@ public class ProxyResolver {
     // ── Explicit PAC URL — delegates to win-proxy module ────────
 
     /**
-     * Downloads and evaluates an explicit PAC URL via {@link WindowsProxyResolver#evaluatePac}.
-     * Used when the user has manually configured the PAC URL in settings (Mode PAC_URL).
+     * Downloads and evaluates a PAC URL via {@link WindowsProxyResolver#resolve(String, PacUrlSource, String)}.
+     * Used when the user has manually configured the PAC URL or a discovery script (Mode PAC_URL).
      *
      * @param fromScript if {@code true}, {@code pacUrlOrScript} is a PowerShell command
      *                   whose output is the actual PAC URL
@@ -134,60 +135,10 @@ public class ProxyResolver {
             return ProxyResolution.direct("pac-url-empty");
         }
 
-        String pacUrl;
-        if (fromScript) {
-            pacUrl = executePacUrlScript(pacUrlOrScript.trim());
-            if (pacUrl == null || pacUrl.trim().isEmpty()) {
-                return ProxyResolution.direct("pac-url-script-empty");
-            }
-            pacUrl = pacUrl.trim();
-            LOG.info("[Proxy] PAC URL from script: " + pacUrl);
-        } else {
-            pacUrl = pacUrlOrScript.trim();
-        }
-
-        de.bund.zrb.winproxy.ProxyResult result = WindowsProxyResolver.evaluatePac(pacUrl, url);
+        PacUrlSource source = fromScript ? PacUrlSource.POWERSHELL : PacUrlSource.DIRECT;
+        de.bund.zrb.winproxy.ProxyResult result =
+                WindowsProxyResolver.resolve(url, source, pacUrlOrScript.trim());
         return adaptResult(result, "pac-url");
-    }
-
-    /**
-     * Executes a PowerShell one-liner / command and returns the trimmed stdout.
-     * Used to dynamically resolve the PAC URL from the Windows registry or other sources.
-     */
-    private static String executePacUrlScript(String script) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                    "-Command", script
-            );
-            pb.redirectErrorStream(false);
-            Process process = pb.start();
-
-            // Drain stderr on daemon thread
-            Thread stderrDrainer = new Thread(() -> {
-                try (BufferedReader r = new BufferedReader(
-                        new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
-                    while (r.readLine() != null) { /* discard */ }
-                } catch (Exception ignored) { }
-            }, "pac-url-stderr-drain");
-            stderrDrainer.setDaemon(true);
-            stderrDrainer.start();
-
-            StringBuilder stdout = new StringBuilder();
-            try (BufferedReader r = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    stdout.append(line).append('\n');
-                }
-            }
-
-            process.waitFor(10, TimeUnit.SECONDS);
-            return stdout.toString().trim();
-        } catch (Exception e) {
-            LOG.warning("[Proxy] PAC URL script failed: " + e.getMessage());
-            return null;
-        }
     }
 
     /**

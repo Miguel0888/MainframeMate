@@ -265,4 +265,49 @@ class WindowsProxyResolverTest {
         assertNotEquals(java.net.Proxy.NO_PROXY, proxy.toJavaProxy());
         assertEquals(java.net.Proxy.Type.HTTP, proxy.toJavaProxy().type());
     }
+
+    // ── PacUrlSource facade ──────────────────────────────────────
+
+    @Test
+    void defaultPacDiscoveryScriptIsNotEmpty() {
+        assertNotNull(WindowsProxyResolver.DEFAULT_PAC_DISCOVERY_SCRIPT);
+        assertFalse(WindowsProxyResolver.DEFAULT_PAC_DISCOVERY_SCRIPT.isEmpty());
+        assertTrue(WindowsProxyResolver.DEFAULT_PAC_DISCOVERY_SCRIPT.contains("AutoConfigURL"),
+                "Default script should query AutoConfigURL");
+    }
+
+    @Test
+    void resolveWithDirectSourceAndEmptyUrlReturnsDirect() {
+        ProxyResult res = WindowsProxyResolver.resolve("https://example.com", PacUrlSource.DIRECT, "");
+        assertTrue(res.isDirect());
+        assertTrue(res.getReason().contains("empty"), "reason: " + res.getReason());
+    }
+
+    @Test
+    void resolveWithDirectSourceAndNullUrlReturnsDirect() {
+        ProxyResult res = WindowsProxyResolver.resolve("https://example.com", PacUrlSource.DIRECT, null);
+        assertTrue(res.isDirect());
+    }
+
+    @Test
+    void resolveWithRegistrySourceDoesNotCrash() {
+        ProxyResult res = WindowsProxyResolver.resolve("https://example.com", PacUrlSource.REGISTRY, null);
+        assertNotNull(res);
+        assertNotNull(res.getReason());
+    }
+
+    @Test
+    void resolveWithNullSourceFallsBackToRegistry() {
+        ProxyResult res = WindowsProxyResolver.resolve("https://example.com", null, null);
+        assertNotNull(res);
+    }
+
+    @Test
+    void pacUrlSourceEnumValues() {
+        PacUrlSource[] values = PacUrlSource.values();
+        assertEquals(3, values.length);
+        assertNotNull(PacUrlSource.DIRECT);
+        assertNotNull(PacUrlSource.REGISTRY);
+        assertNotNull(PacUrlSource.POWERSHELL);
+    }
 }

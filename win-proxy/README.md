@@ -39,17 +39,45 @@ need to detect these settings at runtime, but the standard approaches fail:
 
 ```java
 import de.bund.zrb.winproxy.WindowsProxyResolver;
+import de.bund.zrb.winproxy.PacUrlSource;
 import de.bund.zrb.winproxy.ProxyResult;
 
-// Full auto-detection: GPO PAC → user PAC → blob PAC → WPAD → static → DIRECT
-ProxyResult result = WindowsProxyResolver.resolve("https://example.com");
+// ── Choose how the PAC URL is obtained ───────────────────────
 
-if (result.isDirect()) {
+// Option 1: User provides the PAC URL directly
+ProxyResult r = WindowsProxyResolver.resolve(
+    "https://example.com", PacUrlSource.DIRECT,
+    "http://wpad.corp.local/wpad.dat");
+
+// Option 2: Auto-detect from Windows Registry (all 4 hives, GPO first)
+ProxyResult r = WindowsProxyResolver.resolve(
+    "https://example.com", PacUrlSource.REGISTRY, null);
+
+// Option 3: Run default PowerShell command to discover PAC URL
+ProxyResult r = WindowsProxyResolver.resolve(
+    "https://example.com", PacUrlSource.POWERSHELL, null);
+// uses WindowsProxyResolver.DEFAULT_PAC_DISCOVERY_SCRIPT:
+// (Get-ItemProperty -Path 'HKCU:\...\Internet Settings').AutoConfigURL
+
+// Option 3b: Run custom PowerShell command
+ProxyResult r = WindowsProxyResolver.resolve(
+    "https://example.com", PacUrlSource.POWERSHELL,
+    "(Get-ItemProperty -Path 'HKLM:\\...').AutoConfigURL");
+
+// ── Use the result ───────────────────────────────────────────
+
+if (r.isDirect()) {
     connection = url.openConnection();
 } else {
-    connection = url.openConnection(result.toJavaProxy());
-    // or: result.getHost() + ":" + result.getPort()
+    connection = url.openConnection(r.toJavaProxy());
+    // or: r.getHost() + ":" + r.getPort()
 }
+
+// ── Shorthand: full auto-detection (same as REGISTRY) ────────
+
+ProxyResult result = WindowsProxyResolver.resolve("https://example.com");
+
+// ── Lower-level API ──────────────────────────────────────────
 
 // Search all registry hives (GPO first) for a specific value
 String autoConfig = WindowsProxyResolver.readRegistryValueFromAllHives("AutoConfigURL");
@@ -63,10 +91,6 @@ ProxyResult test = WindowsProxyResolver.evaluatePacScript(
     "function FindProxyForURL(url,host) { return 'PROXY proxy:8080'; }",
     "https://example.com");
 
-// Raw registry access (single key)
-String autoConfigUser = WindowsProxyResolver.readRegistryValue(
-    WindowsProxyResolver.INTERNET_SETTINGS_KEY, "AutoConfigURL");
-
 // Bypass list check
 boolean bypassed = WindowsProxyResolver.isBypassed(
     "intranet.corp.local", "*.corp.local;10.*;<local>");
@@ -79,14 +103,24 @@ boolean bypassed = WindowsProxyResolver.isBypassed(
 | Method | Description |
 |---|---|
 | `resolve(url)` | Full detection chain: GPO PAC → user PAC → blob PAC → WPAD → static → DIRECT |
+| `resolve(url, PacUrlSource, script)` | **Primary facade**: choose how the PAC URL is obtained (DIRECT / REGISTRY / POWERSHELL) |
 | `resolveStatic(url)` | Static proxy only (all hives, skips PAC/WPAD) |
 | `evaluatePac(pacUrl, targetUrl)` | Download + evaluate a PAC file |
 | `evaluatePacScript(script, targetUrl)` | Evaluate a PAC script string |
+| `DEFAULT_PAC_DISCOVERY_SCRIPT` | Default PowerShell command to read `AutoConfigURL` from registry |
 | `readRegistryValueFromAllHives(name)` | Search all 4 hives (GPO first) for a registry value |
 | `readRegistryValue(key, name)` | Read a specific Windows Registry value via `reg.exe` |
 | `readConnectionFlags()` | Read raw connection flags byte from `DefaultConnectionSettings` |
 | `isWpadAutoDetectEnabled()` | Check if "Automatically detect settings" is on |
 | `isBypassed(host, overrideList)` | Check proxy bypass rules (wildcards, `<local>`) |
+
+### `PacUrlSource` (Enum)
+
+| Value | Description |
+|---|---|
+| `DIRECT` | PAC URL provided directly by the caller |
+| `REGISTRY` | PAC URL auto-detected from Windows Registry (all 4 hives, GPO first) |
+| `POWERSHELL` | PAC URL obtained by running a PowerShell command |
 
 ### `ProxyResult` (Value Object)
 

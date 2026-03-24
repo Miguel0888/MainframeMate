@@ -1,11 +1,16 @@
 package de.bund.zrb.net;
 
+import de.bund.zrb.winproxy.WindowsProxyResolver;
+
 public final class ProxyDefaults {
 
     public static final String DEFAULT_TEST_URL = "https://plugins.gradle.org/m2/";
 
-    public static final String DEFAULT_PAC_URL_SCRIPT =
-            "(Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings').AutoConfigURL";
+    /**
+     * Default PowerShell command to discover the PAC URL.
+     * Delegates to the canonical constant in {@link WindowsProxyResolver}.
+     */
+    public static final String DEFAULT_PAC_URL_SCRIPT = WindowsProxyResolver.DEFAULT_PAC_DISCOVERY_SCRIPT;
 
     public static final String DEFAULT_PAC_SCRIPT =
             "param(\n" +

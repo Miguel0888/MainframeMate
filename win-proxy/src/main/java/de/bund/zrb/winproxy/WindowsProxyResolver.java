@@ -44,6 +44,12 @@ import java.util.logging.Logger;
  * // Full auto-detection (GPO PAC → user PAC → blob PAC → WPAD → static → DIRECT)
  * ProxyResult result = WindowsProxyResolver.resolve("https://example.com");
  *
+ * // Choose PAC URL source explicitly:
+ * ProxyResult r1 = WindowsProxyResolver.resolve(target, PacUrlSource.DIRECT,
+ *     "http://wpad.corp.local/wpad.dat");
+ * ProxyResult r2 = WindowsProxyResolver.resolve(target, PacUrlSource.REGISTRY, null);
+ * ProxyResult r3 = WindowsProxyResolver.resolve(target, PacUrlSource.POWERSHELL, null);
+ *
  * if (result.isDirect()) {
  *     connection = url.openConnection();
  * } else {
@@ -75,22 +81,30 @@ public final class WindowsProxyResolver {
     public static final String INTERNET_SETTINGS_KEY =
             "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
 
+    /**
+     * Default PowerShell command to discover the PAC URL from the Windows Registry.
+     * <p>
+     * This works on most machines — including hardened Windows 11 with
+     * PowerShell Constrained Language Mode — because {@code Get-ItemProperty}
+     * is a whitelisted cmdlet even under CLM.
+     * <p>
+     * Used as fallback when {@link PacUrlSource#POWERSHELL} is selected
+     * without a custom script.
+     */
+    public static final String DEFAULT_PAC_DISCOVERY_SCRIPT =
+            "(Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings').AutoConfigURL";
+
     private WindowsProxyResolver() {}
 
     // ── Public API ───────────────────────────────────────────────
 
     /**
-     * Resolves the proxy for the given URL using the full Windows proxy detection chain:
-     * <ol>
-     *   <li>AutoConfigURL from all registry hives (GPO keys first, then user, then machine)</li>
-     *   <li>Embedded PAC URL from {@code DefaultConnectionSettings} binary blob</li>
-     *   <li>WPAD auto-detect ({@code http://wpad/wpad.dat}) if the auto-detect flag is set</li>
-     *   <li>Static proxy ({@code ProxyEnable} + {@code ProxyServer}) from all hives</li>
-     *   <li>{@code ProxyOverride} bypass list</li>
-     * </ol>
+     * Resolves the proxy using the full Windows auto-detection chain (registry-based).
+     * Equivalent to {@code resolve(url, PacUrlSource.REGISTRY, null)}.
      *
      * @param url the target URL (e.g. {@code "https://example.com"})
      * @return a {@link ProxyResult} — never {@code null}
+     * @see #resolve(String, PacUrlSource, String)
      */
     public static ProxyResult resolve(String url) {
         try {
@@ -137,6 +151,62 @@ public final class WindowsProxyResolver {
         } catch (Exception e) {
             LOG.log(Level.FINE, "[WinProxy] Resolution failed", e);
             return ProxyResult.direct("error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Resolves the proxy for the given URL using the specified {@link PacUrlSource} strategy.
+     * <p>
+     * This is the <b>primary facade method</b> — callers choose how the PAC URL is obtained:
+     * <ul>
+     *   <li>{@link PacUrlSource#DIRECT} — {@code pacUrlOrScript} is the PAC URL itself</li>
+     *   <li>{@link PacUrlSource#REGISTRY} — searches all four registry hives
+     *       (GPO first), falls back to blob/WPAD/static. {@code pacUrlOrScript} is ignored.</li>
+     *   <li>{@link PacUrlSource#POWERSHELL} — runs {@code pacUrlOrScript} as a PowerShell command;
+     *       its stdout is the PAC URL. Falls back to {@link #DEFAULT_PAC_DISCOVERY_SCRIPT}
+     *       if {@code pacUrlOrScript} is {@code null}/empty.</li>
+     * </ul>
+     *
+     * <h4>Example</h4>
+     * <pre>{@code
+     * // User provides the PAC URL directly:
+     * ProxyResult r = WindowsProxyResolver.resolve(target, PacUrlSource.DIRECT,
+     *                     "http://wpad.corp.local/wpad.dat");
+     *
+     * // Auto-detect from registry (same as resolve(target)):
+     * ProxyResult r = WindowsProxyResolver.resolve(target, PacUrlSource.REGISTRY, null);
+     *
+     * // Run default PowerShell discovery command:
+     * ProxyResult r = WindowsProxyResolver.resolve(target, PacUrlSource.POWERSHELL, null);
+     *
+     * // Run custom PowerShell command:
+     * ProxyResult r = WindowsProxyResolver.resolve(target, PacUrlSource.POWERSHELL,
+     *                     "(Get-ItemProperty -Path 'HKCU:\\...').AutoConfigURL");
+     * }</pre>
+     *
+     * @param targetUrl      the URL to resolve the proxy for (e.g. {@code "https://example.com"})
+     * @param source         how to obtain the PAC URL
+     * @param pacUrlOrScript meaning depends on {@code source}: PAC URL, PowerShell command, or {@code null}
+     * @return a {@link ProxyResult} — never {@code null}
+     */
+    public static ProxyResult resolve(String targetUrl, PacUrlSource source, String pacUrlOrScript) {
+        if (source == null) {
+            source = PacUrlSource.REGISTRY;
+        }
+
+        switch (source) {
+            case DIRECT:
+                if (pacUrlOrScript == null || pacUrlOrScript.trim().isEmpty()) {
+                    return ProxyResult.direct("pac-url-empty");
+                }
+                return evaluatePac(pacUrlOrScript.trim(), targetUrl);
+
+            case POWERSHELL:
+                return resolveViaPowerShellScript(targetUrl, pacUrlOrScript);
+
+            case REGISTRY:
+            default:
+                return resolve(targetUrl);
         }
     }
 
@@ -408,6 +478,27 @@ public final class WindowsProxyResolver {
             }
         }
         return ProxyResult.direct(source + "-invalid: " + hostPort);
+    }
+
+    /**
+     * Obtains the PAC URL by running a PowerShell command, then evaluates the PAC file.
+     * Falls back to {@link #DEFAULT_PAC_DISCOVERY_SCRIPT} if no script is provided.
+     */
+    private static ProxyResult resolveViaPowerShellScript(String targetUrl, String script) {
+        String effectiveScript = (script != null && !script.trim().isEmpty())
+                ? script.trim()
+                : DEFAULT_PAC_DISCOVERY_SCRIPT;
+
+        LOG.fine("[WinProxy] Running PAC URL discovery script: " + effectiveScript);
+        String pacUrl = ScriptRunner.executePowerShell(effectiveScript);
+
+        if (pacUrl == null || pacUrl.trim().isEmpty()) {
+            return ProxyResult.direct("pac-script-empty");
+        }
+        pacUrl = pacUrl.trim();
+        LOG.fine("[WinProxy] PAC URL from script: " + pacUrl);
+
+        return evaluatePac(pacUrl, targetUrl);
     }
 
     static String extractProxyForProtocol(String proxyServer, String url) {
