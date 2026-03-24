@@ -133,6 +133,23 @@ public final class MermaidRenderer {
     }
 
     /**
+     * Render a Mermaid diagram and extract layout metadata in one step.
+     * This is the preferred entry point for interactive editors that need
+     * both the SVG and the positions of nodes/edges for highlighting.
+     *
+     * @param diagramCode Mermaid definition, e.g. {@code "graph TD; A-->B;"}
+     * @return a {@link com.aresstack.mermaid.layout.RenderedDiagram} with SVG + layout,
+     *         or {@code null} if rendering failed
+     * @see com.aresstack.mermaid.layout.DiagramLayoutExtractor
+     * @see com.aresstack.mermaid.layout.SvgHighlighter
+     */
+    public com.aresstack.mermaid.layout.RenderedDiagram renderWithLayout(String diagramCode) {
+        String svg = renderToSvg(diagramCode);
+        if (svg == null) return null;
+        return com.aresstack.mermaid.layout.DiagramLayoutExtractor.extract(svg);
+    }
+
+    /**
      * Like {@link #renderToSvg(String)} but returns the full
      * {@link JsExecutionResult} so callers can inspect error details.
      */

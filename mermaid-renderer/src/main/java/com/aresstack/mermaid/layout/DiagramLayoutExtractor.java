@@ -59,8 +59,12 @@ public final class DiagramLayoutExtractor {
     /** ER entity node id: {@code entity-EntityName} or {@code entity-EntityName-123} */
     private static final Pattern ENTITY_ID = Pattern.compile("^entity-(.+?)(?:-\\d+)?$");
 
-    /** Edge path id: {@code L-Source-Target-0} */
-    private static final Pattern EDGE_PATH_ID = Pattern.compile("^L-(.+?)-(.+?)(?:-\\d+)?$");
+    /** Edge path id: {@code L-Source-Target-0} or {@code L_Source_Target_0} (Mermaid 11+) */
+    private static final Pattern EDGE_PATH_ID = Pattern.compile("^L[-_](.+?)[-_](.+?)(?:[-_]\\d+)?$");
+
+    /** Class diagram edge id: {@code id_Source_Target_N} (Mermaid 11+).
+     *  Captures the combined source_target part and the trailing index. */
+    private static final Pattern CLASS_EDGE_ID = Pattern.compile("^id_(.+)_(\\d+)$");
 
     /** State diagram node id: {@code state-StateName-123} */
     private static final Pattern STATE_ID = Pattern.compile("^state-(.+?)(?:-\\d+)?$");
@@ -409,25 +413,106 @@ public final class DiagramLayoutExtractor {
             svgIdToLogicalId.put(n.getSvgId(), n.getId());
         }
 
-        // ── edgePath groups (flowchart, class, state) ──
-        NodeList allGs = doc.getElementsByTagNameNS("*", "g");
-        for (int i = 0; i < allGs.getLength(); i++) {
-            Node n = allGs.item(i);
-            if (!(n instanceof Element)) continue;
-            Element g = (Element) n;
-            String cls = attr(g, "class");
-            if (!cls.contains("edgePath")) continue;
-            // Skip the container "edgePaths"
-            if ("edgePaths".equals(cls)) continue;
+        // Collect edge labels from <g class="edgeLabels"> → <g class="edgeLabel">
+        // matched by data-id attribute
+        Map<String, String> edgeLabelsByDataId = collectEdgeLabels(doc);
 
-            DiagramEdge edge = extractEdgePath(g, svgIdToLogicalId);
-            if (edge != null) result.add(edge);
+        // ═══ Strategy 1: Mermaid 11+ flat paths with data-edge="true" ═══
+        // In Mermaid 11, edges are <path> elements directly inside <g class="edgePaths">
+        // with id="L_A_B_0", data-edge="true", class="... flowchart-link ..."
+        NodeList allPaths = doc.getElementsByTagNameNS("*", "path");
+        for (int i = 0; i < allPaths.getLength(); i++) {
+            Node n = allPaths.item(i);
+            if (!(n instanceof Element)) continue;
+            Element path = (Element) n;
+
+            String dataEdge = attr(path, "data-edge");
+            String cls = attr(path, "class");
+            String pathId = attr(path, "id");
+
+            // Match: data-edge="true" OR (class contains "flowchart-link" AND id matches L_..._...)
+            boolean isFlowchartEdge = "true".equals(dataEdge)
+                    || (cls.contains("flowchart-link") && pathId.startsWith("L"));
+
+            if (!isFlowchartEdge) continue;
+
+            // Use data-id if available, otherwise fall back to id
+            String edgeDataId = attr(path, "data-id");
+            if (edgeDataId.isEmpty()) edgeDataId = pathId;
+
+            // Parse source/target from the edge id
+            String sourceId = "";
+            String targetId = "";
+            Matcher edgeMatcher = EDGE_PATH_ID.matcher(edgeDataId);
+            if (edgeMatcher.matches()) {
+                String rawSource = edgeMatcher.group(1);
+                String rawTarget = edgeMatcher.group(2);
+                sourceId = resolveNodeId(rawSource, svgIdToLogicalId);
+                targetId = resolveNodeId(rawTarget, svgIdToLogicalId);
+            } else {
+                // Try class diagram pattern: id_Source_Target_N
+                Matcher classEdgeMatcher = CLASS_EDGE_ID.matcher(edgeDataId);
+                if (classEdgeMatcher.matches()) {
+                    String combined = classEdgeMatcher.group(1); // e.g. "Kunde_Bestellung"
+                    String[] resolved = resolveClassEdgeEndpoints(combined, svgIdToLogicalId);
+                    if (resolved != null) {
+                        sourceId = resolved[0];
+                        targetId = resolved[1];
+                    }
+                }
+            }
+
+            // Parse path geometry
+            String d = path.getAttribute("d");
+            double[] pathBounds = (d != null && !d.isEmpty()) ? parsePathBounds(d) : null;
+
+            // Apply parent transforms
+            if (pathBounds != null) {
+                double[] parentOffset = resolveParentTranslates(path);
+                pathBounds[0] += parentOffset[0];
+                pathBounds[1] += parentOffset[1];
+                pathBounds[2] += parentOffset[0];
+                pathBounds[3] += parentOffset[1];
+            }
+            if (pathBounds == null) pathBounds = new double[]{0, 0, 0, 0};
+
+            // Look up label from edgeLabels
+            String label = edgeLabelsByDataId.containsKey(edgeDataId)
+                    ? edgeLabelsByDataId.get(edgeDataId)
+                    : "";
+
+            String edgeId = sourceId.isEmpty() ? edgeDataId : (sourceId + "->" + targetId);
+
+            result.add(new DiagramEdge(
+                    edgeId, sourceId, targetId,
+                    label, "flowchart-link", d,
+                    pathBounds[0], pathBounds[1],
+                    pathBounds[2] - pathBounds[0],
+                    pathBounds[3] - pathBounds[1]
+            ));
         }
 
-        // ── ER relationship lines ──
-        NodeList paths = doc.getElementsByTagNameNS("*", "path");
-        for (int i = 0; i < paths.getLength(); i++) {
-            Node n = paths.item(i);
+        // ═══ Strategy 2: Legacy <g class="edgePath"> groups ═══
+        // Only if Strategy 1 found nothing (older Mermaid versions)
+        if (result.isEmpty()) {
+            NodeList allGs = doc.getElementsByTagNameNS("*", "g");
+            for (int i = 0; i < allGs.getLength(); i++) {
+                Node n = allGs.item(i);
+                if (!(n instanceof Element)) continue;
+                Element g = (Element) n;
+                String cls = attr(g, "class");
+                if (!cls.contains("edgePath")) continue;
+                // Skip the container "edgePaths"
+                if ("edgePaths".equals(cls.trim())) continue;
+
+                DiagramEdge edge = extractEdgePathGroup(g, svgIdToLogicalId, edgeLabelsByDataId);
+                if (edge != null) result.add(edge);
+            }
+        }
+
+        // ═══ ER relationship lines ═══
+        for (int i = 0; i < allPaths.getLength(); i++) {
+            Node n = allPaths.item(i);
             if (!(n instanceof Element)) continue;
             Element path = (Element) n;
             String cls = attr(path, "class");
@@ -448,7 +533,39 @@ public final class DiagramLayoutExtractor {
         return result;
     }
 
-    private static DiagramEdge extractEdgePath(Element g, Map<String, String> svgIdToLogicalId) {
+    /**
+     * Collect edge labels from {@code <g class="edgeLabels">} groups.
+     * Returns a map from data-id → label text.
+     */
+    private static Map<String, String> collectEdgeLabels(Document doc) {
+        Map<String, String> labels = new LinkedHashMap<String, String>();
+        NodeList allGs = doc.getElementsByTagNameNS("*", "g");
+        for (int i = 0; i < allGs.getLength(); i++) {
+            Node n = allGs.item(i);
+            if (!(n instanceof Element)) continue;
+            Element g = (Element) n;
+            String cls = attr(g, "class");
+            if (!"edgeLabel".equals(cls.trim()) && !cls.startsWith("edgeLabel ")) continue;
+
+            // Look for a child <g class="label" data-id="...">
+            NodeList children = g.getElementsByTagNameNS("*", "g");
+            for (int j = 0; j < children.getLength(); j++) {
+                Element child = (Element) children.item(j);
+                String dataId = attr(child, "data-id");
+                if (!dataId.isEmpty()) {
+                    String text = extractTextContent(child);
+                    if (!text.isEmpty()) {
+                        labels.put(dataId, text);
+                    }
+                }
+            }
+        }
+        return labels;
+    }
+
+    private static DiagramEdge extractEdgePathGroup(Element g,
+                                                     Map<String, String> svgIdToLogicalId,
+                                                     Map<String, String> edgeLabelsByDataId) {
         String svgId = attr(g, "id");
 
         // Try to extract source/target from the edge id: L-Source-Target-0
@@ -477,8 +594,11 @@ public final class DiagramLayoutExtractor {
             }
         }
 
-        // Find edge label from sibling edgeLabel group (same index)
+        // Find edge label from sibling edgeLabel group or inline text
         String label = extractEdgeLabel(g);
+        if ((label == null || label.isEmpty()) && edgeLabelsByDataId.containsKey(svgId)) {
+            label = edgeLabelsByDataId.get(svgId);
+        }
 
         // Apply parent transforms to the path bounds
         if (pathBounds != null) {
@@ -507,6 +627,39 @@ public final class DiagramLayoutExtractor {
                 pathBounds[2] - pathBounds[0],
                 pathBounds[3] - pathBounds[1]
         );
+    }
+
+    /**
+     * Resolve class diagram edge endpoints from a combined string like
+     * {@code "Kunde_Bestellung"}.  Tries all underscore split positions and
+     * checks whether both halves are known node IDs.
+     *
+     * @param combined  the combined source/target string (e.g. {@code "Kunde_Bestellung"})
+     * @param svgIdToLogicalId  map from SVG id → logical node id
+     * @return {@code [sourceId, targetId]} or {@code null} if unresolvable
+     */
+    private static String[] resolveClassEdgeEndpoints(String combined,
+                                                       Map<String, String> svgIdToLogicalId) {
+        // Collect all known logical node IDs
+        java.util.Set<String> knownIds = new java.util.HashSet<String>(svgIdToLogicalId.values());
+
+        // Try all underscore split positions
+        for (int i = 1; i < combined.length(); i++) {
+            if (combined.charAt(i) == '_') {
+                String left = combined.substring(0, i);
+                String right = combined.substring(i + 1);
+                if (knownIds.contains(left) && knownIds.contains(right)) {
+                    return new String[]{left, right};
+                }
+            }
+        }
+
+        // Fallback: simple split at first underscore
+        int sep = combined.indexOf('_');
+        if (sep > 0 && sep < combined.length() - 1) {
+            return new String[]{combined.substring(0, sep), combined.substring(sep + 1)};
+        }
+        return null;
     }
 
     /**
