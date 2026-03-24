@@ -1,6 +1,6 @@
 package de.bund.zrb.net;
 
-import de.bund.zrb.winproxy.WindowsProxyResolver;
+import com.aresstack.winproxy.WindowsProxyResolver;
 
 public final class ProxyDefaults {
 

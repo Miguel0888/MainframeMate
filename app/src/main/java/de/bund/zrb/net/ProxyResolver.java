@@ -1,8 +1,8 @@
 package de.bund.zrb.net;
 
 import de.bund.zrb.model.Settings;
-import de.bund.zrb.winproxy.PacUrlSource;
-import de.bund.zrb.winproxy.WindowsProxyResolver;
+import com.aresstack.winproxy.PacUrlSource;
+import com.aresstack.winproxy.WindowsProxyResolver;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -117,7 +117,7 @@ public class ProxyResolver {
      * Delegates to {@link WindowsProxyResolver#resolve(String)} and adapts the result.
      */
     private static ProxyResolution resolveViaRegistry(String url) {
-        de.bund.zrb.winproxy.ProxyResult result = WindowsProxyResolver.resolve(url);
+        com.aresstack.winproxy.ProxyResult result = WindowsProxyResolver.resolve(url);
         return adaptResult(result, "registry");
     }
 
@@ -136,15 +136,15 @@ public class ProxyResolver {
         }
 
         PacUrlSource source = fromScript ? PacUrlSource.POWERSHELL : PacUrlSource.DIRECT;
-        de.bund.zrb.winproxy.ProxyResult result =
+        com.aresstack.winproxy.ProxyResult result =
                 WindowsProxyResolver.resolve(url, source, pacUrlOrScript.trim());
         return adaptResult(result, "pac-url");
     }
 
     /**
-     * Adapts a {@link de.bund.zrb.winproxy.ProxyResult} to a {@link ProxyResolution}.
+     * Adapts a {@link com.aresstack.winproxy.ProxyResult} to a {@link ProxyResolution}.
      */
-    private static ProxyResolution adaptResult(de.bund.zrb.winproxy.ProxyResult result, String prefix) {
+    private static ProxyResolution adaptResult(com.aresstack.winproxy.ProxyResult result, String prefix) {
         if (result.isDirect()) {
             return ProxyResolution.direct(prefix + "-" + result.getReason());
         }
