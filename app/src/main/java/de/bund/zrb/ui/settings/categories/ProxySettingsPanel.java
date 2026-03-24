@@ -136,7 +136,7 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
      * </ul>
      */
     private void updateModeVisibility() {
-        String mode = Objects.toString(proxyModeBox.getSelectedItem(), "WINDOWS_PAC");
+        String mode = Objects.toString(proxyModeBox.getSelectedItem(), "REGISTRY");
         boolean isPac = "WINDOWS_PAC".equals(mode);
         boolean isRegistry = "REGISTRY".equals(mode);
         boolean isManual = "MANUAL".equals(mode);
@@ -162,7 +162,7 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
 
     @Override
     protected void applyToSettings(Settings s) {
-        s.proxyMode = Objects.toString(proxyModeBox.getSelectedItem(), "WINDOWS_PAC");
+        s.proxyMode = Objects.toString(proxyModeBox.getSelectedItem(), "REGISTRY");
         s.proxyHost = proxyHostField.getText().trim();
         s.proxyPort = ((Number) proxyPortSpinner.getValue()).intValue();
         s.proxyNoProxyLocal = proxyNoProxyLocalBox.isSelected();

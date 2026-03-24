@@ -238,7 +238,7 @@ public class Settings {
      */
     @Deprecated
     public boolean proxyEnabled = false;
-    public String proxyMode = "WINDOWS_PAC";
+    public String proxyMode = "REGISTRY";
     public String proxyHost = "";
     public int proxyPort = 0;
     public boolean proxyNoProxyLocal = true;

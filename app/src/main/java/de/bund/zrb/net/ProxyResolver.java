@@ -456,16 +456,16 @@ public class ProxyResolver {
 
     private static Mode parseMode(String raw) {
         if (raw == null) {
-            return Mode.WINDOWS_PAC;
+            return Mode.REGISTRY;
         }
         String normalized = raw.trim().toUpperCase(Locale.ROOT);
         if ("MANUAL".equals(normalized)) {
             return Mode.MANUAL;
         }
-        if ("REGISTRY".equals(normalized)) {
-            return Mode.REGISTRY;
+        if ("WINDOWS_PAC".equals(normalized)) {
+            return Mode.WINDOWS_PAC;
         }
-        return Mode.WINDOWS_PAC;
+        return Mode.REGISTRY;
     }
 
     private static boolean isLocalTarget(String url) {
