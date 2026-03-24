@@ -174,6 +174,23 @@ class WindowsProxyResolverTest {
         assertTrue(res.isDirect());
     }
 
+    // ── WPAD auto-detect ────────────────────────────────────────
+
+    @Test
+    void isWpadAutoDetectDoesNotCrash() {
+        // Just verifies no exception; actual value depends on machine
+        boolean result = WindowsProxyResolver.isWpadAutoDetectEnabled();
+        // result is either true or false — no assertion on the value
+    }
+
+    @Test
+    void readConnectionFlagsDoesNotCrash() {
+        int flags = WindowsProxyResolver.readConnectionFlags();
+        // -1 means unable to read, otherwise 0–255
+        assertTrue(flags >= -1 && flags <= 255,
+                "Connection flags should be -1 or 0-255, was: " + flags);
+    }
+
     // ── ProxyResult ──────────────────────────────────────────────
 
     @Test

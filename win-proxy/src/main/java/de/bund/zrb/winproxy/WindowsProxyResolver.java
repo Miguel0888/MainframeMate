@@ -66,7 +66,9 @@ public final class WindowsProxyResolver {
     /**
      * Resolves the proxy for the given URL using the full Windows proxy detection chain:
      * <ol>
-     *   <li>AutoConfigURL (WPAD/PAC) → downloads PAC, evaluates {@code FindProxyForURL()}</li>
+     *   <li>AutoConfigURL (explicit PAC) → downloads PAC, evaluates {@code FindProxyForURL()}</li>
+     *   <li>WPAD auto-detect → tries {@code http://wpad/wpad.dat} if the auto-detect flag is set
+     *       in {@code DefaultConnectionSettings}</li>
      *   <li>Static proxy ({@code ProxyEnable} + {@code ProxyServer})</li>
      *   <li>{@code ProxyOverride} bypass list</li>
      * </ol>
@@ -76,7 +78,7 @@ public final class WindowsProxyResolver {
      */
     public static ProxyResult resolve(String url) {
         try {
-            // 1) Check for AutoConfigURL (WPAD/PAC)
+            // 1) Check for explicit AutoConfigURL (PAC URL set in Internet Options)
             String autoConfigUrl = RegistryReader.queryValue(INTERNET_SETTINGS_KEY, "AutoConfigURL");
             if (autoConfigUrl != null && !autoConfigUrl.trim().isEmpty()) {
                 LOG.fine("[WinProxy] AutoConfigURL = " + autoConfigUrl);
@@ -84,10 +86,22 @@ public final class WindowsProxyResolver {
                 if (pacResult != null) {
                     return pacResult;
                 }
-                // PAC evaluation failed — fall through to static proxy
+                // PAC evaluation failed — fall through
             }
 
-            // 2) Check static proxy
+            // 2) WPAD auto-detect: if the "Automatically detect settings" flag is set,
+            //    try the standard WPAD URL http://wpad/wpad.dat
+            //    (Windows resolves "wpad" using DNS devolution, appending domain suffixes)
+            if (isWpadAutoDetectEnabled()) {
+                LOG.fine("[WinProxy] WPAD auto-detect is enabled, trying http://wpad/wpad.dat");
+                ProxyResult wpadResult = resolveViaWpad(url);
+                if (wpadResult != null) {
+                    return wpadResult;
+                }
+                LOG.fine("[WinProxy] WPAD evaluation failed or returned null, falling through");
+            }
+
+            // 3) Check static proxy
             return resolveStatic(url);
         } catch (Exception e) {
             LOG.log(Level.FINE, "[WinProxy] Resolution failed", e);
@@ -231,7 +245,57 @@ public final class WindowsProxyResolver {
         return false;
     }
 
+    /**
+     * Returns {@code true} if the "Automatically detect settings" (WPAD) flag is enabled
+     * in the Windows connection settings.
+     * <p>
+     * Reads the {@code DefaultConnectionSettings} binary value from
+     * {@code HKCU\...\Internet Settings\Connections} and checks bit 3 (0x08)
+     * of the flags byte at offset 8.
+     */
+    public static boolean isWpadAutoDetectEnabled() {
+        int flags = RegistryReader.queryConnectionFlags();
+        if (flags < 0) return false; // unable to read
+        return (flags & RegistryReader.FLAG_AUTO_DETECT) != 0;
+    }
+
+    /**
+     * Reads the raw connection flags byte from {@code DefaultConnectionSettings}.
+     * Useful for diagnostics. Returns -1 if unreadable.
+     *
+     * @see #isWpadAutoDetectEnabled()
+     */
+    public static int readConnectionFlags() {
+        return RegistryReader.queryConnectionFlags();
+    }
+
     // ── Internal ─────────────────────────────────────────────────
+
+    /**
+     * Tries WPAD auto-detection by downloading {@code http://wpad/wpad.dat}.
+     * Windows DNS resolver appends configured domain suffixes, so "wpad" typically
+     * resolves to e.g. "wpad.corp.local" automatically.
+     *
+     * @return a {@link ProxyResult}, or {@code null} if WPAD failed
+     */
+    private static ProxyResult resolveViaWpad(String targetUrl) {
+        try {
+            String wpadResult = PacEvaluator.evaluate("http://wpad/wpad.dat", targetUrl);
+            if (wpadResult == null) {
+                return null;
+            }
+            ProxyResult result = parsePacResult(wpadResult.trim());
+            // Re-tag reason with "wpad" prefix so callers can see the source
+            if (result.isDirect()) {
+                return ProxyResult.direct("wpad-direct");
+            } else {
+                return ProxyResult.proxy(result.getHost(), result.getPort(), "wpad");
+            }
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[WinProxy] WPAD evaluation failed", e);
+            return null;
+        }
+    }
 
     private static ProxyResult evaluatePacInternal(String pacUrl, String targetUrl) {
         try {
