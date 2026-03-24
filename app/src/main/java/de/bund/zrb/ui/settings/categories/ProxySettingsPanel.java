@@ -64,19 +64,34 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
         // ── PAC_URL-only: Explicit PAC URL ──
         pacUrlFromScriptBox = new JCheckBox("URL per PowerShell-Script beziehen");
         pacUrlFromScriptBox.setSelected(settings.proxyPacUrlFromScript);
-        pacUrlFromScriptBox.setToolTipText("<html>Wenn aktiviert, wird der Inhalt als PowerShell-Befehl ausgeführt,<br>" +
-                "dessen Ausgabe die eigentliche PAC-URL ist.</html>");
-        fb.addWide(pacUrlFromScriptBox);
 
+        // Create text field first (referenced by button listeners below)
         pacUrlLabel = new JLabel(settings.proxyPacUrlFromScript ? "PAC-URL Script:" : "PAC-URL:");
-        String initialPacUrl = settings.proxyPacUrl == null ? "" : settings.proxyPacUrl;
+        String initialPacUrl = settings.proxyPacUrl;
+        if (initialPacUrl == null || initialPacUrl.isEmpty()) {
+            initialPacUrl = settings.proxyPacUrlFromScript ? ProxyDefaults.DEFAULT_PAC_URL_SCRIPT : "";
+        }
         pacUrlField = new JTextField(initialPacUrl, 40);
         updatePacUrlHint();
+
+        JButton resetPacUrlScriptButton = new JButton("Standard-Script");
+        resetPacUrlScriptButton.setToolTipText("Setzt das Script auf den Standard-Befehl zurück");
+        resetPacUrlScriptButton.addActionListener(e -> {
+            pacUrlField.setText(ProxyDefaults.DEFAULT_PAC_URL_SCRIPT);
+            if (!pacUrlFromScriptBox.isSelected()) {
+                pacUrlFromScriptBox.setSelected(true);
+                updatePacUrlHint();
+            }
+        });
+
+        JPanel pacUrlScriptRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        pacUrlScriptRow.add(pacUrlFromScriptBox);
+        pacUrlScriptRow.add(resetPacUrlScriptButton);
+        fb.addWide(pacUrlScriptRow);
         fb.addRow(pacUrlLabel, pacUrlField);
 
         pacUrlFromScriptBox.addActionListener(e -> {
             updatePacUrlHint();
-            // Pre-fill with default script if switching to script mode and field is empty or looks like a URL
             if (pacUrlFromScriptBox.isSelected()) {
                 String current = pacUrlField.getText().trim();
                 if (current.isEmpty() || current.startsWith("http://") || current.startsWith("https://")) {
@@ -162,13 +177,10 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
     private void updatePacUrlHint() {
         if (pacUrlFromScriptBox.isSelected()) {
             pacUrlLabel.setText("PAC-URL Script:");
-            pacUrlField.setToolTipText("<html>PowerShell-Befehl, dessen Ausgabe die PAC-URL ist, z.B.<br>" +
-                    "<code>(Get-ItemProperty -Path 'HKCU:\\Software\\...\\Internet Settings').AutoConfigURL</code></html>");
+            pacUrlField.setToolTipText("PowerShell-Befehl, dessen Ausgabe die PAC-URL ist.");
         } else {
             pacUrlLabel.setText("PAC-URL:");
-            pacUrlField.setToolTipText("<html>Vollständige URL zur PAC-Datei, z.B.<br>" +
-                    "<code>http://wpad.firma.local/wpad.dat</code><br>" +
-                    "Die Datei wird heruntergeladen und FindProxyForURL() via GraalJS ausgewertet.</html>");
+            pacUrlField.setToolTipText("Vollständige URL zur PAC-Datei (wird per GraalJS ausgewertet).");
         }
     }
 
