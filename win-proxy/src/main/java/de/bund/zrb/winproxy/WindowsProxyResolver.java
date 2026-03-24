@@ -15,17 +15,33 @@ import java.util.logging.Logger;
  *
  * <h3>How it works</h3>
  * <ol>
- *   <li>Reads {@code AutoConfigURL} from
- *       {@code HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings}.
- *       If present, downloads the PAC file and evaluates {@code FindProxyForURL()}
- *       via GraalJS.</li>
- *   <li>Falls back to static proxy settings ({@code ProxyEnable} + {@code ProxyServer}).</li>
+ *   <li>Searches <b>all four registry hives</b> (GPO first!) for {@code AutoConfigURL}:
+ *       <ol>
+ *         <li>{@code HKCU\Software\Policies\...\Internet Settings} (User GPO)</li>
+ *         <li>{@code HKLM\Software\Policies\...\Internet Settings} (Machine GPO)</li>
+ *         <li>{@code HKCU\Software\Microsoft\...\Internet Settings} (User settings)</li>
+ *         <li>{@code HKLM\Software\Microsoft\...\Internet Settings} (Machine settings)</li>
+ *       </ol>
+ *       If found, downloads the PAC file and evaluates {@code FindProxyForURL()} via GraalJS.</li>
+ *   <li>Checks the {@code DefaultConnectionSettings} binary blob for an embedded PAC URL
+ *       (flag {@code 0x04}).</li>
+ *   <li>Tries WPAD auto-detect ({@code http://wpad/wpad.dat}) if the auto-detect flag
+ *       ({@code 0x08}) is set in {@code DefaultConnectionSettings}.</li>
+ *   <li>Falls back to static proxy settings ({@code ProxyEnable} + {@code ProxyServer})
+ *       across all four registry hives.</li>
  *   <li>Respects the {@code ProxyOverride} bypass list (wildcards, {@code <local>}).</li>
  * </ol>
  *
+ * <h3>Why GPO keys matter</h3>
+ * On hardened enterprise machines (e.g. Windows 11 with Group Policy), the PAC URL is
+ * typically deployed via GPO and stored in {@code HKCU\Software\Policies\...} or
+ * {@code HKLM\Software\Policies\...}. The normal user-level key
+ * ({@code HKCU\Software\Microsoft\...\Internet Settings}) will be <b>empty</b>.
+ * Only checking the user-level key results in a false DIRECT result.
+ *
  * <h3>Usage</h3>
  * <pre>{@code
- * // Full auto-detection (PAC → static → DIRECT)
+ * // Full auto-detection (GPO PAC → user PAC → blob PAC → WPAD → static → DIRECT)
  * ProxyResult result = WindowsProxyResolver.resolve("https://example.com");
  *
  * if (result.isDirect()) {
@@ -55,7 +71,7 @@ public final class WindowsProxyResolver {
 
     private static final Logger LOG = Logger.getLogger(WindowsProxyResolver.class.getName());
 
-    /** The Windows Registry key containing Internet/proxy settings. */
+    /** The Windows Registry key containing user-level Internet/proxy settings. */
     public static final String INTERNET_SETTINGS_KEY =
             "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
 
@@ -66,10 +82,10 @@ public final class WindowsProxyResolver {
     /**
      * Resolves the proxy for the given URL using the full Windows proxy detection chain:
      * <ol>
-     *   <li>AutoConfigURL (explicit PAC) → downloads PAC, evaluates {@code FindProxyForURL()}</li>
-     *   <li>WPAD auto-detect → tries {@code http://wpad/wpad.dat} if the auto-detect flag is set
-     *       in {@code DefaultConnectionSettings}</li>
-     *   <li>Static proxy ({@code ProxyEnable} + {@code ProxyServer})</li>
+     *   <li>AutoConfigURL from all registry hives (GPO keys first, then user, then machine)</li>
+     *   <li>Embedded PAC URL from {@code DefaultConnectionSettings} binary blob</li>
+     *   <li>WPAD auto-detect ({@code http://wpad/wpad.dat}) if the auto-detect flag is set</li>
+     *   <li>Static proxy ({@code ProxyEnable} + {@code ProxyServer}) from all hives</li>
      *   <li>{@code ProxyOverride} bypass list</li>
      * </ol>
      *
@@ -78,18 +94,33 @@ public final class WindowsProxyResolver {
      */
     public static ProxyResult resolve(String url) {
         try {
-            // 1) Check for explicit AutoConfigURL (PAC URL set in Internet Options)
-            String autoConfigUrl = RegistryReader.queryValue(INTERNET_SETTINGS_KEY, "AutoConfigURL");
-            if (autoConfigUrl != null && !autoConfigUrl.trim().isEmpty()) {
+            // 1) Check all registry hives for AutoConfigURL (GPO keys first!)
+            //    On hardened enterprise machines, the PAC URL is deployed via Group Policy
+            //    and stored under Software\Policies\...\Internet Settings, NOT the normal
+            //    user-level key.
+            String autoConfigUrl = RegistryReader.queryValueFromAllHives("AutoConfigURL");
+            if (autoConfigUrl != null && !autoConfigUrl.isEmpty()) {
                 LOG.fine("[WinProxy] AutoConfigURL = " + autoConfigUrl);
-                ProxyResult pacResult = evaluatePacInternal(autoConfigUrl.trim(), url);
+                ProxyResult pacResult = evaluatePacInternal(autoConfigUrl, url);
                 if (pacResult != null) {
                     return pacResult;
                 }
-                // PAC evaluation failed — fall through
+                LOG.fine("[WinProxy] PAC evaluation failed for " + autoConfigUrl + ", falling through");
             }
 
-            // 2) WPAD auto-detect: if the "Automatically detect settings" flag is set,
+            // 2) Check DefaultConnectionSettings blob for embedded PAC URL
+            //    (may contain a PAC URL even when AutoConfigURL is not a separate registry value)
+            String blobPacUrl = RegistryReader.queryAutoConfigUrlFromBlob();
+            if (blobPacUrl != null && !blobPacUrl.equals(autoConfigUrl)) {
+                LOG.fine("[WinProxy] Blob PAC URL = " + blobPacUrl);
+                ProxyResult blobResult = evaluatePacInternal(blobPacUrl, url);
+                if (blobResult != null) {
+                    return blobResult;
+                }
+                LOG.fine("[WinProxy] Blob PAC evaluation failed, falling through");
+            }
+
+            // 3) WPAD auto-detect: if the "Automatically detect settings" flag is set,
             //    try the standard WPAD URL http://wpad/wpad.dat
             //    (Windows resolves "wpad" using DNS devolution, appending domain suffixes)
             if (isWpadAutoDetectEnabled()) {
@@ -101,7 +132,7 @@ public final class WindowsProxyResolver {
                 LOG.fine("[WinProxy] WPAD evaluation failed or returned null, falling through");
             }
 
-            // 3) Check static proxy
+            // 4) Check static proxy across all registry hives
             return resolveStatic(url);
         } catch (Exception e) {
             LOG.log(Level.FINE, "[WinProxy] Resolution failed", e);
@@ -113,6 +144,7 @@ public final class WindowsProxyResolver {
      * Resolves the proxy using <b>only</b> the static registry settings
      * ({@code ProxyEnable}, {@code ProxyServer}, {@code ProxyOverride}).
      * <p>
+     * Searches all four registry hives (GPO first, then user, then machine).
      * Skips AutoConfigURL / PAC evaluation entirely.
      *
      * @param url the target URL
@@ -120,40 +152,52 @@ public final class WindowsProxyResolver {
      */
     public static ProxyResult resolveStatic(String url) {
         try {
-            String proxyEnable = RegistryReader.queryValue(INTERNET_SETTINGS_KEY, "ProxyEnable");
-            if (!"0x1".equals(proxyEnable != null ? proxyEnable.trim() : "")) {
-                return ProxyResult.direct("proxy-disabled");
-            }
-
-            String proxyServer = RegistryReader.queryValue(INTERNET_SETTINGS_KEY, "ProxyServer");
-            if (proxyServer == null || proxyServer.trim().isEmpty()) {
-                return ProxyResult.direct("no-proxy-server");
-            }
-
-            // Check bypass list
-            String proxyOverride = RegistryReader.queryValue(INTERNET_SETTINGS_KEY, "ProxyOverride");
-            if (proxyOverride != null && !proxyOverride.trim().isEmpty() && url != null) {
-                try {
-                    String targetHost = URI.create(url).getHost();
-                    if (targetHost != null && isBypassed(targetHost, proxyOverride)) {
-                        return ProxyResult.direct("bypass-match");
-                    }
-                } catch (Exception ignore) { }
-            }
-
-            String server = proxyServer.trim();
-
-            // Handle protocol-specific format: "http=host:port;https=host:port"
-            if (server.contains("=")) {
-                String extracted = extractProxyForProtocol(server, url);
-                if (extracted != null) {
-                    server = extracted;
-                } else {
-                    return ProxyResult.direct("no-matching-protocol");
+            // Search all hives for a ProxyEnable=1 + ProxyServer combination
+            for (String key : RegistryReader.SETTINGS_KEYS) {
+                String proxyEnable = RegistryReader.queryValue(key, "ProxyEnable");
+                if (!"0x1".equals(proxyEnable != null ? proxyEnable.trim() : "")) {
+                    continue;
                 }
+
+                String proxyServer = RegistryReader.queryValue(key, "ProxyServer");
+                if (proxyServer == null || proxyServer.trim().isEmpty()) {
+                    continue;
+                }
+
+                LOG.fine("[WinProxy] Static proxy found in " + key + ": " + proxyServer);
+
+                // Check bypass list (from same hive, then from all hives)
+                String proxyOverride = RegistryReader.queryValue(key, "ProxyOverride");
+                if (proxyOverride == null || proxyOverride.trim().isEmpty()) {
+                    // Also try to find ProxyOverride in other hives
+                    proxyOverride = RegistryReader.queryValueFromAllHives("ProxyOverride");
+                }
+
+                if (proxyOverride != null && !proxyOverride.trim().isEmpty() && url != null) {
+                    try {
+                        String targetHost = URI.create(url).getHost();
+                        if (targetHost != null && isBypassed(targetHost, proxyOverride)) {
+                            return ProxyResult.direct("bypass-match");
+                        }
+                    } catch (Exception ignore) { }
+                }
+
+                String server = proxyServer.trim();
+
+                // Handle protocol-specific format: "http=host:port;https=host:port"
+                if (server.contains("=")) {
+                    String extracted = extractProxyForProtocol(server, url);
+                    if (extracted != null) {
+                        server = extracted;
+                    } else {
+                        continue; // no matching protocol in this hive, try next
+                    }
+                }
+
+                return parseHostPort(server, "static");
             }
 
-            return parseHostPort(server, "static");
+            return ProxyResult.direct("proxy-disabled");
         } catch (Exception e) {
             LOG.log(Level.FINE, "[WinProxy] Static resolution failed", e);
             return ProxyResult.direct("error: " + e.getMessage());
@@ -206,6 +250,18 @@ public final class WindowsProxyResolver {
      */
     public static String readRegistryValue(String key, String valueName) {
         return RegistryReader.queryValue(key, valueName);
+    }
+
+    /**
+     * Searches all four registry hives for the given value name and returns the
+     * first non-empty result. Group Policy keys are checked first.
+     *
+     * @param valueName name of the value to query (e.g. {@code "AutoConfigURL"})
+     * @return the first non-empty value found, or {@code null}
+     * @see RegistryReader#SETTINGS_KEYS
+     */
+    public static String readRegistryValueFromAllHives(String valueName) {
+        return RegistryReader.queryValueFromAllHives(valueName);
     }
 
     /**
@@ -275,6 +331,11 @@ public final class WindowsProxyResolver {
      * Tries WPAD auto-detection by downloading {@code http://wpad/wpad.dat}.
      * Windows DNS resolver appends configured domain suffixes, so "wpad" typically
      * resolves to e.g. "wpad.corp.local" automatically.
+     * <p>
+     * Note: This is a last-resort fallback. On enterprise machines, the PAC URL
+     * is usually found in the registry (GPO keys or DefaultConnectionSettings blob).
+     * Pure DHCP option 252 WPAD URLs cannot be read from the registry — only
+     * the native WinHTTP API can discover them.
      *
      * @return a {@link ProxyResult}, or {@code null} if WPAD failed
      */

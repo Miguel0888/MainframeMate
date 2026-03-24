@@ -31,6 +31,57 @@ class WindowsProxyResolverTest {
         assertNull(val);
     }
 
+    // ── readRegistryValueFromAllHives() ──────────────────────────
+
+    @Test
+    void readRegistryValueFromAllHivesDoesNotCrash() {
+        // May return null (no AutoConfigURL set) or a valid URL — both are OK
+        String val = WindowsProxyResolver.readRegistryValueFromAllHives("AutoConfigURL");
+        // No assertion on value — just verifying no exception is thrown
+    }
+
+    @Test
+    void readRegistryValueFromAllHivesReturnsNullForBogusValue() {
+        String val = WindowsProxyResolver.readRegistryValueFromAllHives("WinProxyTest_Bogus_99999");
+        assertNull(val);
+    }
+
+    // ── Registry hives are searched ──────────────────────────────
+
+    @Test
+    void settingsKeysContainPolicyAndUserHives() {
+        // Verify the search order is correct: GPO first, then user/machine
+        assertEquals(4, RegistryReader.SETTINGS_KEYS.length);
+        assertTrue(RegistryReader.SETTINGS_KEYS[0].contains("Policies"),
+                "First hive should be HKCU Policy");
+        assertTrue(RegistryReader.SETTINGS_KEYS[0].startsWith("HKCU"),
+                "First hive should be HKCU");
+        assertTrue(RegistryReader.SETTINGS_KEYS[1].contains("Policies"),
+                "Second hive should be HKLM Policy");
+        assertTrue(RegistryReader.SETTINGS_KEYS[1].startsWith("HKLM"),
+                "Second hive should be HKLM");
+        assertFalse(RegistryReader.SETTINGS_KEYS[2].contains("Policies"),
+                "Third hive should be normal user key");
+        assertFalse(RegistryReader.SETTINGS_KEYS[3].contains("Policies"),
+                "Fourth hive should be normal machine key");
+    }
+
+    // ── DefaultConnectionSettings blob parsing ───────────────────
+
+    @Test
+    void queryAutoConfigUrlFromBlobDoesNotCrash() {
+        // May return null or a URL — both are valid depending on the machine
+        String blobUrl = RegistryReader.queryAutoConfigUrlFromBlob();
+        // No assertion on value
+    }
+
+    @Test
+    void connectionFlagsConstants() {
+        assertEquals(0x08, RegistryReader.FLAG_AUTO_DETECT);
+        assertEquals(0x04, RegistryReader.FLAG_AUTO_CONFIG);
+        assertEquals(0x02, RegistryReader.FLAG_PROXY);
+    }
+
     // ── isBypassed() ─────────────────────────────────────────────
 
     @Test
