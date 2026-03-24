@@ -241,6 +241,8 @@ public class Settings {
     public String proxyMode = "REGISTRY";
     /** Explicit PAC auto-config URL (only used when proxyMode = PAC_URL). */
     public String proxyPacUrl = "";
+    /** If true, proxyPacUrl is a PowerShell script whose output is the actual PAC URL. */
+    public boolean proxyPacUrlFromScript = false;
     public String proxyHost = "";
     public int proxyPort = 0;
     public boolean proxyNoProxyLocal = true;

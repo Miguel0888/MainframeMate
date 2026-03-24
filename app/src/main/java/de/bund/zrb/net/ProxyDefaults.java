@@ -4,6 +4,9 @@ public final class ProxyDefaults {
 
     public static final String DEFAULT_TEST_URL = "https://plugins.gradle.org/m2/";
 
+    public static final String DEFAULT_PAC_URL_SCRIPT =
+            "(Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings').AutoConfigURL";
+
     public static final String DEFAULT_PAC_SCRIPT =
             "param(\n" +
             "    [string]$TestUrl = \"https://plugins.gradle.org/m2/\",\n" +

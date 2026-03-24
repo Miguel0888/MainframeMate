@@ -24,6 +24,7 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
     private final JLabel pacSectionLabel;
     private final JLabel pacUrlLabel;
     private final JTextField pacUrlField;
+    private final JCheckBox pacUrlFromScriptBox;
     private final JTextField proxyTestUrlField;
     private final JLabel proxyTestUrlLabel;
     private final JButton proxyTestButton;
@@ -61,12 +62,28 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
         fb.addWide(proxyNoProxyLocalBox);
 
         // ── PAC_URL-only: Explicit PAC URL ──
-        pacUrlLabel = new JLabel("PAC-URL:");
-        pacUrlField = new JTextField(settings.proxyPacUrl == null ? "" : settings.proxyPacUrl, 40);
-        pacUrlField.setToolTipText("<html>Vollständige URL zur PAC-Datei, z.B.<br>" +
-                "<code>http://wpad.firma.local/wpad.dat</code><br>" +
-                "Die Datei wird heruntergeladen und FindProxyForURL() via GraalJS ausgewertet.</html>");
+        pacUrlFromScriptBox = new JCheckBox("URL per PowerShell-Script beziehen");
+        pacUrlFromScriptBox.setSelected(settings.proxyPacUrlFromScript);
+        pacUrlFromScriptBox.setToolTipText("<html>Wenn aktiviert, wird der Inhalt als PowerShell-Befehl ausgeführt,<br>" +
+                "dessen Ausgabe die eigentliche PAC-URL ist.</html>");
+        fb.addWide(pacUrlFromScriptBox);
+
+        pacUrlLabel = new JLabel(settings.proxyPacUrlFromScript ? "PAC-URL Script:" : "PAC-URL:");
+        String initialPacUrl = settings.proxyPacUrl == null ? "" : settings.proxyPacUrl;
+        pacUrlField = new JTextField(initialPacUrl, 40);
+        updatePacUrlHint();
         fb.addRow(pacUrlLabel, pacUrlField);
+
+        pacUrlFromScriptBox.addActionListener(e -> {
+            updatePacUrlHint();
+            // Pre-fill with default script if switching to script mode and field is empty or looks like a URL
+            if (pacUrlFromScriptBox.isSelected()) {
+                String current = pacUrlField.getText().trim();
+                if (current.isEmpty() || current.startsWith("http://") || current.startsWith("https://")) {
+                    pacUrlField.setText(ProxyDefaults.DEFAULT_PAC_URL_SCRIPT);
+                }
+            }
+        });
 
         // ── PAC/WPAD-only: Script + Test ──
         fb.addSeparator();
@@ -109,7 +126,7 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
                         return ProxyResolver.testRegistry(testUrl);
                     }
                     if ("PAC_URL".equals(selectedMode)) {
-                        return ProxyResolver.testPacUrl(testUrl, pacUrlField.getText().trim());
+                        return ProxyResolver.testPacUrl(testUrl, pacUrlField.getText().trim(), pacUrlFromScriptBox.isSelected());
                     }
                     return ProxyResolver.testPacScript(testUrl, proxyPacScriptArea.getText());
                 }
@@ -141,6 +158,20 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
         installPanel(fb);
     }
 
+    /** Updates label and tooltip of the PAC URL field depending on script mode. */
+    private void updatePacUrlHint() {
+        if (pacUrlFromScriptBox.isSelected()) {
+            pacUrlLabel.setText("PAC-URL Script:");
+            pacUrlField.setToolTipText("<html>PowerShell-Befehl, dessen Ausgabe die PAC-URL ist, z.B.<br>" +
+                    "<code>(Get-ItemProperty -Path 'HKCU:\\Software\\...\\Internet Settings').AutoConfigURL</code></html>");
+        } else {
+            pacUrlLabel.setText("PAC-URL:");
+            pacUrlField.setToolTipText("<html>Vollständige URL zur PAC-Datei, z.B.<br>" +
+                    "<code>http://wpad.firma.local/wpad.dat</code><br>" +
+                    "Die Datei wird heruntergeladen und FindProxyForURL() via GraalJS ausgewertet.</html>");
+        }
+    }
+
     /**
      * Enables/disables fields depending on the selected proxy mode.
      * <ul>
@@ -163,9 +194,10 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
         proxyPortLabel.setEnabled(isManual);
         proxyPortSpinner.setEnabled(isManual);
 
-        // Explicit PAC URL — only in PAC_URL mode
+        // Explicit PAC URL / Script — only in PAC_URL mode
         pacUrlLabel.setEnabled(isPacUrl);
         pacUrlField.setEnabled(isPacUrl);
+        pacUrlFromScriptBox.setEnabled(isPacUrl);
 
         // PAC/WPAD script — only in WINDOWS_PAC mode
         pacSectionLabel.setEnabled(isPac);
@@ -184,6 +216,7 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
     protected void applyToSettings(Settings s) {
         s.proxyMode = Objects.toString(proxyModeBox.getSelectedItem(), "REGISTRY");
         s.proxyPacUrl = pacUrlField.getText().trim();
+        s.proxyPacUrlFromScript = pacUrlFromScriptBox.isSelected();
         s.proxyHost = proxyHostField.getText().trim();
         s.proxyPort = ((Number) proxyPortSpinner.getValue()).intValue();
         s.proxyNoProxyLocal = proxyNoProxyLocalBox.isSelected();

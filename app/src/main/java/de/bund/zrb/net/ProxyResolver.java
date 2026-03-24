@@ -90,7 +90,7 @@ public class ProxyResolver {
         }
 
         if (mode == Mode.PAC_URL) {
-            return resolveViaPacUrl(url, settings.proxyPacUrl);
+            return resolveViaPacUrl(url, settings.proxyPacUrl, settings.proxyPacUrlFromScript);
         }
 
         return resolveViaPowerShell(url, settings.proxyPacScript);
@@ -100,9 +100,9 @@ public class ProxyResolver {
         return resolveViaPowerShell(url, script);
     }
 
-    /** Tests the PAC_URL proxy detection for a given URL and explicit PAC URL. */
-    public static ProxyResolution testPacUrl(String url, String pacUrl) {
-        return resolveViaPacUrl(url, pacUrl);
+    /** Tests the PAC_URL proxy detection for a given URL and explicit PAC URL or script. */
+    public static ProxyResolution testPacUrl(String url, String pacUrlOrScript, boolean fromScript) {
+        return resolveViaPacUrl(url, pacUrlOrScript, fromScript);
     }
 
     /** Tests the Registry proxy detection for a given URL. */
@@ -125,13 +125,69 @@ public class ProxyResolver {
     /**
      * Downloads and evaluates an explicit PAC URL via {@link WindowsProxyResolver#evaluatePac}.
      * Used when the user has manually configured the PAC URL in settings (Mode PAC_URL).
+     *
+     * @param fromScript if {@code true}, {@code pacUrlOrScript} is a PowerShell command
+     *                   whose output is the actual PAC URL
      */
-    private static ProxyResolution resolveViaPacUrl(String url, String pacUrl) {
-        if (pacUrl == null || pacUrl.trim().isEmpty()) {
+    private static ProxyResolution resolveViaPacUrl(String url, String pacUrlOrScript, boolean fromScript) {
+        if (pacUrlOrScript == null || pacUrlOrScript.trim().isEmpty()) {
             return ProxyResolution.direct("pac-url-empty");
         }
-        de.bund.zrb.winproxy.ProxyResult result = WindowsProxyResolver.evaluatePac(pacUrl.trim(), url);
+
+        String pacUrl;
+        if (fromScript) {
+            pacUrl = executePacUrlScript(pacUrlOrScript.trim());
+            if (pacUrl == null || pacUrl.trim().isEmpty()) {
+                return ProxyResolution.direct("pac-url-script-empty");
+            }
+            pacUrl = pacUrl.trim();
+            LOG.info("[Proxy] PAC URL from script: " + pacUrl);
+        } else {
+            pacUrl = pacUrlOrScript.trim();
+        }
+
+        de.bund.zrb.winproxy.ProxyResult result = WindowsProxyResolver.evaluatePac(pacUrl, url);
         return adaptResult(result, "pac-url");
+    }
+
+    /**
+     * Executes a PowerShell one-liner / command and returns the trimmed stdout.
+     * Used to dynamically resolve the PAC URL from the Windows registry or other sources.
+     */
+    private static String executePacUrlScript(String script) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-Command", script
+            );
+            pb.redirectErrorStream(false);
+            Process process = pb.start();
+
+            // Drain stderr on daemon thread
+            Thread stderrDrainer = new Thread(() -> {
+                try (BufferedReader r = new BufferedReader(
+                        new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+                    while (r.readLine() != null) { /* discard */ }
+                } catch (Exception ignored) { }
+            }, "pac-url-stderr-drain");
+            stderrDrainer.setDaemon(true);
+            stderrDrainer.start();
+
+            StringBuilder stdout = new StringBuilder();
+            try (BufferedReader r = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    stdout.append(line).append('\n');
+                }
+            }
+
+            process.waitFor(10, TimeUnit.SECONDS);
+            return stdout.toString().trim();
+        } catch (Exception e) {
+            LOG.warning("[Proxy] PAC URL script failed: " + e.getMessage());
+            return null;
+        }
     }
 
     /**
