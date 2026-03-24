@@ -25,6 +25,7 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
     private final JTextField proxyTestUrlField;
     private final JLabel proxyTestUrlLabel;
     private final JButton proxyTestButton;
+    private final JButton resetScriptButton;
 
     public ProxySettingsPanel(Component parent) {
         super("proxy", "Proxy");
@@ -63,6 +64,18 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
         proxyPacScriptArea.setText(settings.proxyPacScript == null ? ProxyDefaults.DEFAULT_PAC_SCRIPT : settings.proxyPacScript);
         pacScrollPane = new RTextScrollPane(proxyPacScriptArea);
         fb.addWideGrow(pacScrollPane);
+
+        resetScriptButton = new JButton("Standard-Script laden");
+        resetScriptButton.setToolTipText("Setzt das PAC/WPAD-Script auf die Werkseinstellung zurück");
+        resetScriptButton.addActionListener(e -> {
+            int answer = JOptionPane.showConfirmDialog(parent,
+                    "Das aktuelle Script wird durch das Standard-Script ersetzt.\nFortfahren?",
+                    "Standard-Script laden", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (answer == JOptionPane.OK_OPTION) {
+                proxyPacScriptArea.setText(ProxyDefaults.DEFAULT_PAC_SCRIPT);
+            }
+        });
+        fb.addWide(resetScriptButton);
 
         proxyTestUrlLabel = new JLabel("Test-URL:");
         proxyTestUrlField = new JTextField(settings.proxyTestUrl == null ? ProxyDefaults.DEFAULT_TEST_URL : settings.proxyTestUrl, 30);
@@ -128,6 +141,8 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
         proxyTestUrlLabel.setEnabled(isPac);
         proxyTestUrlField.setEnabled(isPac);
         proxyTestButton.setEnabled(isPac);
+
+        resetScriptButton.setEnabled(isPac);
     }
 
     @Override
@@ -140,4 +155,3 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
         s.proxyTestUrl = proxyTestUrlField.getText().trim();
     }
 }
-
