@@ -8,18 +8,28 @@ import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class ProxyResolver {
 
+    private static final Logger LOG = Logger.getLogger(ProxyResolver.class.getName());
+
     public enum Mode {
+        /** Java-native proxy resolution via {@link ProxySelector} (uses WinHTTP on Windows). Recommended. */
+        JAVA_SYSTEM,
+        /** PowerShell PAC/WPAD script. Falls back to JAVA_SYSTEM on failure. */
         WINDOWS_PAC,
+        /** Manual host:port configuration. */
         MANUAL
     }
 
@@ -50,6 +60,7 @@ public class ProxyResolver {
         }
 
         Mode mode = parseMode(settings.proxyMode);
+
         if (mode == Mode.MANUAL) {
             if (settings.proxyNoProxyLocal && isLocalTarget(url)) {
                 return ProxyResolution.direct("local-bypass");
@@ -61,12 +72,75 @@ public class ProxyResolver {
             return ProxyResolution.proxy(new Proxy(Proxy.Type.HTTP, address), "manual");
         }
 
-        return resolveViaPowerShell(url, settings.proxyPacScript);
+        if (mode == Mode.JAVA_SYSTEM) {
+            return resolveViaJavaSystem(url);
+        }
+
+        // WINDOWS_PAC: try PowerShell script first, fall back to Java system on failure
+        ProxyResolution psResult = resolveViaPowerShell(url, settings.proxyPacScript);
+        if (!psResult.isDirect()) {
+            return psResult; // PowerShell found a proxy → use it
+        }
+        // PowerShell returned DIRECT — check if it was an actual DIRECT or an error
+        String reason = psResult.getReason();
+        boolean psError = reason.contains("stderr:") || reason.contains("pac-error")
+                || reason.contains("pac-invalid") || reason.contains("pac-empty");
+        if (psError) {
+            // PowerShell failed (e.g. Constrained Language Mode) → fall back to Java system
+            LOG.info("[Proxy] PowerShell PAC failed (" + reason + "), falling back to Java system proxy");
+            ProxyResolution javaResult = resolveViaJavaSystem(url);
+            if (!javaResult.isDirect()) {
+                return javaResult;
+            }
+            // Both returned DIRECT — return the Java result (more trustworthy)
+            return ProxyResolution.direct("pac-fallback-direct");
+        }
+        return psResult; // genuine DIRECT from PAC script
     }
 
     public static ProxyResolution testPacScript(String url, String script) {
         return resolveViaPowerShell(url, script);
     }
+
+    /**
+     * Tests the Java system proxy detection for a given URL.
+     * Useful for verifying that {@code java.net.useSystemProxies=true} works.
+     */
+    public static ProxyResolution testJavaSystem(String url) {
+        return resolveViaJavaSystem(url);
+    }
+
+    // ── Java-native system proxy resolution ─────────────────────
+
+    /**
+     * Resolves proxy via Java's built-in {@link ProxySelector} which uses
+     * WinHTTP/WPAD on Windows when {@code java.net.useSystemProxies=true}.
+     * <p>
+     * This works even in PowerShell Constrained Language Mode environments
+     * because it bypasses PowerShell entirely.
+     */
+    private static ProxyResolution resolveViaJavaSystem(String url) {
+        try {
+            ProxySelector selector = ProxySelector.getDefault();
+            if (selector == null) {
+                return ProxyResolution.direct("java-no-selector");
+            }
+            URI uri = new URI(url);
+            List<Proxy> proxies = selector.select(uri);
+            for (Proxy p : proxies) {
+                if (p.type() == Proxy.Type.HTTP || p.type() == Proxy.Type.SOCKS) {
+                    LOG.fine("[Proxy] Java system resolved " + url + " → " + p.address());
+                    return ProxyResolution.proxy(p, "java-system");
+                }
+            }
+            return ProxyResolution.direct("java-system-direct");
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[Proxy] Java system proxy resolution failed", e);
+            return ProxyResolution.direct("java-system-error: " + e.getMessage());
+        }
+    }
+
+    // ── PowerShell PAC/WPAD resolution ──────────────────────────
 
     private static ProxyResolution resolveViaPowerShell(String url, String script) {
         if (script == null || script.trim().isEmpty()) {
@@ -225,13 +299,19 @@ public class ProxyResolver {
 
     private static Mode parseMode(String raw) {
         if (raw == null) {
-            return Mode.WINDOWS_PAC;
+            return Mode.JAVA_SYSTEM;
         }
         String normalized = raw.trim().toUpperCase(Locale.ROOT);
         if ("MANUAL".equals(normalized)) {
             return Mode.MANUAL;
         }
-        return Mode.WINDOWS_PAC;
+        if ("JAVA_SYSTEM".equals(normalized)) {
+            return Mode.JAVA_SYSTEM;
+        }
+        if ("WINDOWS_PAC".equals(normalized)) {
+            return Mode.WINDOWS_PAC;
+        }
+        return Mode.JAVA_SYSTEM; // default
     }
 
     private static boolean isLocalTarget(String url) {

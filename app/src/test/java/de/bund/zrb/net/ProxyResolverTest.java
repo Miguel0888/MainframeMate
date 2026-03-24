@@ -4,6 +4,7 @@ import de.bund.zrb.model.Settings;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProxyResolverTest {
@@ -97,6 +98,26 @@ class ProxyResolverTest {
         ProxyResolver.ProxyResolution res = ProxyResolver.resolveForUrl("http://example.com", settings, true);
         assertFalse(res.isDirect());
         assertTrue(res.getProxy().address().toString().contains("3128"));
+    }
+
+    @Test
+    void javaSystemDoesNotCrash() {
+        // testJavaSystem should never throw — it returns a ProxyResolution in all cases
+        ProxyResolver.ProxyResolution res = ProxyResolver.testJavaSystem("https://example.com");
+        assertNotNull(res);
+        assertNotNull(res.getReason());
+        // On a developer machine without proxy, this is likely DIRECT — that's fine
+        assertTrue(res.getReason().startsWith("java-system"));
+    }
+
+    @Test
+    void javaSystemModeResolves() {
+        Settings settings = new Settings();
+        settings.proxyMode = "JAVA_SYSTEM";
+
+        // Should not crash; on a dev machine likely returns DIRECT
+        ProxyResolver.ProxyResolution res = ProxyResolver.resolveForUrl("https://example.com", settings, true);
+        assertNotNull(res);
     }
 }
 
