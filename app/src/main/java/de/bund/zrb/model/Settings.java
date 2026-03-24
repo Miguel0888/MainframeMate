@@ -35,8 +35,8 @@ public class Settings {
     /** Entry title inside the KeePass database to read/write credentials (only used when passwordMethod = KEEPASS). */
     public String keepassEntryTitle = "MainframeMate";
 
-    /** KeePass access method: "POWERSHELL" (default) or "RPC" (KeePassRPC plugin). */
-    public String keepassAccessMethod = "POWERSHELL";
+    /** KeePass access method: "POWERSHELL" or "RPC" (KeePassRPC plugin, default). */
+    public String keepassAccessMethod = "RPC";
 
     /** Default host for KeePassRPC — IPv4 to avoid IPv6 "Connection reset". */
     public static final String DEFAULT_RPC_HOST = "127.0.0.1";
