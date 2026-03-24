@@ -15,11 +15,6 @@ import javax.swing.*;
 
 public class Main {
     public static void main(String[] args) {
-        // Enable Java's built-in system proxy detection (WPAD/PAC via WinHTTP).
-        // MUST be set before any network class is loaded — the default ProxySelector
-        // reads this property once during class initialisation.
-        System.setProperty("java.net.useSystemProxies", "true");
-
         // MUST be the very first call — configures JNA to load jnidispatch.dll
         // from ~/.mainframemate/native/ instead of %TEMP% (blocked on hardened Windows 11)
         de.bund.zrb.util.JnaBootstrap.configure();

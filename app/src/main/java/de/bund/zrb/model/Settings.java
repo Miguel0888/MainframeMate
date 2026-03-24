@@ -238,7 +238,7 @@ public class Settings {
      */
     @Deprecated
     public boolean proxyEnabled = false;
-    public String proxyMode = "JAVA_SYSTEM";
+    public String proxyMode = "WINDOWS_PAC";
     public String proxyHost = "";
     public int proxyPort = 0;
     public boolean proxyNoProxyLocal = true;
