@@ -4,6 +4,8 @@ import de.bund.zrb.model.Settings;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProxyResolverTest {
@@ -98,5 +100,62 @@ class ProxyResolverTest {
         assertFalse(res.isDirect());
         assertTrue(res.getProxy().address().toString().contains("3128"));
     }
-}
 
+    @Test
+    void registryModeDoesNotCrash() {
+        Settings settings = new Settings();
+        settings.proxyMode = "REGISTRY";
+
+        ProxyResolver.ProxyResolution res = ProxyResolver.resolveForUrl("https://example.com", settings, true);
+        assertNotNull(res);
+        assertNotNull(res.getReason());
+    }
+
+    @Test
+    void registryTestDoesNotCrash() {
+        ProxyResolver.ProxyResolution res = ProxyResolver.testRegistry("https://example.com");
+        assertNotNull(res);
+        assertTrue(res.getReason().startsWith("registry"));
+    }
+
+    @Test
+    void regQueryValueReturnsNullForMissingKey() {
+        String val = ProxyResolver.regQueryValue(
+                "HKCU\\Software\\MainframeMate_TestNonExistent_12345", "Bogus");
+        assertNull(val);
+    }
+
+    @Test
+    void isHostBypassedMatchesExact() {
+        assertTrue(ProxyResolver.isHostBypassed("localhost", "localhost"));
+        assertFalse(ProxyResolver.isHostBypassed("example.com", "localhost"));
+    }
+
+    @Test
+    void isHostBypassedMatchesWildcardPrefix() {
+        assertTrue(ProxyResolver.isHostBypassed("intranet.corp.local", "*.corp.local"));
+        assertFalse(ProxyResolver.isHostBypassed("example.com", "*.corp.local"));
+    }
+
+    @Test
+    void isHostBypassedMatchesWildcardSuffix() {
+        assertTrue(ProxyResolver.isHostBypassed("10.130.165.20", "10.*"));
+        assertFalse(ProxyResolver.isHostBypassed("192.168.1.1", "10.*"));
+    }
+
+    @Test
+    void isHostBypassedHandlesLocal() {
+        assertTrue(ProxyResolver.isHostBypassed("intranet", "<local>"));
+        assertFalse(ProxyResolver.isHostBypassed("www.example.com", "<local>"));
+    }
+
+    @Test
+    void isHostBypassedMultiplePatterns() {
+        String patterns = "localhost;*.local;10.*;192.168.*;<local>";
+        assertTrue(ProxyResolver.isHostBypassed("localhost", patterns));
+        assertTrue(ProxyResolver.isHostBypassed("myhost.local", patterns));
+        assertTrue(ProxyResolver.isHostBypassed("10.0.0.1", patterns));
+        assertTrue(ProxyResolver.isHostBypassed("intranet", patterns));
+        assertFalse(ProxyResolver.isHostBypassed("www.google.com", patterns));
+    }
+}
