@@ -120,7 +120,7 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         fb.addSection("Sicherheit");
 
         passwordMethodBox = new JComboBox<>(PasswordMethod.values());
-        PasswordMethod currentMethod = PasswordMethod.WINDOWS_DPAPI;
+        PasswordMethod currentMethod = PasswordMethod.KEEPASS;
         try {
             if (settings.passwordMethod != null && !settings.passwordMethod.isEmpty()) {
                 currentMethod = PasswordMethod.valueOf(settings.passwordMethod);
@@ -392,7 +392,7 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
      */
     @Override
     protected void afterApply(Settings s) {
-        PasswordMethod newMethod = PasswordMethod.WINDOWS_DPAPI;
+        PasswordMethod newMethod = PasswordMethod.KEEPASS;
         try {
             if (s.passwordMethod != null && !s.passwordMethod.isEmpty()) {
                 newMethod = PasswordMethod.valueOf(s.passwordMethod);
@@ -452,7 +452,7 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         s.lockPrenotification = (Integer) lockPre.getValue();
         s.lockStyle = lockStyleBox.getSelectedIndex();
         PasswordMethod selectedMethod = (PasswordMethod) passwordMethodBox.getSelectedItem();
-        s.passwordMethod = selectedMethod != null ? selectedMethod.name() : PasswordMethod.WINDOWS_DPAPI.name();
+        s.passwordMethod = selectedMethod != null ? selectedMethod.name() : PasswordMethod.KEEPASS.name();
         s.keepassInstallPath = keepassKpScriptField.getText().trim();
         s.keepassDatabasePath = keepassDatabaseField.getText().trim();
         s.keepassEntryTitle = keepassEntryTitleField.getText().trim();

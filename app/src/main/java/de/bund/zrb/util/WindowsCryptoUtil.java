@@ -12,7 +12,8 @@ import java.util.logging.Logger;
  * Delegates to the provider selected in
  * {@link Settings#passwordMethod} (Einstellungen → Allgemein → Sicherheit):
  * <ul>
- *   <li>{@link PasswordMethod#WINDOWS_DPAPI} — Windows DPAPI via JNA (default)</li>
+ *   <li>{@link PasswordMethod#KEEPASS} — KeePass as external secret store (default)</li>
+ *   <li>{@link PasswordMethod#WINDOWS_DPAPI} — Windows DPAPI via JNA</li>
  *   <li>{@link PasswordMethod#POWERSHELL_DPAPI} — Windows DPAPI via PowerShell (no JNA)</li>
  *   <li>{@link PasswordMethod#JAVA_AES} — pure-Java AES-256-GCM with file-based key</li>
  * </ul>
@@ -97,7 +98,7 @@ public class WindowsCryptoUtil {
 
     /**
      * Reads the configured password method from settings.
-     * Falls back to {@link PasswordMethod#WINDOWS_DPAPI} if not set or invalid.
+     * Falls back to {@link PasswordMethod#KEEPASS} if not set or invalid.
      */
     private static PasswordMethod getMethod() {
         try {
@@ -106,10 +107,10 @@ public class WindowsCryptoUtil {
                 return PasswordMethod.valueOf(settings.passwordMethod);
             }
         } catch (IllegalArgumentException e) {
-            LOG.log(Level.WARNING, "Invalid passwordMethod in settings — falling back to WINDOWS_DPAPI", e);
+            LOG.log(Level.WARNING, "Invalid passwordMethod in settings — falling back to KEEPASS", e);
         } catch (Exception e) {
-            LOG.log(Level.WARNING, "Could not read passwordMethod from settings — falling back to WINDOWS_DPAPI", e);
+            LOG.log(Level.WARNING, "Could not read passwordMethod from settings — falling back to KEEPASS", e);
         }
-        return PasswordMethod.WINDOWS_DPAPI;
+        return PasswordMethod.KEEPASS;
     }
 }

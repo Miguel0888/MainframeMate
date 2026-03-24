@@ -23,8 +23,8 @@ public class Settings {
     public int importDelay = 3;
     public List<String> supportedFiles = Arrays.asList( ".xls", ".xlsx", ".xlsm");
 
-    /** Password encryption method: "WINDOWS_DPAPI" (default), "POWERSHELL_DPAPI", "JAVA_AES", or "KEEPASS". */
-    public String passwordMethod = "WINDOWS_DPAPI";
+    /** Password encryption method: "KEEPASS" (default), "WINDOWS_DPAPI", "POWERSHELL_DPAPI", or "JAVA_AES". */
+    public String passwordMethod = "KEEPASS";
 
     /** Path to KeePass 2.x installation directory (containing KeePass.exe). Only used when passwordMethod = KEEPASS. */
     public String keepassInstallPath = resolveKeePassDefault();
