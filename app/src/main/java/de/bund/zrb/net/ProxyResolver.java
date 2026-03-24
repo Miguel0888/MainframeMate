@@ -65,47 +65,141 @@ public class ProxyResolver {
                     "-File", temp.toAbsolutePath().toString(),
                     "-TestUrl", url
             );
-            builder.redirectErrorStream(true);
+            // Do NOT merge stderr — PowerShell error/warning messages would corrupt host:port parsing
+            builder.redirectErrorStream(false);
             Process process = builder.start();
 
-            StringBuilder output = new StringBuilder();
+            // Drain stderr on a background thread to avoid deadlock
+            // (if stderr buffer fills before stdout is consumed, the process blocks)
+            final StringBuilder stderr = new StringBuilder();
+            Thread stderrDrainer = new Thread(() -> {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        stderr.append(line).append('\n');
+                    }
+                } catch (Exception ignored) { }
+            }, "proxy-stderr-drain");
+            stderrDrainer.setDaemon(true);
+            stderrDrainer.start();
+
+            // Read stdout (pipeline output = Write-Output) on the calling thread
+            StringBuilder stdout = new StringBuilder();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    output.append(line).append('\n');
+                    stdout.append(line).append('\n');
                 }
             }
+
+            stderrDrainer.join(5000); // wait for stderr drain to finish
 
             process.waitFor(15, TimeUnit.SECONDS);
             Files.deleteIfExists(temp);
 
-            String result = output.toString().trim();
-            return parseProxyOutput(result);
+            String result = stdout.toString().trim();
+            String err = stderr.toString().trim();
+
+            ProxyResolution res = parseProxyOutput(result);
+            // If PAC resolved to DIRECT but stderr has content, attach it for diagnosis
+            if (res.isDirect() && !err.isEmpty()) {
+                return ProxyResolution.direct(res.getReason() + " [stderr: " + truncate(err, 120) + "]");
+            }
+            return res;
         } catch (Exception e) {
             return ProxyResolution.direct("pac-error: " + e.getMessage());
         }
     }
 
+    private static String truncate(String s, int max) {
+        return (s != null && s.length() > max) ? s.substring(0, max) + "…" : s;
+    }
+
+    /**
+     * Parses the stdout output of the PAC/WPAD PowerShell script.
+     * <p>
+     * Expected format: a single line {@code "host:port"} or empty/no output for DIRECT.
+     * This method is robust against:
+     * <ul>
+     *   <li>Multi-line output (takes the LAST non-empty line — the actual Write-Output result)</li>
+     *   <li>BOM characters (U+FEFF) and other invisible Unicode</li>
+     *   <li>URL-formatted output like {@code http://host:port/}</li>
+     *   <li>Trailing slashes, whitespace, carriage returns</li>
+     *   <li>ANSI escape sequences</li>
+     * </ul>
+     */
     static ProxyResolution parseProxyOutput(String result) {
         if (result == null || result.trim().isEmpty()) {
             return ProxyResolution.direct("pac-direct");
         }
-        String trimmed = result.trim();
-        if ("DIRECT".equalsIgnoreCase(trimmed)) {
-            return ProxyResolution.direct("pac-direct");
-        }
-        int idx = trimmed.lastIndexOf(':');
-        if (idx > 0 && idx < trimmed.length() - 1) {
-            String host = trimmed.substring(0, idx).trim();
-            String portRaw = trimmed.substring(idx + 1).trim();
-            try {
-                int port = Integer.parseInt(portRaw);
-                return ProxyResolution.proxy(new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, port)), "pac");
-            } catch (NumberFormatException ignore) {
-                return ProxyResolution.direct("pac-invalid-port");
+
+        // Take the LAST non-empty line — Write-Output result is the final pipeline output
+        String candidate = null;
+        for (String line : result.split("\\r?\\n")) {
+            String stripped = stripNonPrintable(line).trim();
+            if (!stripped.isEmpty()) {
+                candidate = stripped;
             }
         }
-        return ProxyResolution.direct("pac-invalid");
+
+        if (candidate == null || "DIRECT".equalsIgnoreCase(candidate)) {
+            return ProxyResolution.direct("pac-direct");
+        }
+
+        // Strip URL scheme prefix (e.g. "http://10.130.165.20:3128/" → "10.130.165.20:3128")
+        String normalized = candidate;
+        if (normalized.toLowerCase(Locale.ROOT).startsWith("http://")) {
+            normalized = normalized.substring(7);
+        } else if (normalized.toLowerCase(Locale.ROOT).startsWith("https://")) {
+            normalized = normalized.substring(8);
+        }
+        // Strip trailing slash
+        if (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        normalized = normalized.trim();
+
+        int idx = normalized.lastIndexOf(':');
+        if (idx > 0 && idx < normalized.length() - 1) {
+            String host = normalized.substring(0, idx).trim();
+            // Strip only digits from port part (guard against trailing garbage)
+            String portRaw = normalized.substring(idx + 1).trim().replaceAll("[^0-9]", "");
+            if (!portRaw.isEmpty()) {
+                try {
+                    int port = Integer.parseInt(portRaw);
+                    if (port > 0 && port <= 65535) {
+                        return ProxyResolution.proxy(new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, port)), "pac");
+                    }
+                } catch (NumberFormatException ignore) {
+                    // fall through
+                }
+            }
+            return ProxyResolution.direct("pac-invalid-port: '" + candidate + "'");
+        }
+        return ProxyResolution.direct("pac-invalid: '" + candidate + "'");
+    }
+
+    /**
+     * Strips BOM (U+FEFF), ANSI escape sequences, and other non-printable characters
+     * that PowerShell may emit depending on console encoding and version.
+     */
+    private static String stripNonPrintable(String s) {
+        if (s == null) return "";
+        // Remove BOM
+        if (s.length() > 0 && s.charAt(0) == '\uFEFF') {
+            s = s.substring(1);
+        }
+        // Remove ANSI escape sequences (ESC [ … m)
+        s = s.replaceAll("\\x1B\\[[0-9;]*[a-zA-Z]", "");
+        // Remove remaining non-printable chars (except space)
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c >= 0x20 || c == '\t') {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     private static Mode parseMode(String raw) {

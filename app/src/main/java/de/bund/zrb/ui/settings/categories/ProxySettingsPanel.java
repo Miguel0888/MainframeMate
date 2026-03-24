@@ -20,6 +20,8 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
     private final JCheckBox proxyNoProxyLocalBox;
     private final RSyntaxTextArea proxyPacScriptArea;
     private final JTextField proxyTestUrlField;
+    private final JButton proxyTestButton;
+    private final RTextScrollPane pacScrollPane;
 
     public ProxySettingsPanel(Component parent) {
         super("proxy", "Proxy");
@@ -49,20 +51,64 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
         proxyPacScriptArea.setSyntaxEditingStyle("text/powershell");
         proxyPacScriptArea.setCodeFoldingEnabled(true);
         proxyPacScriptArea.setText(settings.proxyPacScript == null ? ProxyDefaults.DEFAULT_PAC_SCRIPT : settings.proxyPacScript);
-        fb.addWideGrow(new RTextScrollPane(proxyPacScriptArea));
+        pacScrollPane = new RTextScrollPane(proxyPacScriptArea);
+        fb.addWideGrow(pacScrollPane);
 
         proxyTestUrlField = new JTextField(settings.proxyTestUrl == null ? ProxyDefaults.DEFAULT_TEST_URL : settings.proxyTestUrl, 30);
-        JButton proxyTestButton = new JButton("Testen");
+        proxyTestButton = new JButton("Testen");
         proxyTestButton.addActionListener(e -> {
             String testUrl = proxyTestUrlField.getText().trim();
             if (testUrl.isEmpty()) { JOptionPane.showMessageDialog(parent, "Bitte Test-URL eingeben.", "Proxy Test", JOptionPane.WARNING_MESSAGE); return; }
-            ProxyResolver.ProxyResolution result = ProxyResolver.testPacScript(testUrl, proxyPacScriptArea.getText());
-            String msg = result.isDirect() ? "DIRECT (" + result.getReason() + ")" : result.getProxy().address() + " (" + result.getReason() + ")";
-            JOptionPane.showMessageDialog(parent, msg, "Proxy Test", JOptionPane.INFORMATION_MESSAGE);
+
+            // Run PAC test (always executes the script, regardless of "Proxy aktivieren" checkbox)
+            proxyTestButton.setEnabled(false);
+            proxyTestButton.setText("…");
+            new javax.swing.SwingWorker<ProxyResolver.ProxyResolution, Void>() {
+                @Override protected ProxyResolver.ProxyResolution doInBackground() {
+                    return ProxyResolver.testPacScript(testUrl, proxyPacScriptArea.getText());
+                }
+                @Override protected void done() {
+                    proxyTestButton.setEnabled(true);
+                    proxyTestButton.setText("Testen");
+                    try {
+                        ProxyResolver.ProxyResolution result = get();
+                        String detail = result.isDirect()
+                                ? "DIRECT (" + result.getReason() + ")"
+                                : result.getProxy().address() + " (" + result.getReason() + ")";
+                        String hint = proxyEnabledBox.isSelected()
+                                ? ""
+                                : "\n\nHinweis: \"Proxy aktivieren\" ist nicht gesetzt —\nim Betrieb wird kein Proxy verwendet.";
+                        JOptionPane.showMessageDialog(parent, detail + hint, "Proxy Test", JOptionPane.INFORMATION_MESSAGE);
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(parent, "Fehler: " + ex.getMessage(), "Proxy Test", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            }.execute();
         });
         fb.addRowWithButton("Test-URL:", proxyTestUrlField, proxyTestButton);
 
+        // Wire "Proxy aktivieren" checkbox to enable/disable all proxy controls
+        proxyEnabledBox.addActionListener(e -> updateEnabledState());
+        updateEnabledState();
+
         installPanel(fb);
+    }
+
+    /**
+     * Enables or disables all proxy configuration controls based on the
+     * "Proxy aktivieren" checkbox. The test button stays always enabled
+     * so the PAC script can be tested before activation.
+     */
+    private void updateEnabledState() {
+        boolean on = proxyEnabledBox.isSelected();
+        proxyModeBox.setEnabled(on);
+        proxyHostField.setEnabled(on);
+        proxyPortSpinner.setEnabled(on);
+        proxyNoProxyLocalBox.setEnabled(on);
+        proxyPacScriptArea.setEnabled(on);
+        proxyPacScriptArea.setEditable(on);
+        // Test-URL and Test-Button remain enabled — test is independent of activation
+        // proxyTestUrlField and proxyTestButton stay enabled
     }
 
     @Override

@@ -15,10 +15,52 @@ class ProxyResolverTest {
     }
 
     @Test
+    void parseEmptyOutput() {
+        assertTrue(ProxyResolver.parseProxyOutput("").isDirect());
+        assertTrue(ProxyResolver.parseProxyOutput(null).isDirect());
+        assertTrue(ProxyResolver.parseProxyOutput("   ").isDirect());
+    }
+
+    @Test
     void parseHostPortOutput() {
         ProxyResolver.ProxyResolution res = ProxyResolver.parseProxyOutput("proxy.example:8080");
         assertFalse(res.isDirect());
         assertTrue(res.getProxy().address().toString().contains("8080"));
+    }
+
+    @Test
+    void parseMultiLineOutputTakesLastLine() {
+        // PowerShell may emit warnings/info before the actual host:port
+        String output = "WARNING: Some PowerShell warning\n\n10.130.165.20:3128\n";
+        ProxyResolver.ProxyResolution res = ProxyResolver.parseProxyOutput(output);
+        assertFalse(res.isDirect());
+        assertTrue(res.getProxy().address().toString().contains("3128"));
+    }
+
+    @Test
+    void parseUrlFormattedProxy() {
+        // Some PAC implementations return full URL format
+        ProxyResolver.ProxyResolution res = ProxyResolver.parseProxyOutput("http://10.130.165.20:3128/");
+        assertFalse(res.isDirect());
+        assertTrue(res.getProxy().address().toString().contains("3128"));
+    }
+
+    @Test
+    void parseOutputWithBom() {
+        // UTF-8 BOM (U+FEFF) at start of output
+        String output = "\uFEFF10.130.165.20:3128";
+        ProxyResolver.ProxyResolution res = ProxyResolver.parseProxyOutput(output);
+        assertFalse(res.isDirect());
+        assertTrue(res.getProxy().address().toString().contains("3128"));
+    }
+
+    @Test
+    void parseOutputWithAnsiEscapes() {
+        // ANSI color codes around the output
+        String output = "\u001B[0m10.130.165.20:3128\u001B[0m";
+        ProxyResolver.ProxyResolution res = ProxyResolver.parseProxyOutput(output);
+        assertFalse(res.isDirect());
+        assertTrue(res.getProxy().address().toString().contains("3128"));
     }
 
     @Test
