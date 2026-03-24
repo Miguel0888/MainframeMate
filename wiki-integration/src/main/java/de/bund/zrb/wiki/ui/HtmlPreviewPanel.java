@@ -340,7 +340,8 @@ public class HtmlPreviewPanel extends JPanel {
             htmlPane.setText(fullHtml);
             htmlPane.setCaretPosition(0);
             // Load images asynchronously
-            WikiAsyncImageLoader.loadImagesAsync(htmlPane, htmlWithImages, fullHtml);
+            WikiAsyncImageLoader.loadImagesAsync(htmlPane, htmlWithImages, fullHtml,
+                    baseUrl, byteDownloader);
 
             // Even in rendered mode, show document attachments in the strip
             if (!attachments.isEmpty()) {

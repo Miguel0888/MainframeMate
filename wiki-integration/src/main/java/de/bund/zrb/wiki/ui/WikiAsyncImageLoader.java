@@ -65,6 +65,27 @@ public final class WikiAsyncImageLoader {
      * @param fullHtml the full wrapped HTML (re-set after loading to refresh ImageViews)
      */
     public static void loadImagesAsync(final JEditorPane htmlPane, final String html, final String fullHtml) {
+        loadImagesAsync(htmlPane, html, fullHtml, null, null);
+    }
+
+    /**
+     * Load all images in the given HTML asynchronously and inject them
+     * into the JEditorPane's HTMLDocument image cache.
+     * <p>
+     * When a {@link ByteDownloader} is provided, it is used for relative URLs
+     * (e.g. Confluence attachment paths). Absolute URLs are downloaded via plain
+     * HTTP with the global proxy resolver. This ensures that both Confluence
+     * (authenticated, relative) and Wikipedia (public, absolute) images are
+     * loaded correctly through the proxy.
+     *
+     * @param htmlPane       the JEditorPane displaying HTML content
+     * @param html           the raw body HTML (used to scan for img src)
+     * @param fullHtml       the full wrapped HTML (re-set after loading to refresh ImageViews)
+     * @param baseUrl        optional base URL for resolving relative image paths
+     * @param byteDownloader optional authenticated downloader (e.g. for Confluence mTLS)
+     */
+    public static void loadImagesAsync(final JEditorPane htmlPane, final String html, final String fullHtml,
+                                       final String baseUrl, final ByteDownloader byteDownloader) {
         if (html == null || html.isEmpty()) return;
 
         new SwingWorker<Hashtable<URL, Image>, Object[]>() {
@@ -78,8 +99,24 @@ public final class WikiAsyncImageLoader {
                     if (src.startsWith("data:")) continue; // skip data URIs
 
                     try {
-                        URL imageUrl = new URL(src);
-                        byte[] data = downloadBytes(src);
+                        // Resolve the image URL for the HTMLDocument cache key
+                        URL imageUrl;
+                        boolean isAbsolute = src.startsWith("http://") || src.startsWith("https://");
+                        if (isAbsolute) {
+                            imageUrl = new URL(src);
+                        } else if (baseUrl != null) {
+                            imageUrl = new URL(new URL(baseUrl), src);
+                        } else {
+                            imageUrl = new URL(src); // will fail for relative URLs without base
+                        }
+
+                        // Download bytes — prefer ByteDownloader for relative URLs
+                        byte[] data;
+                        if (!isAbsolute && byteDownloader != null) {
+                            data = byteDownloader.download(src);
+                        } else {
+                            data = downloadBytes(isAbsolute ? src : imageUrl.toString());
+                        }
                         if (data == null || data.length == 0) continue;
 
                         Image image = decodeImage(data);
