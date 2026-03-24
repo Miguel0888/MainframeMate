@@ -4,16 +4,17 @@ import de.bund.zrb.model.Settings;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.File;
 import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -24,15 +25,9 @@ public class ProxyResolver {
     private static final Logger LOG = Logger.getLogger(ProxyResolver.class.getName());
 
     public enum Mode {
-        /**
-         * Automatic proxy detection via PowerShell PAC/WPAD script.
-         * <p>
-         * Fallback chain when PowerShell fails (e.g. Constrained Language Mode):
-         * <ol>
-         *   <li>Windows Registry ({@code reg query} — fast, handles static proxy)</li>
-         *   <li>Java subprocess with {@code -Djava.net.useSystemProxies=true} — handles WPAD/PAC</li>
-         * </ol>
-         */
+        /** Java-native proxy resolution via {@link ProxySelector} (uses WinHTTP on Windows). Recommended. */
+        JAVA_SYSTEM,
+        /** PowerShell PAC/WPAD script. Falls back to JAVA_SYSTEM on failure. */
         WINDOWS_PAC,
         /** Manual host:port configuration. */
         MANUAL
@@ -77,43 +72,30 @@ public class ProxyResolver {
             return ProxyResolution.proxy(new Proxy(Proxy.Type.HTTP, address), "manual");
         }
 
-        // ── WINDOWS_PAC: PowerShell → Registry → Java Subprocess ──────────
+        if (mode == Mode.JAVA_SYSTEM) {
+            return resolveViaJavaSystem(url);
+        }
 
-        // 1) Try PowerShell PAC/WPAD script
+        // WINDOWS_PAC: try PowerShell script first, fall back to Java system on failure
         ProxyResolution psResult = resolveViaPowerShell(url, settings.proxyPacScript);
         if (!psResult.isDirect()) {
             return psResult; // PowerShell found a proxy → use it
         }
-
-        // PowerShell returned DIRECT — check if it was a genuine DIRECT or an error
+        // PowerShell returned DIRECT — check if it was an actual DIRECT or an error
         String reason = psResult.getReason();
         boolean psError = reason.contains("stderr:") || reason.contains("pac-error")
                 || reason.contains("pac-invalid") || reason.contains("pac-empty");
-        if (!psError) {
-            return psResult; // genuine DIRECT from PAC script — trust it
+        if (psError) {
+            // PowerShell failed (e.g. Constrained Language Mode) → fall back to Java system
+            LOG.info("[Proxy] PowerShell PAC failed (" + reason + "), falling back to Java system proxy");
+            ProxyResolution javaResult = resolveViaJavaSystem(url);
+            if (!javaResult.isDirect()) {
+                return javaResult;
+            }
+            // Both returned DIRECT — return the Java result (more trustworthy)
+            return ProxyResolution.direct("pac-fallback-direct");
         }
-
-        LOG.info("[Proxy] PowerShell PAC failed (" + reason + "), trying registry fallback");
-
-        // 2) Try Windows Registry (fast — handles static proxy config)
-        ProxyResolution regResult = resolveViaRegistry(url);
-        if (!regResult.isDirect()) {
-            return regResult;
-        }
-        // Registry returned DIRECT — this may mean "no static proxy" but WPAD might still work
-        boolean regHadAutoConfig = "registry-has-autoconfig".equals(regResult.getReason());
-        if (!regHadAutoConfig && !"registry-proxy-disabled".equals(regResult.getReason())) {
-            // Registry explicitly shows no proxy configured — genuine DIRECT
-            return regResult;
-        }
-
-        // 3) Try Java subprocess with -Djava.net.useSystemProxies=true (handles WPAD)
-        LOG.info("[Proxy] Registry has no static proxy, trying Java subprocess for WPAD detection");
-        ProxyResolution subResult = resolveViaJavaSubprocess(url);
-        if (!subResult.isDirect()) {
-            return subResult;
-        }
-        return ProxyResolution.direct("all-methods-direct");
+        return psResult; // genuine DIRECT from PAC script
     }
 
     public static ProxyResolution testPacScript(String url, String script) {
@@ -121,277 +103,40 @@ public class ProxyResolver {
     }
 
     /**
-     * Tests the Windows Registry proxy detection for the given URL.
+     * Tests the Java system proxy detection for a given URL.
+     * Useful for verifying that {@code java.net.useSystemProxies=true} works.
      */
-    public static ProxyResolution testRegistry(String url) {
-        return resolveViaRegistry(url);
+    public static ProxyResolution testJavaSystem(String url) {
+        return resolveViaJavaSystem(url);
     }
 
-    /**
-     * Tests the Java subprocess proxy detection for the given URL.
-     * Spawns a fresh JVM with {@code -Djava.net.useSystemProxies=true}.
-     */
-    public static ProxyResolution testJavaSubprocess(String url) {
-        return resolveViaJavaSubprocess(url);
-    }
-
-    // ── Windows Registry proxy detection ─────────────────────────
+    // ── Java-native system proxy resolution ─────────────────────
 
     /**
-     * Reads proxy settings from the Windows Registry via {@code reg query}.
-     * This works on <b>all</b> Windows machines regardless of PowerShell
-     * Constrained Language Mode, because {@code reg.exe} is a native binary.
+     * Resolves proxy via Java's built-in {@link ProxySelector} which uses
+     * WinHTTP/WPAD on Windows when {@code java.net.useSystemProxies=true}.
      * <p>
-     * Reads from {@code HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings}:
-     * <ul>
-     *   <li>{@code ProxyEnable} (DWORD) — 1 = proxy enabled</li>
-     *   <li>{@code ProxyServer} (REG_SZ) — e.g. "10.0.0.1:3128" or "http=host:port;https=host:port"</li>
-     *   <li>{@code AutoConfigURL} (REG_SZ) — PAC URL (indicates auto-config is in use)</li>
-     * </ul>
+     * This works even in PowerShell Constrained Language Mode environments
+     * because it bypasses PowerShell entirely.
      */
-    private static ProxyResolution resolveViaRegistry(String url) {
+    private static ProxyResolution resolveViaJavaSystem(String url) {
         try {
-            String regKey = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
-
-            // Check if a PAC/auto-config URL is set (WPAD)
-            String autoConfigUrl = regQueryValue(regKey, "AutoConfigURL");
-            boolean hasAutoConfig = autoConfigUrl != null && !autoConfigUrl.trim().isEmpty();
-
-            // Check if static proxy is enabled
-            String proxyEnable = regQueryValue(regKey, "ProxyEnable");
-            boolean enabled = "0x1".equals(proxyEnable != null ? proxyEnable.trim() : "");
-
-            if (!enabled) {
-                // Static proxy disabled — but auto-config may still be active
-                if (hasAutoConfig) {
-                    LOG.fine("[Proxy] Registry: static proxy disabled, but AutoConfigURL set: " + autoConfigUrl);
-                    return ProxyResolution.direct("registry-has-autoconfig");
-                }
-                return ProxyResolution.direct("registry-proxy-disabled");
+            ProxySelector selector = ProxySelector.getDefault();
+            if (selector == null) {
+                return ProxyResolution.direct("java-no-selector");
             }
-
-            // Read static proxy server
-            String proxyServer = regQueryValue(regKey, "ProxyServer");
-            if (proxyServer == null || proxyServer.trim().isEmpty()) {
-                if (hasAutoConfig) {
-                    return ProxyResolution.direct("registry-has-autoconfig");
-                }
-                return ProxyResolution.direct("registry-no-proxy-server");
-            }
-
-            // Check proxy bypass list
-            String proxyOverride = regQueryValue(regKey, "ProxyOverride");
-            if (proxyOverride != null && !proxyOverride.trim().isEmpty() && url != null) {
-                try {
-                    String targetHost = URI.create(url).getHost();
-                    if (targetHost != null && isHostBypassed(targetHost, proxyOverride)) {
-                        return ProxyResolution.direct("registry-bypass");
-                    }
-                } catch (Exception ignore) { /* proceed with proxy */ }
-            }
-
-            // Parse ProxyServer value
-            String server = proxyServer.trim();
-
-            // Handle protocol-specific format: "http=host:port;https=host:port;..."
-            if (server.contains("=")) {
-                String extracted = extractProxyForProtocol(server, url);
-                if (extracted != null) {
-                    server = extracted;
-                } else {
-                    return ProxyResolution.direct("registry-no-matching-protocol");
+            URI uri = new URI(url);
+            List<Proxy> proxies = selector.select(uri);
+            for (Proxy p : proxies) {
+                if (p.type() == Proxy.Type.HTTP || p.type() == Proxy.Type.SOCKS) {
+                    LOG.fine("[Proxy] Java system resolved " + url + " → " + p.address());
+                    return ProxyResolution.proxy(p, "java-system");
                 }
             }
-
-            // Parse host:port
-            int idx = server.lastIndexOf(':');
-            if (idx > 0 && idx < server.length() - 1) {
-                String host = server.substring(0, idx).trim();
-                String portStr = server.substring(idx + 1).trim().replaceAll("[^0-9]", "");
-                if (!portStr.isEmpty()) {
-                    int port = Integer.parseInt(portStr);
-                    if (port > 0 && port <= 65535) {
-                        LOG.fine("[Proxy] Registry resolved: " + host + ":" + port);
-                        return ProxyResolution.proxy(
-                                new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, port)), "registry");
-                    }
-                }
-            }
-            return ProxyResolution.direct("registry-invalid: " + proxyServer);
+            return ProxyResolution.direct("java-system-direct");
         } catch (Exception e) {
-            LOG.log(Level.FINE, "[Proxy] Registry fallback failed", e);
-            return ProxyResolution.direct("registry-error: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Queries a single registry value via {@code reg query}.
-     *
-     * @return the value data, or {@code null} if not found
-     */
-    static String regQueryValue(String key, String valueName) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder("reg", "query", key, "/v", valueName);
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
-            StringBuilder out = new StringBuilder();
-            try (BufferedReader r = new BufferedReader(
-                    new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    out.append(line).append('\n');
-                }
-            }
-            p.waitFor(5, TimeUnit.SECONDS);
-
-            // Parse output: "    ProxyServer    REG_SZ    host:port"
-            for (String line : out.toString().split("\\r?\\n")) {
-                String trimmed = line.trim();
-                // Match lines that contain the value name followed by REG_SZ or REG_DWORD
-                if (trimmed.contains(valueName)) {
-                    // Split on 2+ whitespace characters
-                    String[] parts = trimmed.split("\\s{2,}");
-                    if (parts.length >= 3) {
-                        return parts[parts.length - 1].trim();
-                    }
-                }
-            }
-        } catch (Exception e) {
-            LOG.log(Level.FINE, "[Proxy] reg query failed for " + valueName, e);
-        }
-        return null;
-    }
-
-    /**
-     * Extracts the proxy for the target URL's protocol from a protocol-specific
-     * ProxyServer value like {@code "http=10.0.0.1:3128;https=10.0.0.1:3129;ftp=..."}.
-     */
-    private static String extractProxyForProtocol(String proxyServer, String url) {
-        String protocol = "http";
-        if (url != null) {
-            try {
-                protocol = URI.create(url).getScheme();
-            } catch (Exception ignore) { }
-        }
-        if (protocol == null) protocol = "http";
-
-        for (String entry : proxyServer.split(";")) {
-            String[] kv = entry.split("=", 2);
-            if (kv.length == 2 && protocol.equalsIgnoreCase(kv[0].trim())) {
-                return kv[1].trim();
-            }
-        }
-        // Fallback: try "http" if original protocol not found
-        if (!"http".equalsIgnoreCase(protocol)) {
-            for (String entry : proxyServer.split(";")) {
-                String[] kv = entry.split("=", 2);
-                if (kv.length == 2 && "http".equalsIgnoreCase(kv[0].trim())) {
-                    return kv[1].trim();
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Checks if a host matches the ProxyOverride (bypass) list from the registry.
-     * Supports patterns like {@code "*.local;10.*;localhost;<local>"}.
-     */
-    static boolean isHostBypassed(String host, String proxyOverride) {
-        if (host == null || proxyOverride == null) return false;
-        String lowerHost = host.toLowerCase(Locale.ROOT);
-        for (String pattern : proxyOverride.split(";")) {
-            String p = pattern.trim().toLowerCase(Locale.ROOT);
-            if (p.isEmpty()) continue;
-            if ("<local>".equals(p)) {
-                if (!lowerHost.contains(".")) return true; // no dots = local name
-                continue;
-            }
-            // Convert wildcard pattern to simple matching
-            if (p.startsWith("*")) {
-                if (lowerHost.endsWith(p.substring(1))) return true;
-            } else if (p.endsWith("*")) {
-                if (lowerHost.startsWith(p.substring(0, p.length() - 1))) return true;
-            } else if (lowerHost.equals(p)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // ── Java subprocess proxy detection ──────────────────────────
-
-    /**
-     * Spawns a fresh Java subprocess with {@code -Djava.net.useSystemProxies=true}
-     * to detect the system proxy. This is the most reliable method for WPAD/PAC
-     * detection because the property is set at JVM startup (before
-     * {@code DefaultProxySelector} class initialization).
-     * <p>
-     * Runs {@link ProxyProbe} which outputs {@code host:port} or {@code DIRECT}.
-     */
-    private static ProxyResolution resolveViaJavaSubprocess(String url) {
-        try {
-            String javaHome = System.getProperty("java.home");
-            String javaBin = javaHome + File.separator + "bin" + File.separator + "java";
-            String classpath = System.getProperty("java.class.path");
-
-            ProcessBuilder pb = new ProcessBuilder(
-                    javaBin,
-                    "-Djava.net.useSystemProxies=true",
-                    "-cp", classpath,
-                    "de.bund.zrb.net.ProxyProbe",
-                    url
-            );
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-
-            StringBuilder stdout = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    stdout.append(line).append('\n');
-                }
-            }
-
-            boolean finished = process.waitFor(10, TimeUnit.SECONDS);
-            if (!finished) {
-                process.destroyForcibly();
-                return ProxyResolution.direct("subprocess-timeout");
-            }
-
-            String result = stdout.toString().trim();
-            if (result.isEmpty() || "DIRECT".equalsIgnoreCase(result)) {
-                return ProxyResolution.direct("subprocess-direct");
-            }
-
-            // Parse host:port
-            // Take the last non-empty line (in case JVM prints warnings before our output)
-            String candidate = result;
-            for (String line : result.split("\\r?\\n")) {
-                String stripped = line.trim();
-                if (!stripped.isEmpty()) {
-                    candidate = stripped;
-                }
-            }
-
-            int idx = candidate.lastIndexOf(':');
-            if (idx > 0 && idx < candidate.length() - 1) {
-                String host = candidate.substring(0, idx).trim();
-                String portStr = candidate.substring(idx + 1).trim().replaceAll("[^0-9]", "");
-                if (!portStr.isEmpty()) {
-                    int port = Integer.parseInt(portStr);
-                    if (port > 0 && port <= 65535) {
-                        LOG.fine("[Proxy] Java subprocess resolved: " + host + ":" + port);
-                        return ProxyResolution.proxy(
-                                new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, port)), "subprocess");
-                    }
-                }
-            }
-            return ProxyResolution.direct("subprocess-invalid: " + candidate);
-        } catch (Exception e) {
-            LOG.log(Level.FINE, "[Proxy] Java subprocess fallback failed", e);
-            return ProxyResolution.direct("subprocess-error: " + e.getMessage());
+            LOG.log(Level.WARNING, "[Proxy] Java system proxy resolution failed", e);
+            return ProxyResolution.direct("java-system-error: " + e.getMessage());
         }
     }
 
@@ -422,19 +167,13 @@ public class ProxyResolver {
             // Drain stderr on a background thread to avoid deadlock
             // (if stderr buffer fills before stdout is consumed, the process blocks)
             final StringBuilder stderr = new StringBuilder();
-            Thread stderrDrainer = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        BufferedReader reader = new BufferedReader(
-                                new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8));
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            stderr.append(line).append('\n');
-                        }
-                        reader.close();
-                    } catch (Exception ignored) { }
-                }
+            Thread stderrDrainer = new Thread(() -> {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        stderr.append(line).append('\n');
+                    }
+                } catch (Exception ignored) { }
             }, "proxy-stderr-drain");
             stderrDrainer.setDaemon(true);
             stderrDrainer.start();
@@ -560,15 +299,19 @@ public class ProxyResolver {
 
     private static Mode parseMode(String raw) {
         if (raw == null) {
-            return Mode.WINDOWS_PAC;
+            return Mode.JAVA_SYSTEM;
         }
         String normalized = raw.trim().toUpperCase(Locale.ROOT);
         if ("MANUAL".equals(normalized)) {
             return Mode.MANUAL;
         }
-        // JAVA_SYSTEM was removed — map old setting to WINDOWS_PAC
-        // (WINDOWS_PAC now includes the same subprocess-based detection)
-        return Mode.WINDOWS_PAC;
+        if ("JAVA_SYSTEM".equals(normalized)) {
+            return Mode.JAVA_SYSTEM;
+        }
+        if ("WINDOWS_PAC".equals(normalized)) {
+            return Mode.WINDOWS_PAC;
+        }
+        return Mode.JAVA_SYSTEM; // default
     }
 
     private static boolean isLocalTarget(String url) {

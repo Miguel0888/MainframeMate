@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProxyResolverTest {
@@ -102,66 +101,23 @@ class ProxyResolverTest {
     }
 
     @Test
-    void oldJavaSystemModeMapsToWindowsPac() {
-        Settings settings = new Settings();
-        settings.proxyMode = "JAVA_SYSTEM"; // old deprecated value
+    void javaSystemDoesNotCrash() {
+        // testJavaSystem should never throw — it returns a ProxyResolution in all cases
+        ProxyResolver.ProxyResolution res = ProxyResolver.testJavaSystem("https://example.com");
+        assertNotNull(res);
+        assertNotNull(res.getReason());
+        // On a developer machine without proxy, this is likely DIRECT — that's fine
+        assertTrue(res.getReason().startsWith("java-system"));
+    }
 
-        // Should not crash; maps to WINDOWS_PAC internally
+    @Test
+    void javaSystemModeResolves() {
+        Settings settings = new Settings();
+        settings.proxyMode = "JAVA_SYSTEM";
+
+        // Should not crash; on a dev machine likely returns DIRECT
         ProxyResolver.ProxyResolution res = ProxyResolver.resolveForUrl("https://example.com", settings, true);
         assertNotNull(res);
     }
-
-    @Test
-    void registryDoesNotCrash() {
-        // testRegistry should never throw — it returns a ProxyResolution in all cases
-        ProxyResolver.ProxyResolution res = ProxyResolver.testRegistry("https://example.com");
-        assertNotNull(res);
-        assertNotNull(res.getReason());
-        assertTrue(res.getReason().startsWith("registry"));
-    }
-
-    // ── Registry helper tests ────────────────────────────────────
-
-    @Test
-    void regQueryValueReturnsNullForMissingKey() {
-        // A non-existent registry value should return null, not throw
-        String val = ProxyResolver.regQueryValue(
-                "HKCU\\Software\\MainframeMate_TestNonExistent_12345", "Bogus");
-        assertNull(val);
-    }
-
-    @Test
-    void isHostBypassedMatchesExact() {
-        assertTrue(ProxyResolver.isHostBypassed("localhost", "localhost"));
-        assertFalse(ProxyResolver.isHostBypassed("example.com", "localhost"));
-    }
-
-    @Test
-    void isHostBypassedMatchesWildcardPrefix() {
-        assertTrue(ProxyResolver.isHostBypassed("intranet.corp.local", "*.corp.local"));
-        assertFalse(ProxyResolver.isHostBypassed("example.com", "*.corp.local"));
-    }
-
-    @Test
-    void isHostBypassedMatchesWildcardSuffix() {
-        assertTrue(ProxyResolver.isHostBypassed("10.130.165.20", "10.*"));
-        assertFalse(ProxyResolver.isHostBypassed("192.168.1.1", "10.*"));
-    }
-
-    @Test
-    void isHostBypassedHandlesLocal() {
-        // <local> matches hostnames without dots
-        assertTrue(ProxyResolver.isHostBypassed("intranet", "<local>"));
-        assertFalse(ProxyResolver.isHostBypassed("www.example.com", "<local>"));
-    }
-
-    @Test
-    void isHostBypassedMultiplePatterns() {
-        String patterns = "localhost;*.local;10.*;192.168.*;<local>";
-        assertTrue(ProxyResolver.isHostBypassed("localhost", patterns));
-        assertTrue(ProxyResolver.isHostBypassed("myhost.local", patterns));
-        assertTrue(ProxyResolver.isHostBypassed("10.0.0.1", patterns));
-        assertTrue(ProxyResolver.isHostBypassed("intranet", patterns));
-        assertFalse(ProxyResolver.isHostBypassed("www.google.com", patterns));
-    }
 }
+

@@ -34,18 +34,15 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
                 "Ob ein Proxy tatsächlich verwendet wird, steuert der Haken " +
                 "\"Proxy\" je Passwort-Eintrag (Einstellungen → Passwörter).</i></html>");
 
-        proxyModeBox = new JComboBox<>(new String[]{"WINDOWS_PAC", "MANUAL"});
-        String currentMode = settings.proxyMode == null ? "WINDOWS_PAC" : settings.proxyMode;
-        // Migrate old JAVA_SYSTEM setting to WINDOWS_PAC
-        if ("JAVA_SYSTEM".equalsIgnoreCase(currentMode)) {
-            currentMode = "WINDOWS_PAC";
-        }
+        proxyModeBox = new JComboBox<>(new String[]{"JAVA_SYSTEM", "WINDOWS_PAC", "MANUAL"});
+        String currentMode = settings.proxyMode == null ? "JAVA_SYSTEM" : settings.proxyMode;
+        // Migrate old default: if saved mode is WINDOWS_PAC and nothing custom, suggest JAVA_SYSTEM
         proxyModeBox.setSelectedItem(currentMode);
         proxyModeBox.setToolTipText("<html>" +
-                "<b>WINDOWS_PAC</b> — Automatische Proxy-Erkennung:<br>" +
-                "&nbsp;&nbsp;1. PowerShell PAC/WPAD-Script<br>" +
-                "&nbsp;&nbsp;2. Windows Registry (bei eingeschränkter PowerShell)<br>" +
-                "&nbsp;&nbsp;3. Java-Subprozess mit WPAD-Erkennung (letzter Fallback)<br>" +
+                "<b>JAVA_SYSTEM</b> — Java erkennt den Proxy automatisch über Windows (WPAD/WinHTTP).<br>" +
+                "&nbsp;&nbsp;&nbsp;Empfohlen, funktioniert auch bei eingeschränkter PowerShell.<br>" +
+                "<b>WINDOWS_PAC</b> — PowerShell-Script zur Proxy-Auflösung (anpassbar).<br>" +
+                "&nbsp;&nbsp;&nbsp;Fällt bei Fehler automatisch auf JAVA_SYSTEM zurück.<br>" +
                 "<b>MANUAL</b> — Fester Proxy-Host und -Port." +
                 "</html>");
         fb.addRow("Proxy-Modus:", proxyModeBox);
@@ -83,7 +80,7 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
             String testUrl = proxyTestUrlField.getText().trim();
             if (testUrl.isEmpty()) { JOptionPane.showMessageDialog(parent, "Bitte Test-URL eingeben.", "Proxy Test", JOptionPane.WARNING_MESSAGE); return; }
 
-            String selectedMode = Objects.toString(proxyModeBox.getSelectedItem(), "WINDOWS_PAC");
+            String selectedMode = Objects.toString(proxyModeBox.getSelectedItem(), "JAVA_SYSTEM");
             proxyTestButton.setEnabled(false);
             proxyTestButton.setText("…");
 
@@ -100,27 +97,21 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
                         return "MANUAL: " + host + ":" + port;
                     }
 
-                    // WINDOWS_PAC: test all three methods individually
-                    // 1) PowerShell
-                    ProxyResolver.ProxyResolution pacResult = ProxyResolver.testPacScript(testUrl, proxyPacScriptArea.getText());
-                    String pacStr = pacResult.isDirect()
-                            ? "DIRECT (" + pacResult.getReason() + ")"
-                            : pacResult.getProxy().address() + " (" + pacResult.getReason() + ")";
-                    sb.append("PowerShell PAC: ").append(pacStr);
+                    // Always test Java system proxy (fast, no PowerShell)
+                    ProxyResolver.ProxyResolution javaResult = ProxyResolver.testJavaSystem(testUrl);
+                    String javaStr = javaResult.isDirect()
+                            ? "DIRECT (" + javaResult.getReason() + ")"
+                            : javaResult.getProxy().address() + " (" + javaResult.getReason() + ")";
+                    sb.append("Java System: ").append(javaStr);
 
-                    // 2) Windows Registry
-                    ProxyResolver.ProxyResolution regResult = ProxyResolver.testRegistry(testUrl);
-                    String regStr = regResult.isDirect()
-                            ? "DIRECT (" + regResult.getReason() + ")"
-                            : regResult.getProxy().address() + " (" + regResult.getReason() + ")";
-                    sb.append("\nWindows Registry: ").append(regStr);
-
-                    // 3) Java Subprocess
-                    ProxyResolver.ProxyResolution subResult = ProxyResolver.testJavaSubprocess(testUrl);
-                    String subStr = subResult.isDirect()
-                            ? "DIRECT (" + subResult.getReason() + ")"
-                            : subResult.getProxy().address() + " (" + subResult.getReason() + ")";
-                    sb.append("\nJava Subprocess: ").append(subStr);
+                    if ("WINDOWS_PAC".equals(selectedMode)) {
+                        // Also test PowerShell PAC script
+                        ProxyResolver.ProxyResolution pacResult = ProxyResolver.testPacScript(testUrl, proxyPacScriptArea.getText());
+                        String pacStr = pacResult.isDirect()
+                                ? "DIRECT (" + pacResult.getReason() + ")"
+                                : pacResult.getProxy().address() + " (" + pacResult.getReason() + ")";
+                        sb.append("\nPowerShell PAC: ").append(pacStr);
+                    }
 
                     return sb.toString();
                 }
@@ -151,14 +142,17 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
     /**
      * Enables/disables fields depending on the selected proxy mode.
      * <ul>
+     *   <li><b>JAVA_SYSTEM</b>: Host/Port disabled, PAC script disabled — Java handles everything</li>
      *   <li><b>WINDOWS_PAC</b>: Host/Port disabled, PAC script + Test enabled</li>
      *   <li><b>MANUAL</b>: Host/Port enabled, PAC script disabled</li>
      * </ul>
+     * Test-URL and Test-Button stay enabled for JAVA_SYSTEM and WINDOWS_PAC.
      */
     private void updateModeVisibility() {
-        String mode = Objects.toString(proxyModeBox.getSelectedItem(), "WINDOWS_PAC");
+        String mode = Objects.toString(proxyModeBox.getSelectedItem(), "JAVA_SYSTEM");
         boolean isManual = "MANUAL".equals(mode);
         boolean isPac = "WINDOWS_PAC".equals(mode);
+        boolean isJava = "JAVA_SYSTEM".equals(mode);
 
         // MANUAL fields — only active in MANUAL mode
         proxyHostLabel.setEnabled(isManual);
@@ -171,10 +165,11 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
         proxyPacScriptArea.setEnabled(isPac);
         proxyPacScriptArea.setEditable(isPac);
 
-        // Test-URL and Test-Button — active for WINDOWS_PAC (not MANUAL)
-        proxyTestUrlLabel.setEnabled(isPac);
-        proxyTestUrlField.setEnabled(isPac);
-        proxyTestButton.setEnabled(isPac);
+        // Test-URL and Test-Button — active for JAVA_SYSTEM and WINDOWS_PAC (not MANUAL)
+        boolean testable = !isManual;
+        proxyTestUrlLabel.setEnabled(testable);
+        proxyTestUrlField.setEnabled(testable);
+        proxyTestButton.setEnabled(testable);
     }
 
     @Override
