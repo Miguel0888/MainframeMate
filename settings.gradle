@@ -14,5 +14,6 @@ include 'betaview-integration'
 include 'wiki-integration'
 include 'dosbox'
 
+include 'win-proxy'
 include 'onnx'
 include 'winml-java'

@@ -112,6 +112,9 @@ dependencies {
     implementation 'org.commonmark:commonmark:0.21.0'
     implementation 'org.commonmark:commonmark-ext-gfm-tables:0.21.0'
 
+    // Windows Proxy Resolver (Registry + PAC/WPAD via GraalJS — no PowerShell needed)
+    implementation project(':win-proxy')
+
     // Mermaid diagram rendering (JS → SVG via GraalJS)
     implementation 'com.aresstack:mermaid-java:0.1.0-beta.1'
 

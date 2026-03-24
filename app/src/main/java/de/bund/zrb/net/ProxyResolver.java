@@ -1,6 +1,7 @@
 package de.bund.zrb.net;
 
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.winproxy.WindowsProxyResolver;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -15,13 +16,23 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
+/**
+ * Application-level proxy resolver that bridges between {@link Settings} and
+ * the underlying proxy detection mechanisms.
+ * <p>
+ * Three modes are supported:
+ * <ul>
+ *   <li>{@link Mode#REGISTRY} — reads proxy from Windows Registry via
+ *       {@link WindowsProxyResolver} (default, no PowerShell needed)</li>
+ *   <li>{@link Mode#WINDOWS_PAC} — PowerShell-based PAC/WPAD resolution</li>
+ *   <li>{@link Mode#MANUAL} — fixed host:port configuration</li>
+ * </ul>
+ */
 public class ProxyResolver {
 
     private static final Logger LOG = Logger.getLogger(ProxyResolver.class.getName());
-    private static final String REG_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
 
     public enum Mode {
         /** PowerShell PAC/WPAD script. */
@@ -86,215 +97,34 @@ public class ProxyResolver {
         return resolveViaRegistry(url);
     }
 
-    // ── Registry proxy detection via reg.exe ─────────────────────
+    // ── Registry proxy detection — delegates to win-proxy module ──
 
     /**
-     * Reads proxy settings from the Windows Registry via {@code reg.exe}.
-     * Works on all Windows machines regardless of PowerShell CLM restrictions.
-     * <p>
-     * Handles two cases:
-     * <ol>
-     *   <li><b>Static proxy</b> — reads {@code ProxyEnable} + {@code ProxyServer}</li>
-     *   <li><b>AutoConfig (WPAD/PAC)</b> — reads {@code AutoConfigURL}, downloads the PAC file,
-     *       and evaluates {@code FindProxyForURL()} via GraalJS</li>
-     * </ol>
+     * Delegates to {@link WindowsProxyResolver#resolve(String)} and adapts the result.
      */
     private static ProxyResolution resolveViaRegistry(String url) {
-        try {
-            // 1) Check for AutoConfigURL (WPAD/PAC)
-            String autoConfigUrl = regQueryValue(REG_KEY, "AutoConfigURL");
-            if (autoConfigUrl != null && !autoConfigUrl.trim().isEmpty()) {
-                LOG.fine("[Proxy] Registry: AutoConfigURL = " + autoConfigUrl);
-                ProxyResolution pacResult = evaluatePacFromUrl(autoConfigUrl.trim(), url);
-                if (pacResult != null) {
-                    return pacResult;
-                }
-                // PAC evaluation failed — fall through to static proxy check
-            }
-
-            // 2) Check static proxy
-            String proxyEnable = regQueryValue(REG_KEY, "ProxyEnable");
-            if (!"0x1".equals(proxyEnable != null ? proxyEnable.trim() : "")) {
-                return ProxyResolution.direct("registry-proxy-disabled");
-            }
-
-            String proxyServer = regQueryValue(REG_KEY, "ProxyServer");
-            if (proxyServer == null || proxyServer.trim().isEmpty()) {
-                return ProxyResolution.direct("registry-no-proxy-server");
-            }
-
-            // Check bypass list
-            String proxyOverride = regQueryValue(REG_KEY, "ProxyOverride");
-            if (proxyOverride != null && !proxyOverride.trim().isEmpty() && url != null) {
-                try {
-                    String targetHost = URI.create(url).getHost();
-                    if (targetHost != null && isHostBypassed(targetHost, proxyOverride)) {
-                        return ProxyResolution.direct("registry-bypass");
-                    }
-                } catch (Exception ignore) { }
-            }
-
-            String server = proxyServer.trim();
-
-            // Handle protocol-specific format: "http=host:port;https=host:port"
-            if (server.contains("=")) {
-                String extracted = extractProxyForProtocol(server, url);
-                if (extracted != null) {
-                    server = extracted;
-                } else {
-                    return ProxyResolution.direct("registry-no-matching-protocol");
-                }
-            }
-
-            // Parse host:port
-            int idx = server.lastIndexOf(':');
-            if (idx > 0 && idx < server.length() - 1) {
-                String host = server.substring(0, idx).trim();
-                String portStr = server.substring(idx + 1).trim().replaceAll("[^0-9]", "");
-                if (!portStr.isEmpty()) {
-                    int port = Integer.parseInt(portStr);
-                    if (port > 0 && port <= 65535) {
-                        LOG.fine("[Proxy] Registry static resolved: " + host + ":" + port);
-                        return ProxyResolution.proxy(
-                                new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, port)), "registry");
-                    }
-                }
-            }
-            return ProxyResolution.direct("registry-invalid: " + proxyServer);
-        } catch (Exception e) {
-            LOG.log(Level.FINE, "[Proxy] Registry resolution failed", e);
-            return ProxyResolution.direct("registry-error: " + e.getMessage());
-        }
+        de.bund.zrb.winproxy.ProxyResult result = WindowsProxyResolver.resolve(url);
+        return adaptResult(result, "registry");
     }
 
     /**
-     * Evaluates a PAC file from a URL via GraalJS and parses the result.
-     *
-     * @return a {@link ProxyResolution}, or {@code null} if evaluation failed
+     * Adapts a {@link de.bund.zrb.winproxy.ProxyResult} to a {@link ProxyResolution}.
      */
-    private static ProxyResolution evaluatePacFromUrl(String pacUrl, String targetUrl) {
-        try {
-            String pacResult = PacEvaluator.evaluate(pacUrl, targetUrl);
-            if (pacResult == null) {
-                return null; // evaluation failed — caller should try other methods
-            }
-            return parsePacResult(pacResult.trim());
-        } catch (Exception e) {
-            LOG.log(Level.FINE, "[Proxy] PAC evaluation failed for " + pacUrl, e);
-            return null;
+    private static ProxyResolution adaptResult(de.bund.zrb.winproxy.ProxyResult result, String prefix) {
+        if (result.isDirect()) {
+            return ProxyResolution.direct(prefix + "-" + result.getReason());
         }
+        return ProxyResolution.proxy(result.toJavaProxy(), prefix + "-" + result.getReason());
     }
 
-    /**
-     * Parses a PAC result string like {@code "PROXY 10.0.0.1:3128"}, {@code "PROXY host:port; DIRECT"},
-     * or {@code "DIRECT"}.
-     */
-    private static ProxyResolution parsePacResult(String pacResult) {
-        if (pacResult == null || pacResult.isEmpty() || "DIRECT".equalsIgnoreCase(pacResult)) {
-            return ProxyResolution.direct("registry-pac-direct");
-        }
-
-        // PAC can return multiple entries separated by ";"
-        // e.g. "PROXY 10.0.0.1:3128; SOCKS 10.0.0.2:1080; DIRECT"
-        for (String entry : pacResult.split(";")) {
-            String trimmed = entry.trim();
-            if (trimmed.toUpperCase(Locale.ROOT).startsWith("PROXY ")) {
-                String hostPort = trimmed.substring(6).trim();
-                int idx = hostPort.lastIndexOf(':');
-                if (idx > 0 && idx < hostPort.length() - 1) {
-                    String host = hostPort.substring(0, idx).trim();
-                    String portStr = hostPort.substring(idx + 1).trim().replaceAll("[^0-9]", "");
-                    if (!portStr.isEmpty()) {
-                        try {
-                            int port = Integer.parseInt(portStr);
-                            if (port > 0 && port <= 65535) {
-                                LOG.fine("[Proxy] Registry PAC resolved: " + host + ":" + port);
-                                return ProxyResolution.proxy(
-                                        new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, port)), "registry-pac");
-                            }
-                        } catch (NumberFormatException ignore) { }
-                    }
-                }
-            }
-        }
-        return ProxyResolution.direct("registry-pac-direct");
-    }
-
-    /** Queries a single registry value via {@code reg.exe}. Returns {@code null} if not found. */
+    /** Queries a single registry value via {@link WindowsProxyResolver#readRegistryValue}. */
     static String regQueryValue(String key, String valueName) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder("reg", "query", key, "/v", valueName);
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
-            StringBuilder out = new StringBuilder();
-            try (BufferedReader r = new BufferedReader(
-                    new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    out.append(line).append('\n');
-                }
-            }
-            p.waitFor(5, TimeUnit.SECONDS);
-
-            for (String line : out.toString().split("\\r?\\n")) {
-                String trimmed = line.trim();
-                if (trimmed.contains(valueName)) {
-                    String[] parts = trimmed.split("\\s{2,}");
-                    if (parts.length >= 3) {
-                        return parts[parts.length - 1].trim();
-                    }
-                }
-            }
-        } catch (Exception e) {
-            LOG.log(Level.FINE, "[Proxy] reg query failed for " + valueName, e);
-        }
-        return null;
+        return WindowsProxyResolver.readRegistryValue(key, valueName);
     }
 
-    private static String extractProxyForProtocol(String proxyServer, String url) {
-        String protocol = "http";
-        if (url != null) {
-            try { protocol = URI.create(url).getScheme(); } catch (Exception ignore) { }
-        }
-        if (protocol == null) protocol = "http";
-
-        for (String entry : proxyServer.split(";")) {
-            String[] kv = entry.split("=", 2);
-            if (kv.length == 2 && protocol.equalsIgnoreCase(kv[0].trim())) {
-                return kv[1].trim();
-            }
-        }
-        if (!"http".equalsIgnoreCase(protocol)) {
-            for (String entry : proxyServer.split(";")) {
-                String[] kv = entry.split("=", 2);
-                if (kv.length == 2 && "http".equalsIgnoreCase(kv[0].trim())) {
-                    return kv[1].trim();
-                }
-            }
-        }
-        return null;
-    }
-
-    /** Checks if a host matches the ProxyOverride bypass list (e.g. {@code "*.local;10.*;localhost;<local>"}). */
+    /** Delegates to {@link WindowsProxyResolver#isBypassed(String, String)}. */
     static boolean isHostBypassed(String host, String proxyOverride) {
-        if (host == null || proxyOverride == null) return false;
-        String lowerHost = host.toLowerCase(Locale.ROOT);
-        for (String pattern : proxyOverride.split(";")) {
-            String p = pattern.trim().toLowerCase(Locale.ROOT);
-            if (p.isEmpty()) continue;
-            if ("<local>".equals(p)) {
-                if (!lowerHost.contains(".")) return true;
-                continue;
-            }
-            if (p.startsWith("*")) {
-                if (lowerHost.endsWith(p.substring(1))) return true;
-            } else if (p.endsWith("*")) {
-                if (lowerHost.startsWith(p.substring(0, p.length() - 1))) return true;
-            } else if (lowerHost.equals(p)) {
-                return true;
-            }
-        }
-        return false;
+        return WindowsProxyResolver.isBypassed(host, proxyOverride);
     }
 
     // ── PowerShell PAC/WPAD resolution ──────────────────────────
