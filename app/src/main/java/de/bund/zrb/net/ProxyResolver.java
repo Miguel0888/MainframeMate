@@ -22,10 +22,12 @@ import java.util.logging.Logger;
  * Application-level proxy resolver that bridges between {@link Settings} and
  * the underlying proxy detection mechanisms.
  * <p>
- * Three modes are supported:
+ * Four modes are supported:
  * <ul>
  *   <li>{@link Mode#REGISTRY} — reads proxy from Windows Registry via
  *       {@link WindowsProxyResolver} (default, no PowerShell needed)</li>
+ *   <li>{@link Mode#PAC_URL} — evaluates an explicit PAC URL (user-configured,
+ *       no registry/PowerShell needed)</li>
  *   <li>{@link Mode#WINDOWS_PAC} — PowerShell-based PAC/WPAD resolution</li>
  *   <li>{@link Mode#MANUAL} — fixed host:port configuration</li>
  * </ul>
@@ -39,6 +41,8 @@ public class ProxyResolver {
         WINDOWS_PAC,
         /** Static proxy read from Windows Registry via {@code reg.exe} (no PowerShell needed). */
         REGISTRY,
+        /** Explicit PAC URL — downloads and evaluates a user-configured PAC auto-config URL via GraalJS. */
+        PAC_URL,
         /** Manual host:port configuration. */
         MANUAL
     }
@@ -85,11 +89,20 @@ public class ProxyResolver {
             return resolveViaRegistry(url);
         }
 
+        if (mode == Mode.PAC_URL) {
+            return resolveViaPacUrl(url, settings.proxyPacUrl);
+        }
+
         return resolveViaPowerShell(url, settings.proxyPacScript);
     }
 
     public static ProxyResolution testPacScript(String url, String script) {
         return resolveViaPowerShell(url, script);
+    }
+
+    /** Tests the PAC_URL proxy detection for a given URL and explicit PAC URL. */
+    public static ProxyResolution testPacUrl(String url, String pacUrl) {
+        return resolveViaPacUrl(url, pacUrl);
     }
 
     /** Tests the Registry proxy detection for a given URL. */
@@ -105,6 +118,20 @@ public class ProxyResolver {
     private static ProxyResolution resolveViaRegistry(String url) {
         de.bund.zrb.winproxy.ProxyResult result = WindowsProxyResolver.resolve(url);
         return adaptResult(result, "registry");
+    }
+
+    // ── Explicit PAC URL — delegates to win-proxy module ────────
+
+    /**
+     * Downloads and evaluates an explicit PAC URL via {@link WindowsProxyResolver#evaluatePac}.
+     * Used when the user has manually configured the PAC URL in settings (Mode PAC_URL).
+     */
+    private static ProxyResolution resolveViaPacUrl(String url, String pacUrl) {
+        if (pacUrl == null || pacUrl.trim().isEmpty()) {
+            return ProxyResolution.direct("pac-url-empty");
+        }
+        de.bund.zrb.winproxy.ProxyResult result = WindowsProxyResolver.evaluatePac(pacUrl.trim(), url);
+        return adaptResult(result, "pac-url");
     }
 
     /**
@@ -294,6 +321,9 @@ public class ProxyResolver {
         }
         if ("WINDOWS_PAC".equals(normalized)) {
             return Mode.WINDOWS_PAC;
+        }
+        if ("PAC_URL".equals(normalized)) {
+            return Mode.PAC_URL;
         }
         return Mode.REGISTRY;
     }

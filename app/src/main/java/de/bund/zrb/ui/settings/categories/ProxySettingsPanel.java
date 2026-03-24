@@ -22,6 +22,8 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
     private final RSyntaxTextArea proxyPacScriptArea;
     private final RTextScrollPane pacScrollPane;
     private final JLabel pacSectionLabel;
+    private final JLabel pacUrlLabel;
+    private final JTextField pacUrlField;
     private final JTextField proxyTestUrlField;
     private final JLabel proxyTestUrlLabel;
     private final JButton proxyTestButton;
@@ -35,11 +37,12 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
                 "Ob ein Proxy tatsächlich verwendet wird, steuert der Haken " +
                 "\"Proxy\" je Passwort-Eintrag (Einstellungen → Passwörter).</i></html>");
 
-        proxyModeBox = new JComboBox<>(new String[]{"WINDOWS_PAC", "REGISTRY", "MANUAL"});
-        proxyModeBox.setSelectedItem(settings.proxyMode == null ? "WINDOWS_PAC" : settings.proxyMode);
+        proxyModeBox = new JComboBox<>(new String[]{"WINDOWS_PAC", "REGISTRY", "PAC_URL", "MANUAL"});
+        proxyModeBox.setSelectedItem(settings.proxyMode == null ? "REGISTRY" : settings.proxyMode);
         proxyModeBox.setToolTipText("<html>" +
                 "<b>WINDOWS_PAC</b> — PowerShell PAC/WPAD-Script (anpassbar).<br>" +
-                "<b>REGISTRY</b> — Statischer Proxy aus der Windows Registry (reg.exe, kein PowerShell nötig).<br>" +
+                "<b>REGISTRY</b> — Proxy aus der Windows Registry (reg.exe, kein PowerShell nötig).<br>" +
+                "<b>PAC_URL</b> — PAC-Datei von einer expliziten URL laden und auswerten (GraalJS).<br>" +
                 "<b>MANUAL</b> — Fester Proxy-Host und -Port." +
                 "</html>");
         fb.addRow("Proxy-Modus:", proxyModeBox);
@@ -56,6 +59,14 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
         proxyNoProxyLocalBox = new JCheckBox("Lokale Ziele niemals über Proxy");
         proxyNoProxyLocalBox.setSelected(settings.proxyNoProxyLocal);
         fb.addWide(proxyNoProxyLocalBox);
+
+        // ── PAC_URL-only: Explicit PAC URL ──
+        pacUrlLabel = new JLabel("PAC-URL:");
+        pacUrlField = new JTextField(settings.proxyPacUrl == null ? "" : settings.proxyPacUrl, 40);
+        pacUrlField.setToolTipText("<html>Vollständige URL zur PAC-Datei, z.B.<br>" +
+                "<code>http://wpad.firma.local/wpad.dat</code><br>" +
+                "Die Datei wird heruntergeladen und FindProxyForURL() via GraalJS ausgewertet.</html>");
+        fb.addRow(pacUrlLabel, pacUrlField);
 
         // ── PAC/WPAD-only: Script + Test ──
         fb.addSeparator();
@@ -97,6 +108,9 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
                     if ("REGISTRY".equals(selectedMode)) {
                         return ProxyResolver.testRegistry(testUrl);
                     }
+                    if ("PAC_URL".equals(selectedMode)) {
+                        return ProxyResolver.testPacUrl(testUrl, pacUrlField.getText().trim());
+                    }
                     return ProxyResolver.testPacScript(testUrl, proxyPacScriptArea.getText());
                 }
                 @Override protected void done() {
@@ -130,15 +144,17 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
     /**
      * Enables/disables fields depending on the selected proxy mode.
      * <ul>
-     *   <li><b>WINDOWS_PAC</b>: PAC script + Test enabled, Host/Port disabled</li>
-     *   <li><b>REGISTRY</b>: Test-URL + Test enabled, PAC script + Host/Port disabled</li>
-     *   <li><b>MANUAL</b>: Host/Port enabled, PAC script + Test disabled</li>
+     *   <li><b>WINDOWS_PAC</b>: PAC script + Test enabled, Host/Port/PAC-URL disabled</li>
+     *   <li><b>REGISTRY</b>: Test-URL + Test enabled, PAC script + Host/Port/PAC-URL disabled</li>
+     *   <li><b>PAC_URL</b>: PAC-URL + Test enabled, PAC script + Host/Port disabled</li>
+     *   <li><b>MANUAL</b>: Host/Port enabled, PAC script + Test + PAC-URL disabled</li>
      * </ul>
      */
     private void updateModeVisibility() {
         String mode = Objects.toString(proxyModeBox.getSelectedItem(), "REGISTRY");
         boolean isPac = "WINDOWS_PAC".equals(mode);
         boolean isRegistry = "REGISTRY".equals(mode);
+        boolean isPacUrl = "PAC_URL".equals(mode);
         boolean isManual = "MANUAL".equals(mode);
 
         // MANUAL fields — only in MANUAL mode
@@ -147,14 +163,18 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
         proxyPortLabel.setEnabled(isManual);
         proxyPortSpinner.setEnabled(isManual);
 
+        // Explicit PAC URL — only in PAC_URL mode
+        pacUrlLabel.setEnabled(isPacUrl);
+        pacUrlField.setEnabled(isPacUrl);
+
         // PAC/WPAD script — only in WINDOWS_PAC mode
         pacSectionLabel.setEnabled(isPac);
         proxyPacScriptArea.setEnabled(isPac);
         proxyPacScriptArea.setEditable(isPac);
         resetScriptButton.setEnabled(isPac);
 
-        // Test-URL + Test-Button — for WINDOWS_PAC and REGISTRY
-        boolean testable = isPac || isRegistry;
+        // Test-URL + Test-Button — for WINDOWS_PAC, REGISTRY, and PAC_URL
+        boolean testable = isPac || isRegistry || isPacUrl;
         proxyTestUrlLabel.setEnabled(testable);
         proxyTestUrlField.setEnabled(testable);
         proxyTestButton.setEnabled(testable);
@@ -163,6 +183,7 @@ public class ProxySettingsPanel extends AbstractSettingsPanel {
     @Override
     protected void applyToSettings(Settings s) {
         s.proxyMode = Objects.toString(proxyModeBox.getSelectedItem(), "REGISTRY");
+        s.proxyPacUrl = pacUrlField.getText().trim();
         s.proxyHost = proxyHostField.getText().trim();
         s.proxyPort = ((Number) proxyPortSpinner.getValue()).intValue();
         s.proxyNoProxyLocal = proxyNoProxyLocalBox.isSelected();
