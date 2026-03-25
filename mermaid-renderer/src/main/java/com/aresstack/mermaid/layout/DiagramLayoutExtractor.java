@@ -872,9 +872,17 @@ public final class DiagramLayoutExtractor {
             double[] bounds = (d != null && !d.isEmpty()) ? parsePathBounds(d) : null;
             if (bounds == null) bounds = new double[]{0, 0, 0, 0};
 
-            // Resolve source/target by proximity to entity nodes
-            double startX = bounds[0], startY = (bounds[1] + bounds[3]) / 2;
-            double endX = bounds[2], endY = (bounds[1] + bounds[3]) / 2;
+            // Use actual path start/end points for proximity matching
+            // (bounding box midpoints fail for vertical or diagonal lines)
+            double[] endpoints = (d != null && !d.isEmpty()) ? parsePathEndpoints(d) : null;
+            double startX, startY, endX, endY;
+            if (endpoints != null) {
+                startX = endpoints[0]; startY = endpoints[1];
+                endX = endpoints[2]; endY = endpoints[3];
+            } else {
+                startX = bounds[0]; startY = bounds[1];
+                endX = bounds[2]; endY = bounds[3];
+            }
             String srcId = "", tgtId = "";
             double srcDist = Double.MAX_VALUE, tgtDist = Double.MAX_VALUE;
             for (DiagramNode node : nodes) {
@@ -885,6 +893,18 @@ public final class DiagramLayoutExtractor {
                 if (dStart < srcDist) { srcDist = dStart; srcId = node.getId(); }
                 if (dEnd < tgtDist) { tgtDist = dEnd; tgtId = node.getId(); }
             }
+            // Guard: source and target must be different entities
+            if (srcId.equals(tgtId) && !srcId.isEmpty()) {
+                // Fallback: assign the second-closest entity as target
+                double secondBest = Double.MAX_VALUE;
+                for (DiagramNode node : nodes) {
+                    if (!"entity".equals(node.getKind())) continue;
+                    if (node.getId().equals(srcId)) continue;
+                    double ncx = node.getCenterX(), ncy = node.getCenterY();
+                    double dEnd2 = Math.hypot(ncx - endX, ncy - endY);
+                    if (dEnd2 < secondBest) { secondBest = dEnd2; tgtId = node.getId(); }
+                }
+            }
 
             // Try to detect cardinality from marker references
             ErCardinality srcCard = detectErCardinality(path, "marker-start");
@@ -893,6 +913,10 @@ public final class DiagramLayoutExtractor {
 
             // Try to find the relationship label from nearby text elements
             String erLabel = "";
+            double midX = (bounds[0] + bounds[2]) / 2;
+            double midY = (bounds[1] + bounds[3]) / 2;
+
+            // Strategy 1: text in parent group
             Node parent = path.getParentNode();
             if (parent instanceof Element) {
                 NodeList texts = ((Element) parent).getElementsByTagNameNS("*", "text");
@@ -901,6 +925,34 @@ public final class DiagramLayoutExtractor {
                     if (txt != null && !txt.trim().isEmpty()) {
                         erLabel = txt.trim();
                         break;
+                    }
+                }
+            }
+
+            // Strategy 2: search all text elements with class "er relationshipLabel"
+            if (erLabel.isEmpty()) {
+                NodeList allTexts = doc.getElementsByTagNameNS("*", "text");
+                double bestLabelDist = Double.MAX_VALUE;
+                for (int t = 0; t < allTexts.getLength(); t++) {
+                    Node textNode = allTexts.item(t);
+                    if (!(textNode instanceof Element)) continue;
+                    Element textEl = (Element) textNode;
+                    String textCls = attr(textEl, "class");
+                    if (!textCls.contains("er") || !textCls.contains("Label")) continue;
+                    String txt = textEl.getTextContent();
+                    if (txt == null || txt.trim().isEmpty()) continue;
+                    // Use position to match label to the closest relationship line
+                    double tx = parseDoubleAttr(textEl, "x", 0);
+                    double ty = parseDoubleAttr(textEl, "y", 0);
+                    // Also check transform
+                    if (tx == 0 && ty == 0) {
+                        double[] trans = parseTranslate(textEl);
+                        tx = trans[0]; ty = trans[1];
+                    }
+                    double dist = Math.hypot(tx - midX, ty - midY);
+                    if (dist < bestLabelDist) {
+                        bestLabelDist = dist;
+                        erLabel = txt.trim();
                     }
                 }
             }
@@ -1452,6 +1504,90 @@ public final class DiagramLayoutExtractor {
         }
 
         return ErCardinality.EXACTLY_ONE;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  SVG path endpoint parser (for ER relationship proximity matching)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Parse an SVG path {@code d} attribute and return its first and last points
+     * as {@code [startX, startY, endX, endY]}, or {@code null} if parsing fails.
+     * This is more precise than using bounding box corners for proximity matching.
+     */
+    static double[] parsePathEndpoints(String d) {
+        if (d == null || d.isEmpty()) return null;
+        double curX = 0, curY = 0, startX = 0, startY = 0;
+        boolean hasStart = false;
+
+        Matcher tokenizer = Pattern.compile("[MmLlHhVvCcSsQqTtAaZz][^MmLlHhVvCcSsQqTtAaZz]*")
+                .matcher(d);
+        while (tokenizer.find()) {
+            String token = tokenizer.group().trim();
+            char cmd = token.charAt(0);
+            boolean isRel = Character.isLowerCase(cmd);
+            char CMD = Character.toUpperCase(cmd);
+            Matcher numMatcher = Pattern.compile("-?[\\d]+(?:\\.[\\d]*)?(?:[eE][+-]?[\\d]+)?")
+                    .matcher(token.substring(1));
+            List<Double> vals = new ArrayList<Double>();
+            while (numMatcher.find()) vals.add(Double.parseDouble(numMatcher.group()));
+
+            switch (CMD) {
+                case 'M':
+                    for (int k = 0; k + 1 < vals.size(); k += 2) {
+                        curX = isRel ? curX + vals.get(k) : vals.get(k);
+                        curY = isRel ? curY + vals.get(k + 1) : vals.get(k + 1);
+                        if (!hasStart) { startX = curX; startY = curY; hasStart = true; }
+                    }
+                    break;
+                case 'L': case 'T':
+                    for (int k = 0; k + 1 < vals.size(); k += 2) {
+                        curX = isRel ? curX + vals.get(k) : vals.get(k);
+                        curY = isRel ? curY + vals.get(k + 1) : vals.get(k + 1);
+                        if (!hasStart) { startX = curX; startY = curY; hasStart = true; }
+                    }
+                    break;
+                case 'H':
+                    for (int k = 0; k < vals.size(); k++) {
+                        curX = isRel ? curX + vals.get(k) : vals.get(k);
+                    }
+                    break;
+                case 'V':
+                    for (int k = 0; k < vals.size(); k++) {
+                        curY = isRel ? curY + vals.get(k) : vals.get(k);
+                    }
+                    break;
+                case 'C':
+                    for (int k = 0; k + 5 < vals.size(); k += 6) {
+                        curX = isRel ? curX + vals.get(k + 4) : vals.get(k + 4);
+                        curY = isRel ? curY + vals.get(k + 5) : vals.get(k + 5);
+                    }
+                    break;
+                case 'S':
+                    for (int k = 0; k + 3 < vals.size(); k += 4) {
+                        curX = isRel ? curX + vals.get(k + 2) : vals.get(k + 2);
+                        curY = isRel ? curY + vals.get(k + 3) : vals.get(k + 3);
+                    }
+                    break;
+                case 'Q':
+                    for (int k = 0; k + 3 < vals.size(); k += 4) {
+                        curX = isRel ? curX + vals.get(k + 2) : vals.get(k + 2);
+                        curY = isRel ? curY + vals.get(k + 3) : vals.get(k + 3);
+                    }
+                    break;
+                case 'A':
+                    for (int k = 0; k + 6 < vals.size(); k += 7) {
+                        curX = isRel ? curX + vals.get(k + 5) : vals.get(k + 5);
+                        curY = isRel ? curY + vals.get(k + 6) : vals.get(k + 6);
+                    }
+                    break;
+                case 'Z':
+                    curX = startX; curY = startY;
+                    break;
+            }
+        }
+        if (!hasStart) return null;
+        return new double[]{startX, startY, curX, curY};
     }
 
     // ═══════════════════════════════════════════════════════════

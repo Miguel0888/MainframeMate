@@ -1290,10 +1290,9 @@ public final class MermaidSelectionTest {
                 @Override public void actionPerformed(ActionEvent e) {
                     ErCardinality newSrc = cards[srcCardCb.getSelectedIndex()];
                     ErCardinality newTgt = cards[tgtCardCb.getSelectedIndex()];
-                    cs.currentSource = changeErCardinalityInSource(cs.currentSource,
-                            er.getSourceId(), er.getTargetId(), er.getLabel(),
-                            er.getSourceCardinality(), er.getTargetCardinality(),
-                            newSrc, newTgt, er.isIdentifying());
+                    cs.currentSource = SourceEditBridge.changeErCardinality(cs.currentSource,
+                            er.getSourceId(), er.getTargetId(),
+                            newSrc, newTgt, er.isIdentifying(), er.getLabel());
                     onApplied.run();
                 }
             });

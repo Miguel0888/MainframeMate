@@ -455,9 +455,21 @@ public final class MermaidSourceEditor {
      * Add a new edge to the end of the source.
      */
     public void addEdge(String sourceId, String targetId, String arrow) {
+        addEdgeWithLabel(sourceId, targetId, arrow, "");
+    }
+
+    /**
+     * Add a new edge to the end of the source, with an optional label suffix.
+     *
+     * @param sourceId    source node ID
+     * @param targetId    target node ID
+     * @param arrow       the arrow text (e.g. "-->", "||--o{")
+     * @param labelSuffix optional suffix after the target (e.g. " : relates"), empty string if none
+     */
+    public void addEdgeWithLabel(String sourceId, String targetId, String arrow, String labelSuffix) {
         // Insert at the very end (before EOF)
         int lastTokenIdx = tokens.size() - 1; // EOF
-        rewriter.insertBefore(lastTokenIdx, "\n    " + sourceId + " " + arrow + " " + targetId);
+        rewriter.insertBefore(lastTokenIdx, "\n    " + sourceId + " " + arrow + " " + targetId + labelSuffix);
     }
 
     // ═══════════════════════════════════════════════════════════

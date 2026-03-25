@@ -65,6 +65,72 @@ public final class SourceEditBridge {
     }
 
     /**
+     * Change ER diagram cardinalities using ANTLR-based editing.
+     *
+     * @param source      current Mermaid source
+     * @param sourceId    source entity ID
+     * @param targetId    target entity ID
+     * @param newSrcCard  new source-side cardinality
+     * @param newTgtCard  new target-side cardinality
+     * @param identifying whether the relationship is identifying (== instead of --)
+     * @param label       the relationship label
+     * @return modified source
+     */
+    public static String changeErCardinality(String source,
+                                              String sourceId, String targetId,
+                                              ErCardinality newSrcCard, ErCardinality newTgtCard,
+                                              boolean identifying, String label) {
+        MermaidSourceEditor editor = MermaidSourceEditor.parse(source);
+        if (editor == null) return source;
+
+        MermaidSourceEditor.EdgeInfo ei = findEdgeRobust(editor, sourceId, targetId);
+        if (ei == null) return source;
+
+        // Determine if source/target are swapped vs ANTLR model
+        boolean swapped = !ei.sourceId.equals(stripSvgPrefix(sourceId));
+        String leftCard, rightCard;
+        if (!swapped) {
+            leftCard = toLeftSyntax(newSrcCard);
+            rightCard = toRightSyntax(newTgtCard);
+        } else {
+            leftCard = toLeftSyntax(newTgtCard);
+            rightCard = toRightSyntax(newSrcCard);
+        }
+
+        String connector = identifying ? "==" : "--";
+        String newArrow = leftCard + connector + rightCard;
+
+        // Build the full replacement line
+        String labelPart = (label != null && !label.isEmpty()) ? " : " + label : "";
+        String newLine = ei.sourceId + " " + newArrow + " " + ei.targetId + labelPart;
+        editor.replaceEdgeSegment(ei, newLine);
+        return editor.getText();
+    }
+
+    /** Left-side cardinality Mermaid syntax. */
+    private static String toLeftSyntax(ErCardinality card) {
+        switch (card) {
+            case EXACTLY_ONE:  return "||";
+            case ZERO_OR_ONE:  return "|o";
+            case ZERO_OR_MORE: return "}o";
+            case ONE_OR_MORE:  return "}|";
+            default:           return "||";
+        }
+    }
+
+    /** Right-side cardinality Mermaid syntax. */
+    private static String toRightSyntax(ErCardinality card) {
+        switch (card) {
+            case EXACTLY_ONE:  return "||";
+            case ZERO_OR_ONE:  return "o|";
+            case ZERO_OR_MORE: return "o{";
+            case ONE_OR_MORE:  return "|{";
+            default:           return "||";
+        }
+    }
+
+
+    /**
      * Change a flowchart edge's arrow style (line style + arrowhead).
      */
     public static String changeFlowchartEdgeStyle(String source,
@@ -148,13 +214,20 @@ public final class SourceEditBridge {
         if (editor == null) return source;
 
         String arrow;
+        String labelSuffix = "";
         switch (diagramType) {
-            case "erDiagram":    arrow = "||--o{"; break;
+            case "erDiagram":
+                arrow = "||--o{";
+                labelSuffix = " : relates";  // ER requires ": label" AFTER target
+                break;
             case "classDiagram": arrow = "-->"; break;
-            case "sequence":     arrow = "->>"; break;
+            case "sequence":
+                arrow = "->>";
+                labelSuffix = ": Nachricht";  // sequence label after target
+                break;
             default:             arrow = "-->"; break;
         }
-        editor.addEdge(sourceId, targetId, arrow);
+        editor.addEdgeWithLabel(sourceId, targetId, arrow, labelSuffix);
         return editor.getText();
     }
 
