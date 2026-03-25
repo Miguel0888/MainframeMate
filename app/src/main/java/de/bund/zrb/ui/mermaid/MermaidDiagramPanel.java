@@ -112,7 +112,7 @@ public class MermaidDiagramPanel extends JPanel {
         detailArea.setEditable(false);
         detailArea.setLineWrap(true);
         detailArea.setWrapStyleWord(true);
-        detailArea.setRows(3);
+        detailArea.setRows(5);
         detailArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
         detailArea.setBackground(new Color(255, 255, 230));
         detailArea.setBorder(new EmptyBorder(4, 6, 4, 6));
@@ -133,21 +133,73 @@ public class MermaidDiagramPanel extends JPanel {
         zoomLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
         JPanel zoomBar = buildZoomBar();
 
-        // ── Layout ──
-        JPanel bottomPanel = new JPanel();
-        bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.Y_AXIS));
-        bottomPanel.add(new JScrollPane(detailArea));
-        if (editable) {
-            bottomPanel.add(editPanel);
-        }
-        bottomPanel.add(statusLabel);
+        // ── Right sidebar ──
+        JPanel sidebar = new JPanel(new BorderLayout(0, 4));
+        sidebar.setBackground(new Color(250, 250, 245));
+        sidebar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 1, 0, 0, new Color(200, 200, 200)),
+                new EmptyBorder(6, 6, 6, 6)));
+        sidebar.setPreferredSize(new Dimension(280, 0));
 
+        // Sidebar header
+        JLabel sidebarTitle = new JLabel("  Details");
+        sidebarTitle.setFont(sidebarTitle.getFont().deriveFont(Font.BOLD, 12f));
+        sidebarTitle.setForeground(new Color(80, 80, 80));
+        sidebarTitle.setBorder(new EmptyBorder(2, 0, 4, 0));
+        sidebar.add(sidebarTitle, BorderLayout.NORTH);
+
+        // Sidebar content (detail + edit + status)
+        JPanel sidebarContent = new JPanel();
+        sidebarContent.setLayout(new BoxLayout(sidebarContent, BoxLayout.Y_AXIS));
+        sidebarContent.setBackground(new Color(250, 250, 245));
+
+        JScrollPane detailScroll = new JScrollPane(detailArea);
+        detailScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+        detailScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        sidebarContent.add(detailScroll);
+
+        if (editable) {
+            sidebarContent.add(Box.createVerticalStrut(6));
+            editPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            editPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+            sidebarContent.add(editPanel);
+        }
+
+        sidebarContent.add(Box.createVerticalGlue());
+        sidebarContent.add(Box.createVerticalStrut(4));
+        statusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        sidebarContent.add(statusLabel);
+
+        sidebar.add(sidebarContent, BorderLayout.CENTER);
+
+        // ── Toggle sidebar button ──
+        final JButton toggleSidebar = new JButton("▶");
+        toggleSidebar.setToolTipText("Seitenleiste ein-/ausblenden");
+        toggleSidebar.setMargin(new Insets(2, 4, 2, 4));
+        toggleSidebar.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+        toggleSidebar.setFocusable(false);
+        toggleSidebar.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                sidebar.setVisible(!sidebar.isVisible());
+                toggleSidebar.setText(sidebar.isVisible() ? "▶" : "◀");
+                toggleSidebar.setToolTipText(sidebar.isVisible()
+                        ? "Seitenleiste ausblenden" : "Seitenleiste einblenden");
+                revalidate();
+                repaint();
+            }
+        });
+
+        zoomBar.add(Box.createHorizontalStrut(12));
+        zoomBar.add(toggleSidebar);
+
+        // ── Layout ──
         JPanel centerPanel = new JPanel(new BorderLayout());
         centerPanel.add(imagePanel, BorderLayout.CENTER);
         centerPanel.add(zoomBar, BorderLayout.SOUTH);
 
         add(centerPanel, BorderLayout.CENTER);
-        add(bottomPanel, BorderLayout.SOUTH);
+        add(sidebar, BorderLayout.EAST);
     }
 
     public void setSourceChangeListener(SourceChangeListener listener) {
@@ -683,11 +735,22 @@ public class MermaidDiagramPanel extends JPanel {
     }
 
     private void buildNodeEdit() {
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        JPanel row = new JPanel();
+        row.setLayout(new BoxLayout(row, BoxLayout.Y_AXIS));
         row.setOpaque(false);
-        row.add(new JLabel("Name:"));
-        final JTextField nameField = new JTextField(selectedNode.getLabel(), 20);
-        row.add(nameField);
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel nameRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        nameRow.setOpaque(false);
+        nameRow.add(new JLabel("Name:"));
+        editPanel.add(row);
+
+        final JTextField nameField = new JTextField(selectedNode.getLabel(), 16);
+        nameRow.add(nameField);
+        row.add(nameRow);
+
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        btnRow.setOpaque(false);
         JButton applyBtn = new JButton("Anwenden");
         applyBtn.addActionListener(new ActionListener() {
             @Override
@@ -701,18 +764,27 @@ public class MermaidDiagramPanel extends JPanel {
                 }
             }
         });
-        row.add(applyBtn);
-        editPanel.add(row);
+        btnRow.add(applyBtn);
+        row.add(btnRow);
     }
 
     private void buildEdgeEdit() {
+        JPanel container = new JPanel();
+        container.setLayout(new BoxLayout(container, BoxLayout.Y_AXIS));
+        container.setOpaque(false);
+        container.setAlignmentX(Component.LEFT_ALIGNMENT);
+
         // Label edit
         JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
         row.setOpaque(false);
         row.add(new JLabel("Label:"));
         String currentLabel = selectedEdge.getLabel() != null ? selectedEdge.getLabel() : "";
-        final JTextField labelField = new JTextField(currentLabel, 20);
+        final JTextField labelField = new JTextField(currentLabel, 16);
         row.add(labelField);
+        container.add(row);
+
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        btnRow.setOpaque(false);
         JButton applyBtn = new JButton("Anwenden");
         applyBtn.addActionListener(new ActionListener() {
             @Override
@@ -723,8 +795,8 @@ public class MermaidDiagramPanel extends JPanel {
                 applySourceChange(updated);
             }
         });
-        row.add(applyBtn);
-        editPanel.add(row);
+        btnRow.add(applyBtn);
+        container.add(btnRow);
 
         // Reverse & delete
         JPanel actRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -739,8 +811,11 @@ public class MermaidDiagramPanel extends JPanel {
             }
         });
         actRow.add(reverseBtn);
+        container.add(actRow);
 
-        JButton deleteBtn = new JButton("🗑 Kante löschen");
+        JPanel delRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        delRow.setOpaque(false);
+        JButton deleteBtn = new JButton("\uD83D\uDDD1 Kante löschen");
         deleteBtn.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -749,8 +824,10 @@ public class MermaidDiagramPanel extends JPanel {
                 applySourceChange(updated);
             }
         });
-        actRow.add(deleteBtn);
-        editPanel.add(actRow);
+        delRow.add(deleteBtn);
+        container.add(delRow);
+
+        editPanel.add(container);
     }
 
     // ═══════════════════════════════════════════════════════════
