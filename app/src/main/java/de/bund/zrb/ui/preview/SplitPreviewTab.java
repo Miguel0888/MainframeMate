@@ -726,6 +726,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         toolbar.addSeparator(new Dimension(8, 0));
 
         // ── Mermaid diagram toggle + type selector (JCL / COBOL / Natural only) ──
+        // Glue BEFORE diagram controls → centres them between left/right items
+        if (isMainframeCode) toolbar.add(Box.createHorizontalGlue());
+
         if (isMainframeCode) {
             diagramToggleButton = createIconToggleButton("\uD83D\uDCC8", // 📈
                     "Interaktives Mermaid-Diagramm anzeigen");

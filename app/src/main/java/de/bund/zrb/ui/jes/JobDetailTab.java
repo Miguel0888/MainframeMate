@@ -198,13 +198,20 @@ public class JobDetailTab implements AppTab {
             }
         });
         leftPanel.add(copyButton);
+        bottomPanel.add(leftPanel, BorderLayout.WEST);
 
-        // Diagram toggle button (read-only, for JCL/COBOL/Natural spool content)
+        // Center: Diagram toggle + type selector (centered between copy and search)
+        JPanel diagramCenterPanel = new JPanel();
+        diagramCenterPanel.setLayout(new BoxLayout(diagramCenterPanel, BoxLayout.X_AXIS));
+        diagramCenterPanel.setOpaque(false);
+        diagramCenterPanel.add(Box.createHorizontalGlue());
+
         diagramToggleButton = new JToggleButton("\uD83D\uDCC8 Diagramm");
         diagramToggleButton.setToolTipText("Interaktives Mermaid-Diagramm anzeigen (Read-Only)");
         diagramToggleButton.setFocusable(false);
         diagramToggleButton.addActionListener(e -> toggleDiagramView());
-        leftPanel.add(diagramToggleButton);
+        diagramCenterPanel.add(diagramToggleButton);
+        diagramCenterPanel.add(Box.createHorizontalStrut(4));
 
         // Small diagram type toggle buttons
         ButtonGroup dtGroup = new ButtonGroup();
@@ -227,13 +234,15 @@ public class JobDetailTab implements AppTab {
                 }
             });
             dtGroup.add(tb);
-            leftPanel.add(tb);
+            diagramCenterPanel.add(tb);
         }
+        diagramCenterPanel.add(Box.createHorizontalGlue());
 
+        // Center: Diagram controls + Search bar (combined center area)
+        JPanel centerWrapper = new JPanel(new BorderLayout(4, 0));
+        centerWrapper.setOpaque(false);
+        centerWrapper.add(diagramCenterPanel, BorderLayout.NORTH);
 
-        bottomPanel.add(leftPanel, BorderLayout.WEST);
-
-        // Center: Search bar (fills remaining space)
         searchBar = new FindBarPanel("Suche im Spool-Output…",
                 "Suche im Spool-Output (z.B. JOBLIB, IEF, ABEND)");
         searchBar.addSearchAction(e -> searchInContent());
@@ -254,7 +263,8 @@ public class JobDetailTab implements AppTab {
         JPanel searchWrapper = new JPanel(new BorderLayout());
         searchWrapper.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
         searchWrapper.add(searchBar, BorderLayout.CENTER);
-        bottomPanel.add(searchWrapper, BorderLayout.CENTER);
+        centerWrapper.add(searchWrapper, BorderLayout.CENTER);
+        bottomPanel.add(centerWrapper, BorderLayout.CENTER);
 
         // Right: Language combo only (status label is intentionally hidden)
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
