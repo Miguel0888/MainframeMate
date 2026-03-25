@@ -1285,6 +1285,17 @@ public final class MermaidSelectionTest {
             cardRow.add(applyCard);
             panel.add(cardRow);
 
+            // ── Identifying toggle (-- vs ==) ──
+            JPanel identRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            identRow.setOpaque(false);
+            identRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+            final JCheckBox identCb = new JCheckBox("Identifizierende Beziehung (==)",
+                    er.isIdentifying());
+            identCb.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+            identCb.setOpaque(false);
+            identRow.add(identCb);
+            panel.add(identRow);
+
             applyCard.addActionListener(new ActionListener() {
                 @Override public void actionPerformed(ActionEvent e) {
                     ErCardinality newSrc = cards[srcCardCb.getSelectedIndex()];
@@ -1292,7 +1303,7 @@ public final class MermaidSelectionTest {
                     cs.currentSource = changeErCardinalityInSource(cs.currentSource,
                             er.getSourceId(), er.getTargetId(), er.getLabel(),
                             er.getSourceCardinality(), er.getTargetCardinality(),
-                            newSrc, newTgt, er.isIdentifying());
+                            newSrc, newTgt, identCb.isSelected());
                     onApplied.run();
                 }
             });
@@ -1387,8 +1398,8 @@ public final class MermaidSelectionTest {
                     String newGuard = guardField.getText().trim();
                     String oldGuard = st.getGuard();
                     if (newGuard.equals(oldGuard)) return;
-                    String srcId = st.getSourceId();
-                    String tgtId = st.getTargetId();
+                    String srcId = stateIdToMermaid(st.getSourceId());
+                    String tgtId = stateIdToMermaid(st.getTargetId());
                     if (oldGuard.isEmpty() && !newGuard.isEmpty()) {
                         // Add guard
                         cs.currentSource = cs.currentSource.replace(
@@ -1785,12 +1796,12 @@ public final class MermaidSelectionTest {
 
         if (edge instanceof ErRelationship) {
             // For ER, swap entities AND swap cardinalities
-            ErRelationship er = (ErRelationship) edge;
-            String labelPart = (label != null && !label.isEmpty()) ? " : " + label : "";
+            String erLabelPart = (label != null && !label.isEmpty()) ? " : " + label : "";
             // Use regex to find the ER line
             String srcQ = Pattern.quote(sourceId);
             String tgtQ = Pattern.quote(targetId);
-            String pattern = srcQ + "\\s+([|o{}]+)(--|-\\.|==)([|o{}]+)\\s+" + tgtQ;
+            // Connector is -- (non-identifying) or == (identifying)
+            String pattern = srcQ + "\\s+([|o{}]+)(--|==)([|o{}]+)\\s+" + tgtQ;
             Matcher m = Pattern.compile(pattern).matcher(source);
             if (m.find()) {
                 String leftCard = m.group(1);
@@ -1800,15 +1811,25 @@ public final class MermaidSelectionTest {
                 String newLeft = reverseSyntax(rightCard);
                 String newRight = reverseSyntax(leftCard);
                 String newLine = targetId + " " + newLeft + connector + newRight + " " + sourceId;
-                return source.substring(0, m.start()) + newLine + source.substring(m.end());
+                // Replace including any label after the matched part
+                int matchEnd = m.end();
+                // Check for label suffix
+                String afterMatch = source.substring(matchEnd);
+                if (!erLabelPart.isEmpty() && afterMatch.startsWith(erLabelPart)) {
+                    return source.substring(0, m.start()) + newLine + erLabelPart
+                            + source.substring(matchEnd + erLabelPart.length());
+                }
+                return source.substring(0, m.start()) + newLine + source.substring(matchEnd);
             }
             return source;
         }
 
         if (edge instanceof StateTransition) {
+            String srcMermaid = stateIdToMermaid(sourceId);
+            String tgtMermaid = stateIdToMermaid(targetId);
             String labelPart = (label != null && !label.isEmpty()) ? " : " + label : "";
-            String old = sourceId + " --> " + targetId + labelPart;
-            String rev = targetId + " --> " + sourceId + labelPart;
+            String old = srcMermaid + " --> " + tgtMermaid + labelPart;
+            String rev = tgtMermaid + " --> " + srcMermaid + labelPart;
             if (source.contains(old)) return source.replace(old, rev);
             return source;
         }
@@ -1845,7 +1866,7 @@ public final class MermaidSelectionTest {
         String pattern = srcQ + "\\s+([|o{}]+)(--|==)([|o{}]+)\\s+" + tgtQ + labelQ;
         Matcher m = Pattern.compile(pattern).matcher(source);
         if (m.find()) {
-            String connector = m.group(2);
+            String connector = identifying ? "==" : "--";
             String labelPart = (label != null && !label.isEmpty()) ? " : " + label : "";
             String newRel = sourceId + " " + toLeftSyntax(newSrcCard)
                     + connector + toRightSyntax(newTgtCard) + " " + targetId + labelPart;
@@ -1874,6 +1895,19 @@ public final class MermaidSelectionTest {
             case ONE_OR_MORE:  return "|{";
             default:           return "||";
         }
+    }
+
+    /**
+     * Map a state diagram SVG node ID back to the Mermaid source notation.
+     * E.g. "root_start" → "[*]", "root_end" → "[*]".
+     */
+    private static String stateIdToMermaid(String nodeId) {
+        if (nodeId == null) return "";
+        if (nodeId.equals("root_start") || nodeId.endsWith("_start")
+                || nodeId.equals("root_end") || nodeId.endsWith("_end")) {
+            return "[*]";
+        }
+        return nodeId;
     }
 
     /** Reverse ER cardinality syntax for target side: |{ → }|, o{ → }o, etc. */
@@ -1941,6 +1975,19 @@ public final class MermaidSelectionTest {
                 sb.append(line);
             }
             return sb.toString();
+        }
+
+        if (edge instanceof StateTransition) {
+            String oldSrc = stateIdToMermaid(edge.getSourceId());
+            String oldTgt = stateIdToMermaid(edge.getTargetId());
+            String newSrc = stateIdToMermaid(newSourceId);
+            String newTgt = stateIdToMermaid(newTargetId);
+            String label = edge.getLabel();
+            String labelPart = (label != null && !label.isEmpty()) ? " : " + label : "";
+            String old = oldSrc + " --> " + oldTgt + labelPart;
+            String repl = newSrc + " --> " + newTgt + labelPart;
+            if (source.contains(old)) return source.replace(old, repl);
+            return source;
         }
 
         // Generic fallback: replace IDs in the relevant source line
@@ -2213,11 +2260,13 @@ public final class MermaidSelectionTest {
         }
 
         if ("stateDiagram".equals(diagramType)) {
+            String stateId = stateIdToMermaid(id);
+            String stEscaped = Pattern.quote(stateId);
             // Remove transitions involving this state
-            source = source.replaceAll("(?m)^[ \\t]*" + escaped + "\\s+-->\\s+\\S+.*$\\n?", "");
-            source = source.replaceAll("(?m)^[ \\t]*\\S+\\s+-->\\s+" + escaped + ".*$\\n?", "");
+            source = source.replaceAll("(?m)^[ \\t]*" + stEscaped + "\\s+-->\\s+\\S+.*$\\n?", "");
+            source = source.replaceAll("(?m)^[ \\t]*\\S+\\s+-->\\s+" + stEscaped + ".*$\\n?", "");
             // Remove standalone state declaration
-            source = source.replaceAll("(?m)^[ \\t]*" + escaped + "\\s*$\\n?", "");
+            source = source.replaceAll("(?m)^[ \\t]*" + stEscaped + "\\s*$\\n?", "");
             return source.trim();
         }
 
@@ -2287,9 +2336,11 @@ public final class MermaidSelectionTest {
         }
 
         if (edge instanceof StateTransition) {
+            String stSrcId = stateIdToMermaid(srcId);
+            String stTgtId = stateIdToMermaid(tgtId);
             String labelPart = (label != null && !label.isEmpty()) ? " : " + label : "";
-            String pattern = "(?m)^[ \\t]*" + Pattern.quote(srcId) + "\\s+-->\\s+"
-                    + Pattern.quote(tgtId) + Pattern.quote(labelPart) + "\\s*$\\n?";
+            String pattern = "(?m)^[ \\t]*" + Pattern.quote(stSrcId) + "\\s+-->\\s+"
+                    + Pattern.quote(stTgtId) + Pattern.quote(labelPart) + "\\s*$\\n?";
             String result = source.replaceFirst(pattern, "");
             if (!result.equals(source)) return result.trim();
         }
@@ -2372,14 +2423,24 @@ public final class MermaidSelectionTest {
             return;
         }
 
-        // ── Try to find an edge (prefer smallest bounding box for precision) ──
+        // ── Try to find an edge (prefer closest path distance for precision) ──
         DiagramEdge foundEdge = null;
-        double bestEdgeArea = Double.MAX_VALUE;
+        double bestEdgeDist = Double.MAX_VALUE;
         for (DiagramEdge edge : diagram.getEdges()) {
             if (edge.containsApprox(svgX, svgY)) {
-                double area = edge.getWidth() * edge.getHeight();
-                if (area < bestEdgeArea) {
-                    bestEdgeArea = area;
+                // Try path-based distance if path data is available
+                double dist;
+                if (edge.getPathData() != null && !edge.getPathData().isEmpty()) {
+                    dist = distanceToPath(svgX, svgY, edge.getPathData());
+                } else {
+                    // Fallback: distance to bounding box center, biased by area
+                    double cx = edge.getX() + edge.getWidth() / 2.0;
+                    double cy = edge.getY() + edge.getHeight() / 2.0;
+                    dist = Math.hypot(svgX - cx, svgY - cy)
+                            + edge.getWidth() * edge.getHeight() * 0.001;
+                }
+                if (dist < bestEdgeDist) {
+                    bestEdgeDist = dist;
                     foundEdge = edge;
                 }
             }
@@ -2428,6 +2489,134 @@ public final class MermaidSelectionTest {
         g2.setStroke(new BasicStroke(2.5f));
         g2.drawLine(to.x, to.y, x1, y1);
         g2.drawLine(to.x, to.y, x2, y2);
+    }
+
+    /**
+     * Approximate minimum distance from a point to an SVG path.
+     * Parses M, L, C, S, Q commands and computes point-to-segment distances.
+     */
+    private static double distanceToPath(double px, double py, String pathData) {
+        double minDist = Double.MAX_VALUE;
+        List<double[]> points = new ArrayList<double[]>();
+
+        // Simple SVG path parser — extract control/anchor points
+        Pattern numPat = Pattern.compile("-?[\\d.]+");
+        int i = 0;
+        double curX = 0, curY = 0;
+        while (i < pathData.length()) {
+            char cmd = pathData.charAt(i);
+            if (Character.isLetter(cmd)) {
+                i++;
+                // Collect numbers following this command
+                List<Double> nums = new ArrayList<Double>();
+                Matcher nm = numPat.matcher(pathData.substring(i));
+                int searchStart = 0;
+                while (nm.find(searchStart)) {
+                    // Only match if preceded by whitespace, comma, or start
+                    if (nm.start() > 0) {
+                        char prev = pathData.substring(i).charAt(nm.start() - 1);
+                        if (!Character.isWhitespace(prev) && prev != ',' && prev != '-'
+                                && !Character.isDigit(prev) && prev != '.') break;
+                    }
+                    try { nums.add(Double.parseDouble(nm.group())); }
+                    catch (NumberFormatException ignored) { break; }
+                    searchStart = nm.end();
+                    // Check if next char is a letter command
+                    if (searchStart < pathData.substring(i).length()
+                            && Character.isLetter(pathData.substring(i).charAt(searchStart))
+                            && pathData.substring(i).charAt(searchStart) != 'e'
+                            && pathData.substring(i).charAt(searchStart) != 'E') {
+                        break;
+                    }
+                }
+                i += searchStart;
+
+                if (cmd == 'M' && nums.size() >= 2) {
+                    curX = nums.get(0); curY = nums.get(1);
+                    points.add(new double[]{curX, curY});
+                } else if (cmd == 'm' && nums.size() >= 2) {
+                    curX += nums.get(0); curY += nums.get(1);
+                    points.add(new double[]{curX, curY});
+                } else if (cmd == 'L' && nums.size() >= 2) {
+                    for (int j = 0; j + 1 < nums.size(); j += 2) {
+                        curX = nums.get(j); curY = nums.get(j + 1);
+                        points.add(new double[]{curX, curY});
+                    }
+                } else if (cmd == 'l' && nums.size() >= 2) {
+                    for (int j = 0; j + 1 < nums.size(); j += 2) {
+                        curX += nums.get(j); curY += nums.get(j + 1);
+                        points.add(new double[]{curX, curY});
+                    }
+                } else if (cmd == 'C' && nums.size() >= 6) {
+                    for (int j = 0; j + 5 < nums.size(); j += 6) {
+                        // Sample cubic bezier at several points
+                        double x0 = curX, y0 = curY;
+                        double x1 = nums.get(j), y1 = nums.get(j + 1);
+                        double x2 = nums.get(j + 2), y2 = nums.get(j + 3);
+                        double x3 = nums.get(j + 4), y3 = nums.get(j + 5);
+                        for (int s = 1; s <= 8; s++) {
+                            double t = s / 8.0;
+                            double u = 1 - t;
+                            double bx = u * u * u * x0 + 3 * u * u * t * x1
+                                    + 3 * u * t * t * x2 + t * t * t * x3;
+                            double by = u * u * u * y0 + 3 * u * u * t * y1
+                                    + 3 * u * t * t * y2 + t * t * t * y3;
+                            points.add(new double[]{bx, by});
+                        }
+                        curX = x3; curY = y3;
+                    }
+                } else if (cmd == 'Q' && nums.size() >= 4) {
+                    for (int j = 0; j + 3 < nums.size(); j += 4) {
+                        double x0 = curX, y0 = curY;
+                        double x1 = nums.get(j), y1 = nums.get(j + 1);
+                        double x2 = nums.get(j + 2), y2 = nums.get(j + 3);
+                        for (int s = 1; s <= 6; s++) {
+                            double t = s / 6.0;
+                            double u = 1 - t;
+                            double bx = u * u * x0 + 2 * u * t * x1 + t * t * x2;
+                            double by = u * u * y0 + 2 * u * t * y1 + t * t * y2;
+                            points.add(new double[]{bx, by});
+                        }
+                        curX = x2; curY = y2;
+                    }
+                } else if (cmd == 'H' && nums.size() >= 1) {
+                    curX = nums.get(0);
+                    points.add(new double[]{curX, curY});
+                } else if (cmd == 'V' && nums.size() >= 1) {
+                    curY = nums.get(0);
+                    points.add(new double[]{curX, curY});
+                }
+            } else {
+                i++;
+            }
+        }
+
+        // Compute min distance from point to each line segment between consecutive points
+        for (int j = 0; j + 1 < points.size(); j++) {
+            double[] a = points.get(j);
+            double[] b = points.get(j + 1);
+            double d = distPointToSegment(px, py, a[0], a[1], b[0], b[1]);
+            if (d < minDist) minDist = d;
+        }
+        // Also check distance to individual points
+        for (double[] p : points) {
+            double d = Math.hypot(px - p[0], py - p[1]);
+            if (d < minDist) minDist = d;
+        }
+
+        return minDist == Double.MAX_VALUE ? 9999 : minDist;
+    }
+
+    /** Distance from point (px,py) to line segment (ax,ay)-(bx,by). */
+    private static double distPointToSegment(double px, double py,
+                                              double ax, double ay,
+                                              double bx, double by) {
+        double dx = bx - ax, dy = by - ay;
+        double lenSq = dx * dx + dy * dy;
+        if (lenSq < 0.001) return Math.hypot(px - ax, py - ay);
+        double t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+        double projX = ax + t * dx, projY = ay + t * dy;
+        return Math.hypot(px - projX, py - projY);
     }
 
     private static JLabel label(String text) {

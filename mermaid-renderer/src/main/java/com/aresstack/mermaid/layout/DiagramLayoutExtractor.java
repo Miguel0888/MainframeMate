@@ -826,6 +826,16 @@ public final class DiagramLayoutExtractor {
                         pathBounds[3] - pathBounds[1],
                         relType, "", ""
                 ));
+            } else if ("stateDiagram".equals(diagramType)) {
+                // State diagram: create StateTransition with guard (label after ":")
+                result.add(new StateTransition(
+                        edgeId, sourceId, targetId,
+                        label, d,
+                        pathBounds[0], pathBounds[1],
+                        pathBounds[2] - pathBounds[0],
+                        pathBounds[3] - pathBounds[1],
+                        label  // guard = label for state transitions
+                ));
             } else {
                 result.add(new FlowchartEdge(
                         edgeId, sourceId, targetId,
@@ -851,7 +861,7 @@ public final class DiagramLayoutExtractor {
                 // Skip the container "edgePaths"
                 if ("edgePaths".equals(cls.trim())) continue;
 
-                DiagramEdge edge = extractEdgePathGroup(g, svgIdToLogicalId, edgeLabelsByDataId);
+                DiagramEdge edge = extractEdgePathGroup(g, svgIdToLogicalId, edgeLabelsByDataId, diagramType);
                 if (edge != null) result.add(edge);
             }
         }
@@ -948,7 +958,8 @@ public final class DiagramLayoutExtractor {
 
     private static DiagramEdge extractEdgePathGroup(Element g,
                                                      Map<String, String> svgIdToLogicalId,
-                                                     Map<String, String> edgeLabelsByDataId) {
+                                                     Map<String, String> edgeLabelsByDataId,
+                                                     String diagramType) {
         String svgId = attr(g, "id");
 
         // Try to extract source/target from the edge id: L-Source-Target-0
@@ -1000,12 +1011,24 @@ public final class DiagramLayoutExtractor {
         }
 
         String edgeId = sourceId.isEmpty() ? svgId : (sourceId + "->" + targetId);
-        String kind = "flowchart-link";
+        if (label == null) label = "";
+
+        // Create typed edge based on diagram context
+        if ("stateDiagram".equals(diagramType)) {
+            return new StateTransition(
+                    edgeId, sourceId, targetId,
+                    label, pathData,
+                    pathBounds[0], pathBounds[1],
+                    pathBounds[2] - pathBounds[0],
+                    pathBounds[3] - pathBounds[1],
+                    label  // guard = label for state transitions
+            );
+        }
 
         return new DiagramEdge(
                 edgeId, sourceId, targetId,
-                label != null ? label : "",
-                kind, pathData,
+                label,
+                "flowchart-link", pathData,
                 pathBounds[0], pathBounds[1],
                 pathBounds[2] - pathBounds[0],
                 pathBounds[3] - pathBounds[1]
@@ -1065,6 +1088,18 @@ public final class DiagramLayoutExtractor {
         // Strip flowchart- prefix if present
         if (raw.startsWith("flowchart-")) {
             return raw.substring("flowchart-".length()).replaceAll("-\\d+$", "");
+        }
+        // Strip state- prefix if present
+        if (raw.startsWith("state-")) {
+            return raw.substring("state-".length()).replaceAll("-\\d+$", "");
+        }
+        // Strip entity- prefix if present
+        if (raw.startsWith("entity-")) {
+            return raw.substring("entity-".length()).replaceAll("-\\d+$", "");
+        }
+        // Strip classId- prefix if present
+        if (raw.startsWith("classId-")) {
+            return raw.substring("classId-".length()).replaceAll("-\\d+$", "");
         }
         return raw;
     }
