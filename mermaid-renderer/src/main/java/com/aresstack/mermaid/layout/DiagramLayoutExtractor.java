@@ -757,6 +757,9 @@ public final class DiagramLayoutExtractor {
             String cls = attr(path, "class");
             String pathId = attr(path, "id");
 
+            // Skip ER relationship lines — they're handled by the dedicated ER section below
+            if (cls.contains("er") && cls.contains("relationshipLine")) continue;
+
             // Match: data-edge="true" OR (class contains "flowchart-link" AND id matches L_..._...)
             boolean isFlowchartEdge = "true".equals(dataEdge)
                     || (cls.contains("flowchart-link") && pathId.startsWith("L"));
@@ -911,6 +914,56 @@ public final class DiagramLayoutExtractor {
                     srcCard, tgtCard, identifying
             ));
             erRelIdx++;
+        }
+
+        // ═══ State diagram transitions: resolve empty endpoints by proximity ═══
+        if ("stateDiagram".equals(diagramType)) {
+            List<DiagramEdge> resolved = new ArrayList<DiagramEdge>();
+            for (DiagramEdge edge : result) {
+                if (!edge.getSourceId().isEmpty() && !edge.getTargetId().isEmpty()) {
+                    // Already has endpoints — convert to StateTransition if needed
+                    if (!(edge instanceof StateTransition)) {
+                        resolved.add(new StateTransition(
+                                edge.getId(), edge.getSourceId(), edge.getTargetId(),
+                                edge.getLabel(), edge.getPathData(),
+                                edge.getX(), edge.getY(), edge.getWidth(), edge.getHeight(),
+                                edge.getLabel()));
+                    } else {
+                        resolved.add(edge);
+                    }
+                    continue;
+                }
+
+                // Resolve source/target by proximity to state nodes
+                double[] pathBounds = (edge.getPathData() != null && !edge.getPathData().isEmpty())
+                        ? parsePathBounds(edge.getPathData()) : null;
+                if (pathBounds == null) {
+                    pathBounds = new double[]{edge.getX(), edge.getY(),
+                            edge.getX() + edge.getWidth(), edge.getY() + edge.getHeight()};
+                }
+
+                double startX = pathBounds[0], startY = pathBounds[1];
+                double endX = pathBounds[2], endY = pathBounds[3];
+                String srcId = "", tgtId = "";
+                double srcDist = Double.MAX_VALUE, tgtDist = Double.MAX_VALUE;
+                for (DiagramNode node : nodes) {
+                    if (!"state".equals(node.getKind())) continue;
+                    double ncx = node.getCenterX(), ncy = node.getCenterY();
+                    double dStart = Math.hypot(ncx - startX, ncy - startY);
+                    double dEnd = Math.hypot(ncx - endX, ncy - endY);
+                    if (dStart < srcDist) { srcDist = dStart; srcId = node.getId(); }
+                    if (dEnd < tgtDist) { tgtDist = dEnd; tgtId = node.getId(); }
+                }
+
+                String edgeId = srcId.isEmpty() ? edge.getId() : (srcId + "->" + tgtId);
+                String label = edge.getLabel();
+                resolved.add(new StateTransition(
+                        edgeId, srcId, tgtId, label,
+                        edge.getPathData(),
+                        edge.getX(), edge.getY(), edge.getWidth(), edge.getHeight(),
+                        label));
+            }
+            result = resolved;
         }
 
         return result;

@@ -25,11 +25,8 @@ public final class SourceEditBridge {
         MermaidSourceEditor editor = MermaidSourceEditor.parse(source);
         if (editor == null) return source;
 
-        MermaidSourceEditor.EdgeInfo ei = editor.findEdge(edge.getSourceId(), edge.getTargetId());
-        if (ei == null) {
-            // Try reversed direction (SVG extraction might have swapped)
-            ei = editor.findEdge(edge.getTargetId(), edge.getSourceId());
-        }
+        MermaidSourceEditor.EdgeInfo ei = findEdgeRobust(editor,
+                edge.getSourceId(), edge.getTargetId());
         if (ei == null) return source;
 
         editor.reverseEdge(ei);
@@ -43,10 +40,8 @@ public final class SourceEditBridge {
         MermaidSourceEditor editor = MermaidSourceEditor.parse(source);
         if (editor == null) return source;
 
-        MermaidSourceEditor.EdgeInfo ei = editor.findEdge(edge.getSourceId(), edge.getTargetId());
-        if (ei == null) {
-            ei = editor.findEdge(edge.getTargetId(), edge.getSourceId());
-        }
+        MermaidSourceEditor.EdgeInfo ei = findEdgeRobust(editor,
+                edge.getSourceId(), edge.getTargetId());
         if (ei == null) return source;
 
         editor.deleteEdge(ei);
@@ -61,7 +56,8 @@ public final class SourceEditBridge {
         MermaidSourceEditor editor = MermaidSourceEditor.parse(source);
         if (editor == null) return source;
 
-        MermaidSourceEditor.EdgeInfo ei = editor.findEdge(edge.getSourceId(), edge.getTargetId());
+        MermaidSourceEditor.EdgeInfo ei = findEdgeRobust(editor,
+                edge.getSourceId(), edge.getTargetId());
         if (ei == null) return source;
 
         editor.replaceLabel(ei, newLabel);
@@ -184,6 +180,51 @@ public final class SourceEditBridge {
             default:
                 return suffix.isEmpty() ? "---" : "--" + suffix;
         }
+    }
+
+    /**
+     * Find an edge robustly: try exact match in both directions,
+     * then try with stripped SVG prefixes.
+     */
+    static MermaidSourceEditor.EdgeInfo findEdgeRobust(MermaidSourceEditor editor,
+                                                        String sourceId, String targetId) {
+        // Primary: exact match in both directions
+        MermaidSourceEditor.EdgeInfo ei = editor.findEdgeAnyDirection(sourceId, targetId);
+        if (ei != null) return ei;
+
+        // Fallback: strip SVG prefixes (entity-AUTOR-1 → AUTOR, state-Rot-0 → Rot)
+        String cleanSrc = stripSvgPrefix(sourceId);
+        String cleanTgt = stripSvgPrefix(targetId);
+        if (!cleanSrc.equals(sourceId) || !cleanTgt.equals(targetId)) {
+            ei = editor.findEdgeAnyDirection(cleanSrc, cleanTgt);
+        }
+        return ei;
+    }
+
+    /**
+     * Strip common SVG ID prefixes to get the logical Mermaid node name.
+     * E.g., "entity-AUTOR-1" → "AUTOR", "state-Rot-0" → "Rot",
+     * "flowchart-Alpha-0" → "Alpha".
+     */
+    static String stripSvgPrefix(String id) {
+        if (id == null || id.isEmpty()) return id;
+        // entity-Name-N, state-Name-N, flowchart-Name-N, classId-Name-N
+        String[] prefixes = {"entity-", "state-", "flowchart-", "classId-"};
+        for (String prefix : prefixes) {
+            if (id.startsWith(prefix)) {
+                String rest = id.substring(prefix.length());
+                // Remove trailing -N (digit suffix)
+                int lastDash = rest.lastIndexOf('-');
+                if (lastDash > 0) {
+                    String afterDash = rest.substring(lastDash + 1);
+                    if (afterDash.matches("\\d+")) {
+                        return rest.substring(0, lastDash);
+                    }
+                }
+                return rest;
+            }
+        }
+        return id;
     }
 }
 

@@ -285,7 +285,7 @@ class MermaidSourceEditorTest {
     }
 
     @Test
-    @DisplayName("ER: Reverse relationship swaps entities")
+    @DisplayName("ER: Reverse relationship swaps entities AND mirrors cardinalities")
     void er_reverseRelationship() {
         MermaidSourceEditor editor = MermaidSourceEditor.parse(ER_TC5);
         MermaidSourceEditor.EdgeInfo edge = editor.findEdge("AUTOR", "BUCH");
@@ -296,10 +296,19 @@ class MermaidSourceEditorTest {
 
         assertTrue(result.contains("BUCH") && result.contains("AUTOR"),
                 "Both entity names should still be present");
-        // The entity order should be swapped in the relationship line
-        int buchIdx = result.indexOf("BUCH ||--o{");
-        int autorIdx = result.indexOf("AUTOR ||--o{");
-        // After reversal, BUCH should now be on the left side of the AUTOR relationship
+        // After reversal: BUCH }o--|| AUTOR : schreibt
+        assertTrue(result.contains("BUCH }o--|| AUTOR"),
+                "Cardinalities should be mirrored: ||--o{ → }o--||");
+    }
+
+    @Test
+    @DisplayName("ER: mirrorErArrow correctly mirrors cardinality arrows")
+    void er_mirrorArrow() {
+        assertEquals("}o--||", MermaidSourceEditor.mirrorErArrow("||--o{"));
+        assertEquals("||--o{", MermaidSourceEditor.mirrorErArrow("}o--||"));
+        assertEquals("}|==||", MermaidSourceEditor.mirrorErArrow("||==|{"));
+        assertEquals("||--||", MermaidSourceEditor.mirrorErArrow("||--||"));
+        assertEquals("|o--|{", MermaidSourceEditor.mirrorErArrow("}|--o|"));
     }
 
     // ═══════════════════════════════════════════════════════════

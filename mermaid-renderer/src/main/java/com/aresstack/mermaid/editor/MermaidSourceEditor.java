@@ -259,16 +259,83 @@ public final class MermaidSourceEditor {
 
     /**
      * Reverse the direction of an edge (swap source ↔ target in the source code).
+     * For ER diagrams, also mirrors the cardinality markers.
      */
     public void reverseEdge(EdgeInfo edge) {
         // Get the original token texts
         String srcText = tokens.get(edge.sourceTokenIndex).getText();
         String tgtText = tokens.get(edge.targetTokenIndex).getText();
 
-        // For ER diagrams, we also need to swap cardinality markers
-        // For now, simply swap source ↔ target ID tokens
+        // Swap source ↔ target ID tokens
         rewriter.replace(edge.sourceTokenIndex, tgtText);
         rewriter.replace(edge.targetTokenIndex, srcText);
+
+        // For ER diagrams, also mirror the cardinality markers
+        if ("erDiagram".equals(diagramType)) {
+            // The arrow text is leftCard + connector + rightCard
+            // We need to replace the entire cardinality block with its mirror image
+            String arrow = edge.arrowText;
+            String mirrored = mirrorErArrow(arrow);
+            if (!mirrored.equals(arrow)) {
+                // Replace the full cardinality range (from arrowTokenIndex to before target)
+                // arrowTokenIndex points to leftCardinality start
+                int arrowStart = edge.arrowTokenIndex;
+                int arrowStop = edge.targetTokenIndex - 1;
+                // Scan back from target to find last non-whitespace token of the arrow
+                while (arrowStop > arrowStart) {
+                    Token t = tokens.get(arrowStop);
+                    if (t.getChannel() == Token.HIDDEN_CHANNEL || t.getText().trim().isEmpty()) {
+                        arrowStop--;
+                    } else {
+                        break;
+                    }
+                }
+                rewriter.replace(arrowStart, arrowStop, mirrored);
+            }
+        }
+    }
+
+    /**
+     * Mirror an ER cardinality arrow: swap left and right sides.
+     * E.g., {@code "||--o{"} → {@code "}o--||"}, {@code "|o--||"} → {@code "||--o|"}
+     */
+    static String mirrorErArrow(String arrow) {
+        if (arrow == null || arrow.length() < 6) return arrow;
+
+        // Find the connector (-- or ==)
+        int connIdx = arrow.indexOf("--");
+        boolean identifying = false;
+        if (connIdx < 0) {
+            connIdx = arrow.indexOf("==");
+            identifying = true;
+        }
+        if (connIdx < 0) return arrow;
+
+        String leftCard = arrow.substring(0, connIdx);
+        String connector = identifying ? "==" : "--";
+        String rightCard = arrow.substring(connIdx + 2);
+
+        // Mirror each cardinality: left↔right
+        String newLeft = mirrorCardinality(rightCard);
+        String newRight = mirrorCardinality(leftCard);
+        return newLeft + connector + newRight;
+    }
+
+    /**
+     * Mirror a single cardinality marker from one side to the other.
+     * Left markers face the connector from the left, right markers from the right.
+     */
+    private static String mirrorCardinality(String card) {
+        switch (card) {
+            case "||": return "||";
+            case "|o": return "o|";
+            case "o|": return "|o";
+            case "}|": return "|{";
+            case "|{": return "}|";
+            case "}o": return "o{";
+            case "o{": return "}o";
+            default:   return card;
+        }
     }
 
     /**
