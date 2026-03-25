@@ -909,7 +909,8 @@ public final class DiagramLayoutExtractor {
             // Try to detect cardinality from marker references
             ErCardinality srcCard = detectErCardinality(path, "marker-start");
             ErCardinality tgtCard = detectErCardinality(path, "marker-end");
-            boolean identifying = cls.contains("identify") || d != null && d.contains("==");
+            // Mermaid ER: "--" = identifying (solid), ".." = non-identifying (dashed)
+            boolean identifying = cls.contains("identify");
 
             // Try to find the relationship label from nearby text elements
             String erLabel = "";

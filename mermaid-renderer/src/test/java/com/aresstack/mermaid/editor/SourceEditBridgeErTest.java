@@ -166,7 +166,75 @@ class SourceEditBridgeErTest {
         assertTrue(editor.getEdges().size() >= 3, "Should now have 3 edges");
     }
 
-    // ── Step 5: Test stripSvgPrefix for entity IDs ──
+    // ── Step 5: Test changeErCardinality ──
+
+    @Test
+    @DisplayName("ER: changeErCardinality with empty label preserves ANTLR label")
+    void changeCardinality_emptyLabelFallsBackToAntlr() {
+        // This is the exact bug scenario: SVG extraction yields empty label,
+        // so er.getLabel() returns "". The method must still produce ": label".
+        String result = SourceEditBridge.changeErCardinality(ER_SOURCE,
+                "AUTOR", "BUCH",
+                ErCardinality.ONE_OR_MORE, ErCardinality.ZERO_OR_MORE,
+                false, "");  // empty label — simulating broken SVG extraction
+        System.out.println("=== After cardinality change (empty label) ===");
+        System.out.println(result);
+        // Must contain ": schreibt" (from ANTLR) — NOT a bare "AUTOR ...--... BUCH" line!
+        assertTrue(result.contains(": schreibt"), "ANTLR label 'schreibt' must be preserved");
+        // Must be parseable
+        MermaidSourceEditor editor = MermaidSourceEditor.parse(result);
+        assertNotNull(editor, "Result must be parseable Mermaid");
+        assertEquals(2, editor.getEdges().size(), "Must still have 2 edges");
+    }
+
+    @Test
+    @DisplayName("ER: changeErCardinality with null label preserves ANTLR label")
+    void changeCardinality_nullLabelFallsBackToAntlr() {
+        String result = SourceEditBridge.changeErCardinality(ER_SOURCE,
+                "VERLAG", "BUCH",
+                ErCardinality.EXACTLY_ONE, ErCardinality.ONE_OR_MORE,
+                false, null);  // null label
+        System.out.println("=== After cardinality change (null label) ===");
+        System.out.println(result);
+        assertTrue(result.contains(": verlegt"), "ANTLR label 'verlegt' must be preserved");
+        MermaidSourceEditor editor = MermaidSourceEditor.parse(result);
+        assertNotNull(editor, "Result must be parseable Mermaid");
+    }
+
+    @Test
+    @DisplayName("ER: changeErCardinality with provided label uses it")
+    void changeCardinality_withExplicitLabel() {
+        String result = SourceEditBridge.changeErCardinality(ER_SOURCE,
+                "AUTOR", "BUCH",
+                ErCardinality.ONE_OR_MORE, ErCardinality.ONE_OR_MORE,
+                false, "verfasst");
+        System.out.println("=== After cardinality change (explicit label) ===");
+        System.out.println(result);
+        assertTrue(result.contains(": verfasst"), "Explicit label should be used");
+        assertFalse(result.contains(": schreibt"), "Old label should be replaced");
+    }
+
+    @Test
+    @DisplayName("ER: changeErCardinality result matches user's exact error scenario")
+    void changeCardinality_userErrorScenario() {
+        // Simulates the exact flow: user changes VERLAG relationship cardinality
+        // with empty SVG label → must NOT produce "VERLAG }|--|| BUCH" without label
+        String result = SourceEditBridge.changeErCardinality(ER_SOURCE,
+                "VERLAG", "BUCH",
+                ErCardinality.ONE_OR_MORE, ErCardinality.EXACTLY_ONE,
+                false, "");
+        System.out.println("=== User error scenario ===");
+        System.out.println(result);
+        // The line must NOT end with just "BUCH" — it must have ": verlegt" or ": relates"
+        assertFalse(result.contains("BUCH\n") || result.trim().endsWith("BUCH"),
+                "ER line must not end without a label");
+        // Must re-parse without error
+        MermaidSourceEditor editor = MermaidSourceEditor.parse(result);
+        assertNotNull(editor, "Must be valid Mermaid");
+        assertEquals(2, editor.getEdges().size());
+    }
+
+    // ── Step 6: Test stripSvgPrefix for entity IDs ──
 
     @Test
     @DisplayName("stripSvgPrefix correctly handles entity-prefixed IDs")

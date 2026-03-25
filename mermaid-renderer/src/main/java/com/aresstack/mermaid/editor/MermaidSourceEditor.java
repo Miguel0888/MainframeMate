@@ -302,17 +302,16 @@ public final class MermaidSourceEditor {
     static String mirrorErArrow(String arrow) {
         if (arrow == null || arrow.length() < 6) return arrow;
 
-        // Find the connector (-- or ==)
+        // Find the connector (-- or ..)
         int connIdx = arrow.indexOf("--");
-        boolean identifying = false;
+        String connector = "--";
         if (connIdx < 0) {
-            connIdx = arrow.indexOf("==");
-            identifying = true;
+            connIdx = arrow.indexOf("..");
+            connector = "..";
         }
         if (connIdx < 0) return arrow;
 
         String leftCard = arrow.substring(0, connIdx);
-        String connector = identifying ? "==" : "--";
         String rightCard = arrow.substring(connIdx + 2);
 
         // Mirror each cardinality: left↔right

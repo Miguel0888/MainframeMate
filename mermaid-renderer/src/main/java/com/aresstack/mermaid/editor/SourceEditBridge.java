@@ -97,12 +97,19 @@ public final class SourceEditBridge {
             rightCard = toRightSyntax(newSrcCard);
         }
 
-        String connector = identifying ? "==" : "--";
+        // Extract the connector from the original arrow text.
+        // Mermaid ER uses "--" (identifying/solid) or ".." (non-identifying/dashed).
+        // Never generate "==" — it is not valid Mermaid syntax.
+        String connector = ei.arrowText.contains("..") ? ".." : "--";
         String newArrow = leftCard + connector + rightCard;
 
-        // Build the full replacement line
-        String labelPart = (label != null && !label.isEmpty()) ? " : " + label : "";
-        String newLine = ei.sourceId + " " + newArrow + " " + ei.targetId + labelPart;
+        // Use ANTLR-parsed label as fallback — ER requires ": label" suffix!
+        String actualLabel = (label != null && !label.isEmpty()) ? label : ei.label;
+        // ER diagrams ALWAYS need a label; use fallback if still empty
+        if (actualLabel == null || actualLabel.isEmpty()) {
+            actualLabel = "relates";
+        }
+        String newLine = ei.sourceId + " " + newArrow + " " + ei.targetId + " : " + actualLabel;
         editor.replaceEdgeSegment(ei, newLine);
         return editor.getText();
     }

@@ -51,7 +51,7 @@ leftCardinality
 
 connector
     : NON_IDENT_CONN         // --
-    | IDENT_CONN             // ==
+    | IDENT_CONN             // .. (dashed = non-identifying in Mermaid)
     ;
 
 rightCardinality
@@ -100,7 +100,7 @@ CARD_ZERO_MANY_LEFT  : '}o' ;
 CARD_ZERO_MANY_RIGHT : 'o{' ;
 
 // ── Connectors ──
-IDENT_CONN     : '==' ;
+IDENT_CONN     : '..' ;
 NON_IDENT_CONN : '--' ;
 
 // ── Braces ──

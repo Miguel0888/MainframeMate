@@ -42,16 +42,40 @@ public class ErRelationship extends DiagramEdge {
 
     /**
      * Generate Mermaid syntax for this ER relationship.
+     * Uses correct left-side / right-side cardinality notation.
      */
     public String toMermaid() {
-        String src = sourceCardinality.getMermaidSyntax();
-        String tgt = targetCardinality.getMermaidSyntax();
-        String connector = identifying ? "==" : "--";
+        String src = toLeftSyntax(sourceCardinality);
+        String tgt = toRightSyntax(targetCardinality);
+        // Mermaid ER: "--" = identifying (solid), ".." = non-identifying (dashed)
+        String connector = identifying ? "--" : "..";
         String line = getSourceId() + " " + src + connector + tgt + " " + getTargetId();
         if (!getLabel().isEmpty()) {
             line += " : " + getLabel();
         }
         return line;
+    }
+
+    /** Left-side cardinality Mermaid syntax (faces connector from left). */
+    private static String toLeftSyntax(ErCardinality card) {
+        switch (card) {
+            case EXACTLY_ONE:  return "||";
+            case ZERO_OR_ONE:  return "|o";
+            case ZERO_OR_MORE: return "}o";
+            case ONE_OR_MORE:  return "}|";
+            default:           return "||";
+        }
+    }
+
+    /** Right-side cardinality Mermaid syntax (faces connector from right). */
+    private static String toRightSyntax(ErCardinality card) {
+        switch (card) {
+            case EXACTLY_ONE:  return "||";
+            case ZERO_OR_ONE:  return "o|";
+            case ZERO_OR_MORE: return "o{";
+            case ONE_OR_MORE:  return "|{";
+            default:           return "||";
+        }
     }
 
     @Override
