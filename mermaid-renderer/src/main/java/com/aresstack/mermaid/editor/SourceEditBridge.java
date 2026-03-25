@@ -177,20 +177,33 @@ public final class SourceEditBridge {
         MermaidSourceEditor editor = MermaidSourceEditor.parse(source);
         if (editor == null) return source;
 
-        MermaidSourceEditor.EdgeInfo ei = editor.findEdge(edge.getSourceId(), edge.getTargetId());
+        MermaidSourceEditor.EdgeInfo ei = findEdgeRobust(editor,
+                edge.getSourceId(), edge.getTargetId());
         if (ei == null) return source;
 
-        // Replace the entire edge segment with new source/target but same arrow+label
+        // Strip SVG prefixes from the new node IDs (e.g. "entity-AUTOR-0" → "AUTOR")
+        String cleanNewSrc = stripSvgPrefix(newSourceId);
+        String cleanNewTgt = stripSvgPrefix(newTargetId);
+
+        // Build the label part
+        String type = editor.getDiagramType();
         String labelPart = "";
         if (!ei.label.isEmpty()) {
-            String type = editor.getDiagramType();
             if ("flowchart".equals(type)) {
                 labelPart = "|" + ei.label + "|";
             } else {
                 labelPart = " : " + ei.label;
             }
+        } else if ("erDiagram".equals(type)) {
+            // ER always needs a label
+            labelPart = " : relates";
         }
-        String newEdge = newSourceId + " " + ei.arrowText + labelPart + " " + newTargetId;
+
+        String newEdge = cleanNewSrc + " " + ei.arrowText + " " + cleanNewTgt + labelPart;
+        // For flowchart, label goes between arrow and target: src -->|label| tgt
+        if ("flowchart".equals(type) && !ei.label.isEmpty()) {
+            newEdge = cleanNewSrc + " " + ei.arrowText + labelPart + " " + cleanNewTgt;
+        }
         editor.replaceEdgeSegment(ei, newEdge);
         return editor.getText();
     }

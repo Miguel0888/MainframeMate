@@ -1516,7 +1516,18 @@ public final class DiagramLayoutExtractor {
      * as {@code [startX, startY, endX, endY]}, or {@code null} if parsing fails.
      * This is more precise than using bounding box corners for proximity matching.
      */
-    static double[] parsePathEndpoints(String d) {
+    /**
+     * Parse an SVG path {@code d} attribute and return the actual start and end
+     * coordinates as {@code [startX, startY, endX, endY]}.
+     *
+     * <p>Unlike {@link #parsePathBounds}, which returns the bounding box,
+     * this returns the first {@code M} point and the final cursor position after
+     * executing all path commands.</p>
+     *
+     * @param d the SVG path {@code d} attribute
+     * @return {@code [startX, startY, endX, endY]}, or {@code null} if parsing fails
+     */
+    public static double[] parsePathEndpoints(String d) {
         if (d == null || d.isEmpty()) return null;
         double curX = 0, curY = 0, startX = 0, startY = 0;
         boolean hasStart = false;

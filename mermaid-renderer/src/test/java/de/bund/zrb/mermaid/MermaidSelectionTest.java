@@ -510,36 +510,40 @@ public final class MermaidSelectionTest {
                                 double svgX = vbX + (imgPx / imgW) * vbW;
                                 double svgY = vbY + (imgPy / imgH) * vbH;
 
-                                // Check if pressing near an edge endpoint for reconnection
+                                // Check if pressing near ANY edge endpoint for reconnection
+                                // Uses actual SVG path start/end points (at node borders),
+                                // so only a click on the edge line end triggers reconnection,
+                                // not a click in the node center (which starts new-edge drag).
                                 cs.dragEdge = null;
-                                if (cs.selectedEdge != null) {
-                                    double edgeThreshold = Math.max(vbW, vbH) * 0.04;
-                                    DiagramNode srcNode = diagram.findNodeById(cs.selectedEdge.getSourceId());
-                                    DiagramNode tgtNode = diagram.findNodeById(cs.selectedEdge.getTargetId());
-                                    if (srcNode != null) {
-                                        double dx = svgX - srcNode.getCenterX();
-                                        double dy = svgY - srcNode.getCenterY();
-                                        if (Math.sqrt(dx * dx + dy * dy) < edgeThreshold) {
-                                            cs.dragEdge = cs.selectedEdge;
-                                            cs.dragFromSource = true;
-                                            cs.dragStart = new Point(e.getX(), e.getY());
-                                            cs.dragging = false;
-                                            cs.dragSourceNode = null;
-                                            return;
-                                        }
+                                double edgeThreshold = Math.max(vbW, vbH) * 0.035;
+                                double bestEndpointDist = edgeThreshold;
+                                for (DiagramEdge candidate : diagram.getEdges()) {
+                                    String pd = candidate.getPathData();
+                                    if (pd == null || pd.isEmpty()) continue;
+                                    double[] ep = DiagramLayoutExtractor.parsePathEndpoints(pd);
+                                    if (ep == null) continue;
+                                    // ep = [startX, startY, endX, endY]
+                                    double dStart = Math.hypot(svgX - ep[0], svgY - ep[1]);
+                                    double dEnd = Math.hypot(svgX - ep[2], svgY - ep[3]);
+                                    if (dStart < bestEndpointDist) {
+                                        bestEndpointDist = dStart;
+                                        cs.dragEdge = candidate;
+                                        cs.dragFromSource = true;
                                     }
-                                    if (tgtNode != null) {
-                                        double dx = svgX - tgtNode.getCenterX();
-                                        double dy = svgY - tgtNode.getCenterY();
-                                        if (Math.sqrt(dx * dx + dy * dy) < edgeThreshold) {
-                                            cs.dragEdge = cs.selectedEdge;
-                                            cs.dragFromSource = false;
-                                            cs.dragStart = new Point(e.getX(), e.getY());
-                                            cs.dragging = false;
-                                            cs.dragSourceNode = null;
-                                            return;
-                                        }
+                                    if (dEnd < bestEndpointDist) {
+                                        bestEndpointDist = dEnd;
+                                        cs.dragEdge = candidate;
+                                        cs.dragFromSource = false;
                                     }
+                                }
+                                if (cs.dragEdge != null) {
+                                    cs.dragStart = new Point(e.getX(), e.getY());
+                                    cs.dragging = false;
+                                    cs.dragSourceNode = null;
+                                    // Also select this edge for visual feedback
+                                    cs.selectedEdge = cs.dragEdge;
+                                    cs.selectedNode = null;
+                                    return;
                                 }
 
                                 DiagramNode nodeAtPress = diagram.findNodeAt(svgX, svgY);
@@ -731,7 +735,7 @@ public final class MermaidSelectionTest {
             addNodeBtn.setMargin(new Insets(1, 4, 1, 4));
             createBar.add(addNodeBtn);
 
-            JLabel dragHint = new JLabel(" | Drag: Knoten \u2192 Knoten = Kante");
+            JLabel dragHint = new JLabel(" | Drag: Knoten\u2192Knoten = neue Kante, Kantenende\u2192Knoten = umh\u00e4ngen");
             dragHint.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 9));
             dragHint.setForeground(new Color(80, 80, 130));
             createBar.add(dragHint);
