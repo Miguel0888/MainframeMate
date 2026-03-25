@@ -2714,6 +2714,104 @@ window.decodeURI = decodeURI;
 
 // ── APIs required by Mermaid 11+ ─────────────────────────────────────────────
 
+// Intl — GraalJS does not provide the Intl API by default.
+// Mermaid 11+ uses Intl.Segmenter in SplitTextToChars() for grapheme cluster splitting.
+// This polyfill provides a minimal Intl object with Segmenter that splits by
+// single code points (sufficient for Western text; doesn't handle combined emoji/ZWJ).
+if (typeof Intl === 'undefined') {
+    var Intl = {};
+}
+
+if (!Intl.Segmenter) {
+    Intl.Segmenter = function IntlSegmenter(locale, options) {
+        this._granularity = (options && options.granularity) || 'grapheme';
+    };
+    Intl.Segmenter.prototype.segment = function(str) {
+        if (str === undefined || str === null) str = '';
+        str = String(str);
+        var segments = [];
+        var i = 0;
+        while (i < str.length) {
+            var code = str.charCodeAt(i);
+            var seg;
+            // Handle surrogate pairs (emoji, CJK extension, etc.)
+            if (code >= 0xD800 && code <= 0xDBFF && i + 1 < str.length) {
+                var lo = str.charCodeAt(i + 1);
+                if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                    seg = str.substring(i, i + 2);
+                    i += 2;
+                } else {
+                    seg = str[i];
+                    i++;
+                }
+            } else {
+                seg = str[i];
+                i++;
+            }
+            segments.push({ segment: seg, index: i - seg.length, input: str });
+        }
+        // Make the result iterable (for-of / spread) via Symbol.iterator
+        var result = {
+            _segments: segments,
+            containing: function(idx) {
+                for (var j = 0; j < segments.length; j++) {
+                    if (segments[j].index === idx) return segments[j];
+                }
+                return undefined;
+            }
+        };
+        if (typeof Symbol !== 'undefined' && Symbol.iterator) {
+            result[Symbol.iterator] = function() {
+                var pos = 0;
+                return {
+                    next: function() {
+                        if (pos < segments.length) {
+                            return { value: segments[pos++], done: false };
+                        }
+                        return { value: undefined, done: true };
+                    }
+                };
+            };
+        }
+        return result;
+    };
+    Intl.Segmenter.supportedLocalesOf = function() { return []; };
+}
+
+// Intl.NumberFormat — minimal stub (used by some Mermaid axis/chart code)
+if (!Intl.NumberFormat) {
+    Intl.NumberFormat = function(locale, options) {
+        this._options = options || {};
+    };
+    Intl.NumberFormat.prototype.format = function(n) { return String(n); };
+    Intl.NumberFormat.supportedLocalesOf = function() { return []; };
+}
+
+// Intl.DateTimeFormat — minimal stub
+if (!Intl.DateTimeFormat) {
+    Intl.DateTimeFormat = function(locale, options) {
+        this._options = options || {};
+    };
+    Intl.DateTimeFormat.prototype.format = function(d) {
+        if (d instanceof Date) return d.toISOString();
+        return String(d);
+    };
+    Intl.DateTimeFormat.supportedLocalesOf = function() { return []; };
+}
+
+// Intl.Collator — minimal stub (used by sorting in some diagram types)
+if (!Intl.Collator) {
+    Intl.Collator = function(locale, options) {};
+    Intl.Collator.prototype.compare = function(a, b) {
+        if (a < b) return -1;
+        if (a > b) return 1;
+        return 0;
+    };
+    Intl.Collator.supportedLocalesOf = function() { return []; };
+}
+
+window.Intl = Intl;
+
 // Object.hasOwn — ES2022 polyfill (not available in GraalJS / Java 8)
 if (!Object.hasOwn) {
     Object.hasOwn = function(obj, prop) {
