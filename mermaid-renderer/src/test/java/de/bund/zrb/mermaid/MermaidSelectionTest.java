@@ -1450,13 +1450,22 @@ public final class MermaidSelectionTest {
         panel.add(Box.createVerticalStrut(4));
         panel.add(separator("Entity-Attribute"));
 
+        // Parse attributes directly from Mermaid source (SVG extraction may miss them)
+        List<String> sourceAttrs = parseErAttributeLinesFromSource(cs.currentSource, en.getId());
+        // Fallback: use SVG-extracted attributes if source parsing found nothing
+        if (sourceAttrs.isEmpty() && !en.getAttributes().isEmpty()) {
+            for (ErAttribute attr : en.getAttributes()) {
+                sourceAttrs.add(attr.toMermaid());
+            }
+        }
+
         // Show existing attributes with delete buttons
-        for (int i = 0; i < en.getAttributes().size(); i++) {
-            final ErAttribute attr = en.getAttributes().get(i);
+        for (int i = 0; i < sourceAttrs.size(); i++) {
+            final String attrLine = sourceAttrs.get(i);
             JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
             row.setOpaque(false);
             row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
-            JLabel attrLabel = new JLabel("  " + attr.toMermaid());
+            JLabel attrLabel = new JLabel("  " + attrLine);
             attrLabel.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
             row.add(attrLabel);
             JButton delBtn = smallButton("\u2716");
@@ -1464,11 +1473,18 @@ public final class MermaidSelectionTest {
             row.add(delBtn);
             delBtn.addActionListener(new ActionListener() {
                 @Override public void actionPerformed(ActionEvent e) {
-                    cs.currentSource = removeErAttribute(cs.currentSource, en.getId(), attr.toMermaid());
+                    cs.currentSource = removeErAttribute(cs.currentSource, en.getId(), attrLine);
                     onApplied.run();
                 }
             });
             panel.add(row);
+        }
+
+        if (sourceAttrs.isEmpty()) {
+            JLabel noAttrs = new JLabel("  (keine Attribute gefunden)");
+            noAttrs.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 10));
+            noAttrs.setForeground(Color.GRAY);
+            panel.add(noAttrs);
         }
 
         // Add new attribute row
@@ -2067,9 +2083,78 @@ public final class MermaidSelectionTest {
 
     /** Remove an ER attribute line from an entity block. */
     private static String removeErAttribute(String source, String entityName, String attrMermaid) {
+        // Try exact line match first
         String escaped = Pattern.quote(attrMermaid.trim());
         String pattern = "(?m)^[ \\t]*" + escaped + "[ \\t]*$\\n?";
-        return source.replaceFirst(pattern, "");
+        String result = source.replaceFirst(pattern, "");
+        if (!result.equals(source)) return result;
+
+        // Fallback: try to find and remove within the entity block
+        String blockPattern = Pattern.quote(entityName) + "\\s*\\{";
+        Matcher bm = Pattern.compile(blockPattern).matcher(source);
+        if (bm.find()) {
+            int blockStart = bm.end();
+            int braceDepth = 1;
+            int blockEnd = blockStart;
+            while (blockEnd < source.length() && braceDepth > 0) {
+                char c = source.charAt(blockEnd);
+                if (c == '{') braceDepth++;
+                else if (c == '}') braceDepth--;
+                blockEnd++;
+            }
+            // Within the block, find and remove the attribute line
+            String block = source.substring(blockStart, blockEnd - 1);
+            String[] lines = block.split("\n");
+            StringBuilder sb = new StringBuilder();
+            boolean removed = false;
+            for (String line : lines) {
+                if (!removed && line.trim().equals(attrMermaid.trim())) {
+                    removed = true;
+                    continue;
+                }
+                sb.append(line).append("\n");
+            }
+            if (removed) {
+                return source.substring(0, blockStart) + sb.toString()
+                        + source.substring(blockEnd - 1);
+            }
+        }
+        return source;
+    }
+
+    /**
+     * Parse ER attribute lines directly from Mermaid source code for a given entity.
+     * Returns the raw attribute lines (e.g. "string isbn PK", "int jahr").
+     */
+    private static List<String> parseErAttributeLinesFromSource(String source, String entityName) {
+        List<String> attrs = new ArrayList<String>();
+        // Find the entity block: ENTITY_NAME {  ...  }
+        String blockPattern = Pattern.quote(entityName) + "\\s*\\{";
+        Matcher m = Pattern.compile(blockPattern).matcher(source);
+        if (!m.find()) return attrs;
+
+        int blockStart = m.end();
+        int braceDepth = 1;
+        int blockEnd = blockStart;
+        while (blockEnd < source.length() && braceDepth > 0) {
+            char c = source.charAt(blockEnd);
+            if (c == '{') braceDepth++;
+            else if (c == '}') braceDepth--;
+            blockEnd++;
+        }
+        // blockEnd now points past the closing }
+        String block = source.substring(blockStart, blockEnd - 1);
+        String[] lines = block.split("\n");
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) continue;
+            // An ER attribute line has at least "type name"
+            String[] parts = trimmed.split("\\s+");
+            if (parts.length >= 2) {
+                attrs.add(trimmed);
+            }
+        }
+        return attrs;
     }
 
     /** Add an ER attribute line to an entity block. */
