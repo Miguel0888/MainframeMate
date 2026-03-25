@@ -730,11 +730,27 @@ public class JobDetailTab implements AppTab {
     // ═══════════════════════════════════════════════════════════════════
 
     private void searchInContent() {
+        // ── Diagram search mode ──
+        if (diagramViewActive && mermaidDiagramPanel != null && mermaidDiagramPanel.hasDiagram()) {
+            String query = searchBar.getText();
+            if (query != null && !query.isEmpty()) {
+                int count = mermaidDiagramPanel.searchAndHighlight(query);
+                searchCountLabel.setText(count > 0 ? count + " Treffer" : "Nicht gefunden");
+            }
+            return;
+        }
         lastSearchPos = 0;
         searchNextInContent();
     }
 
     private void searchNextInContent() {
+        // ── Diagram search mode ──
+        if (diagramViewActive && mermaidDiagramPanel != null && mermaidDiagramPanel.hasDiagram()) {
+            int count = mermaidDiagramPanel.searchNext();
+            searchCountLabel.setText(count > 0 ? count + " Treffer" : "Nicht gefunden");
+            return;
+        }
+
         String query = searchBar.getText();
         if (query == null || query.isEmpty()) return;
 

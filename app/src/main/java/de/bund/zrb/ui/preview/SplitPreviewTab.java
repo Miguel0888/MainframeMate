@@ -1266,11 +1266,18 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
     /**
      * Highlight all occurrences of the find bar query in the currently visible pane(s).
+     * When the diagram view is active, delegates to diagram node search instead.
      * For binary documents (PDF, DOCX, etc.) only the HTML rendered pane is searched
      * because the raw pane contains meaningless binary data.
      */
     protected void highlightFindMatches() {
         String query = findBar.getText().trim();
+
+        // ── Diagram search mode ──
+        if (diagramViewActive && mermaidDiagramPanel != null && mermaidDiagramPanel.hasDiagram()) {
+            mermaidDiagramPanel.searchAndHighlight(query);
+            return;
+        }
 
         if (!isTextFile && needsHtmlRendering) {
             // Binary document: rawPane has garbage, only search htmlRenderedPane

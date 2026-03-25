@@ -11,6 +11,7 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -533,8 +534,9 @@ public class MermaidDiagramPanel extends JPanel {
                 if (svgCoords == null) return;
                 double svgX = svgCoords[0], svgY = svgCoords[1];
 
-                // Parse viewBox for thresholds
-                double vbW = image.getWidth(), vbH = image.getHeight();
+                // Use viewBox dimensions for thresholds (SVG coordinate space)
+                double vbW = diagram.getViewBoxWidth();
+                double vbH = diagram.getViewBoxHeight();
 
                 // ── Check edge endpoints for reconnection (editable only) ──
                 dragEdge = null;
@@ -570,15 +572,35 @@ public class MermaidDiagramPanel extends JPanel {
                     }
                 }
 
-                // ── Check nodes ──
-                DiagramNode node = diagram.findNodeAt(svgX, svgY);
-                if (node != null) {
-                    selectedNode = node;
+                // ── Check nodes (smallest non-fragment first, then smallest fragment) ──
+                DiagramNode foundNode = null;
+                DiagramNode foundFragment = null;
+                double bestNodeArea = Double.MAX_VALUE;
+                double bestFragArea = Double.MAX_VALUE;
+                for (DiagramNode n : diagram.getNodes()) {
+                    if (n.contains(svgX, svgY)) {
+                        double area = n.getWidth() * n.getHeight();
+                        if (n instanceof SequenceFragment) {
+                            if (area < bestFragArea) {
+                                bestFragArea = area;
+                                foundFragment = n;
+                            }
+                        } else {
+                            if (area < bestNodeArea) {
+                                bestNodeArea = area;
+                                foundNode = n;
+                            }
+                        }
+                    }
+                }
+                if (foundNode == null) foundNode = foundFragment;
+                if (foundNode != null) {
+                    selectedNode = foundNode;
                     selectedEdge = null;
-                    highlightRect = toImageRect(node.getX(), node.getY(),
-                            node.getWidth(), node.getHeight());
+                    highlightRect = toImageRect(foundNode.getX(), foundNode.getY(),
+                            foundNode.getWidth(), foundNode.getHeight());
                     if (editable) {
-                        dragSourceNode = node;
+                        dragSourceNode = foundNode;
                         dragStart = new Point(e.getX(), e.getY());
                         dragging = false;
                     }
@@ -588,18 +610,27 @@ public class MermaidDiagramPanel extends JPanel {
                     return;
                 }
 
-                // ── Check edges ──
+                // ── Check edges (prefer smallest bounding box) ──
+                DiagramEdge foundEdge = null;
+                double bestEdgeArea = Double.MAX_VALUE;
                 for (DiagramEdge edge : diagram.getEdges()) {
                     if (edge.containsApprox(svgX, svgY)) {
-                        selectedEdge = edge;
-                        selectedNode = null;
-                        highlightRect = toImageRect(edge.getX(), edge.getY(),
-                                edge.getWidth(), edge.getHeight());
-                        updateDetailArea();
-                        updateEditPanel();
-                        imagePanel.repaint();
-                        return;
+                        double area = edge.getWidth() * edge.getHeight();
+                        if (area < bestEdgeArea) {
+                            bestEdgeArea = area;
+                            foundEdge = edge;
+                        }
                     }
+                }
+                if (foundEdge != null) {
+                    selectedEdge = foundEdge;
+                    selectedNode = null;
+                    highlightRect = toImageRect(foundEdge.getX(), foundEdge.getY(),
+                            foundEdge.getWidth(), foundEdge.getHeight());
+                    updateDetailArea();
+                    updateEditPanel();
+                    imagePanel.repaint();
+                    return;
                 }
 
                 // Deselect
@@ -677,16 +708,44 @@ public class MermaidDiagramPanel extends JPanel {
         });
     }
 
-    /** Convert screen coordinates to SVG viewBox coordinates using current zoom+pan. */
+    /**
+     * Convert screen (panel) coordinates to SVG viewBox coordinates.
+     * <p>
+     * Screen → image pixel → SVG viewBox, matching the approach used in
+     * {@code MermaidSelectionTest}.
+     */
     private double[] screenToSvg(int sx, int sy) {
-        if (image == null || zoom <= 0) return null;
-        double svgX = (sx - panOffsetX) / zoom;
-        double svgY = (sy - panOffsetY) / zoom;
+        if (image == null || diagram == null || zoom <= 0 || baseW <= 0 || baseH <= 0) return null;
+        // Screen → image pixel
+        double imgPx = (sx - panOffsetX) / zoom;
+        double imgPy = (sy - panOffsetY) / zoom;
+        // Image pixel → SVG viewBox
+        double vbX = diagram.getViewBoxX();
+        double vbY = diagram.getViewBoxY();
+        double vbW = diagram.getViewBoxWidth();
+        double vbH = diagram.getViewBoxHeight();
+        double svgX = vbX + (imgPx / baseW) * vbW;
+        double svgY = vbY + (imgPy / baseH) * vbH;
         return new double[]{svgX, svgY};
     }
 
-    private Rectangle toImageRect(double x, double y, double w, double h) {
-        return new Rectangle((int) x, (int) y, (int) w, (int) h);
+    /**
+     * Convert SVG viewBox coordinates to image pixel coordinates (for highlight overlay).
+     * Matches the formula used in {@code MermaidSelectionTest#handleClick}.
+     */
+    private Rectangle toImageRect(double svgX, double svgY, double svgW, double svgH) {
+        if (diagram == null || baseW <= 0 || baseH <= 0) {
+            return new Rectangle((int) svgX, (int) svgY, (int) svgW, (int) svgH);
+        }
+        double vbX = diagram.getViewBoxX();
+        double vbY = diagram.getViewBoxY();
+        double vbW = diagram.getViewBoxWidth();
+        double vbH = diagram.getViewBoxHeight();
+        int rx = (int) ((svgX - vbX) / vbW * baseW);
+        int ry = (int) ((svgY - vbY) / vbH * baseH);
+        int rw = (int) (svgW / vbW * baseW);
+        int rh = (int) (svgH / vbH * baseH);
+        return new Rectangle(rx, ry, Math.max(rw, 5), Math.max(rh, 5));
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -869,6 +928,129 @@ public class MermaidDiagramPanel extends JPanel {
         if (first.startsWith("sequencediagram")) return "sequenceDiagram";
         if (first.startsWith("classdiagram")) return "classDiagram";
         return "flowchart";
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Diagram Search
+    // ═══════════════════════════════════════════════════════════
+
+    private List<DiagramNode> lastSearchResults = new ArrayList<DiagramNode>();
+    private int lastSearchIndex = -1;
+    private String lastSearchQuery = "";
+
+    /**
+     * Search for nodes whose label or id contains the given query (case-insensitive).
+     * Highlights the first match with a yellow overlay and zooms/pans to center on it.
+     *
+     * @param query the search text
+     * @return the number of matches found
+     */
+    public int searchAndHighlight(String query) {
+        if (query == null || query.trim().isEmpty() || diagram == null) {
+            clearSearch();
+            return 0;
+        }
+
+        String q = query.trim().toLowerCase();
+
+        // Rebuild search results if query changed
+        if (!q.equals(lastSearchQuery)) {
+            lastSearchQuery = q;
+            lastSearchResults = new ArrayList<DiagramNode>();
+            for (DiagramNode n : diagram.getNodes()) {
+                if (n instanceof SequenceFragment) continue;
+                String label = n.getLabel() != null ? n.getLabel().toLowerCase() : "";
+                String id = n.getId() != null ? n.getId().toLowerCase() : "";
+                if (label.contains(q) || id.contains(q)) {
+                    lastSearchResults.add(n);
+                }
+            }
+            lastSearchIndex = -1;
+        }
+
+        if (lastSearchResults.isEmpty()) {
+            highlightRect = null;
+            selectedNode = null;
+            selectedEdge = null;
+            statusLabel.setText("Keine Treffer für \"" + query.trim() + "\"");
+            imagePanel.repaint();
+            return 0;
+        }
+
+        // Advance to next result
+        lastSearchIndex = (lastSearchIndex + 1) % lastSearchResults.size();
+        DiagramNode node = lastSearchResults.get(lastSearchIndex);
+
+        // Select and highlight
+        selectedNode = node;
+        selectedEdge = null;
+        highlightRect = toImageRect(node.getX(), node.getY(),
+                node.getWidth(), node.getHeight());
+        updateDetailArea();
+        updateEditPanel();
+
+        // Zoom + pan to center on the found node
+        zoomToNode(node);
+
+        statusLabel.setText("Treffer " + (lastSearchIndex + 1) + " / " + lastSearchResults.size()
+                + " — \"" + (node.getLabel() != null ? node.getLabel() : node.getId()) + "\"");
+        imagePanel.repaint();
+        return lastSearchResults.size();
+    }
+
+    /**
+     * Advance to the next search result (wraps around).
+     * @return the number of total matches, or 0 if no search is active
+     */
+    public int searchNext() {
+        if (lastSearchResults.isEmpty()) return 0;
+        return searchAndHighlight(lastSearchQuery);
+    }
+
+    /** Clear search state and remove highlight. */
+    public void clearSearch() {
+        lastSearchResults = new ArrayList<DiagramNode>();
+        lastSearchIndex = -1;
+        lastSearchQuery = "";
+    }
+
+    /**
+     * Zoom and pan so the given node is centered and reasonably large in the viewport.
+     */
+    private void zoomToNode(DiagramNode node) {
+        if (image == null || diagram == null || baseW <= 0 || baseH <= 0) return;
+        int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
+        if (pw <= 0 || ph <= 0) return;
+
+        // Convert node center from SVG viewBox → image pixel coords
+        double vbX = diagram.getViewBoxX();
+        double vbY = diagram.getViewBoxY();
+        double vbW = diagram.getViewBoxWidth();
+        double vbH = diagram.getViewBoxHeight();
+
+        double nodeCenterImgX = ((node.getX() + node.getWidth() / 2.0) - vbX) / vbW * baseW;
+        double nodeCenterImgY = ((node.getY() + node.getHeight() / 2.0) - vbY) / vbH * baseH;
+        double nodeImgW = node.getWidth() / vbW * baseW;
+        double nodeImgH = node.getHeight() / vbH * baseH;
+
+        // Target zoom: node should fill ~30% of the viewport (but don't zoom out)
+        double targetZoomW = (pw * 0.3) / Math.max(nodeImgW, 1);
+        double targetZoomH = (ph * 0.3) / Math.max(nodeImgH, 1);
+        double targetZoom = Math.min(targetZoomW, targetZoomH);
+        // Don't zoom out below current level or below fit level, and cap max
+        targetZoom = Math.max(targetZoom, zoom);
+        targetZoom = Math.min(targetZoom, 8.0);
+
+        // Set zoom and center pan on the node
+        zoom = targetZoom;
+        panOffsetX = pw / 2.0 - nodeCenterImgX * zoom;
+        panOffsetY = ph / 2.0 - nodeCenterImgY * zoom;
+        updateZoomLabel();
+    }
+
+    /** Returns true if the diagram view has loaded content (image + diagram metadata). */
+    public boolean hasDiagram() {
+        return image != null && diagram != null;
     }
 }
 
