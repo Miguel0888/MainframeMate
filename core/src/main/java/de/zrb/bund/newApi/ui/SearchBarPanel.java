@@ -261,4 +261,9 @@ public class SearchBarPanel extends JPanel {
     protected JButton getGoButton() {
         return goButton;
     }
+
+    /** Access the east panel (e.g. to rearrange navigation buttons). */
+    protected JPanel getEastPanel() {
+        return eastPanel;
+    }
 }

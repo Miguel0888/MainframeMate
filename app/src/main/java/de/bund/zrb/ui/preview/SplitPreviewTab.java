@@ -184,8 +184,17 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /** ApplicationState key for persisting the line-wrap preference. */
     private static final String LINE_WRAP_STATE_KEY = "preview.lineWrap";
 
+    /** ApplicationState key for persisting step-search mode. */
+    private static final String STEP_SEARCH_STATE_KEY = "preview.findBar.stepSearch";
+
     /** Line-wrap toggle checkbox (in toolbar). */
     protected JCheckBox lineWrapCheckBox;
+
+    // ── Step-search navigation state ──
+    /** All match positions (character offsets) in the current rawPane search. */
+    protected java.util.List<Integer> findMatchPositions = new java.util.ArrayList<Integer>();
+    /** Current index into {@link #findMatchPositions} for step-navigation. */
+    protected int findMatchIndex = -1;
 
     /** Mermaid diagram toggle button — only shown for mainframe source code. */
     protected JToggleButton diagramToggleButton;
@@ -263,6 +272,17 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         // FindBarPanel (orange) for in-document search
         this.findBar = new FindBarPanel("Im Dokument suchen\u2026");
         findBar.addSearchAction(e -> highlightFindMatches());
+        findBar.setPrevAction(e -> navigateFindMatch(-1));
+        findBar.setNextAction(e -> navigateFindMatch(+1));
+
+        // Restore step-search preference from ApplicationState
+        findBar.setStepSearchEnabled(restoreStepSearchPreference());
+        findBar.setStepSearchModeListener(new FindBarPanel.StepSearchModeListener() {
+            @Override
+            public void onStepSearchModeChanged(boolean stepSearch) {
+                persistStepSearchPreference(stepSearch);
+            }
+        });
 
         // Main panel assembly
         mainPanel.add(contentPanel, BorderLayout.CENTER);
@@ -1269,6 +1289,10 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
      * When the diagram view is active, delegates to diagram node search instead.
      * For binary documents (PDF, DOCX, etc.) only the HTML rendered pane is searched
      * because the raw pane contains meaningless binary data.
+     * <p>
+     * In <b>step-search mode</b>, match positions are collected and only the first
+     * match is highlighted orange. The user then navigates with ◀ ▶ arrows.
+     * In <b>normal mode</b>, all matches are highlighted yellow at once.
      */
     protected void highlightFindMatches() {
         String query = findBar.getText().trim();
@@ -1279,27 +1303,43 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             return;
         }
 
+        boolean stepMode = findBar.isStepSearchEnabled();
+
         if (!isTextFile && needsHtmlRendering) {
             // Binary document: rawPane has garbage, only search htmlRenderedPane
-            highlightInTextComponent(rawPane, ""); // clear old highlights
-            highlightInTextComponent(htmlRenderedPane, query);
+            highlightInTextComponent(rawPane, "", false);
+            highlightInTextComponent(htmlRenderedPane, query, stepMode);
         } else if (needsHtmlRendering) {
             // Text-based HTML (Markdown, HTML) — search both panes
-            highlightInTextComponent(rawPane, query);
-            highlightInTextComponent(htmlRenderedPane, query);
+            highlightInTextComponent(rawPane, query, stepMode);
+            highlightInTextComponent(htmlRenderedPane, query, stepMode);
         } else {
             // Plain text / source code — only rawPane
-            highlightInTextComponent(rawPane, query);
+            highlightInTextComponent(rawPane, query, stepMode);
+        }
+
+        // In step mode, show the first result
+        if (stepMode && !findMatchPositions.isEmpty()) {
+            findMatchIndex = 0;
+            showCurrentMatch();
         }
     }
 
     /**
-     * Highlight all case-insensitive occurrences of {@code query} in the given text component,
-     * scrolling to the first match.
+     * Highlight all case-insensitive occurrences of {@code query} in the given text component.
+     *
+     * @param comp      the text component
+     * @param query     the search text
+     * @param stepMode  if true, only collects match positions (for step navigation)
+     *                  and highlights the first match with orange;
+     *                  if false, highlights all matches yellow at once
      */
-    protected void highlightInTextComponent(javax.swing.text.JTextComponent comp, String query) {
+    protected void highlightInTextComponent(javax.swing.text.JTextComponent comp,
+                                            String query, boolean stepMode) {
         Highlighter highlighter = comp.getHighlighter();
         highlighter.removeAllHighlights();
+        findMatchPositions = new java.util.ArrayList<Integer>();
+        findMatchIndex = -1;
 
         if (query.isEmpty()) return;
 
@@ -1309,35 +1349,135 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             String lowerText = fullText.toLowerCase();
             String lowerQuery = query.toLowerCase();
 
-            int firstHit = -1;
             int pos = 0;
-
             while (pos < lowerText.length()) {
                 int idx = lowerText.indexOf(lowerQuery, pos);
                 if (idx < 0) break;
 
                 int end = idx + query.length();
-                highlighter.addHighlight(idx, end, YELLOW_PAINTER);
+                findMatchPositions.add(idx);
 
-                if (firstHit < 0) {
-                    firstHit = idx;
+                if (!stepMode) {
+                    // Normal mode: highlight everything yellow
+                    highlighter.addHighlight(idx, end, YELLOW_PAINTER);
                 }
                 pos = end;
             }
 
-            // Scroll to first match
-            if (firstHit >= 0) {
-                comp.setCaretPosition(firstHit);
-                if (comp instanceof JEditorPane) {
-                    Rectangle rect = comp.modelToView(firstHit);
-                    if (rect != null) {
-                        comp.scrollRectToVisible(rect);
-                    }
+            if (stepMode) {
+                // Step mode: highlight only the first match orange, rest yellow dimmed
+                for (int i = 0; i < findMatchPositions.size(); i++) {
+                    int matchPos = findMatchPositions.get(i);
+                    int matchEnd = matchPos + query.length();
+                    highlighter.addHighlight(matchPos, matchEnd,
+                            i == 0 ? ORANGE_PAINTER : YELLOW_DIM_PAINTER);
                 }
+            }
+
+            // Scroll to first match
+            if (!findMatchPositions.isEmpty()) {
+                int firstHit = findMatchPositions.get(0);
+                comp.setCaretPosition(firstHit);
+                scrollToPosition(comp, firstHit);
             }
         } catch (BadLocationException ex) {
             // ignore
         }
+    }
+
+    /** Orange painter for the current match in step-search mode. */
+    private static final Highlighter.HighlightPainter ORANGE_PAINTER =
+            new DefaultHighlighter.DefaultHighlightPainter(new Color(0xFF, 0x98, 0x00, 200));
+
+    /** Dimmed yellow painter for non-current matches in step-search mode. */
+    private static final Highlighter.HighlightPainter YELLOW_DIM_PAINTER =
+            new DefaultHighlighter.DefaultHighlightPainter(new Color(0xFF, 0xEB, 0x3B, 80));
+
+    /**
+     * Navigate to the previous or next match in step-search mode.
+     *
+     * @param direction -1 for previous, +1 for next
+     */
+    protected void navigateFindMatch(int direction) {
+        if (findMatchPositions.isEmpty()) return;
+        String query = findBar.getText().trim();
+        if (query.isEmpty()) return;
+
+        // Advance index
+        findMatchIndex += direction;
+        if (findMatchIndex >= findMatchPositions.size()) findMatchIndex = 0;
+        if (findMatchIndex < 0) findMatchIndex = findMatchPositions.size() - 1;
+
+        showCurrentMatch();
+    }
+
+    /**
+     * Repaint highlights to show the current match as orange and scroll to it.
+     */
+    protected void showCurrentMatch() {
+        if (findMatchPositions.isEmpty() || findMatchIndex < 0) return;
+        String query = findBar.getText().trim();
+        if (query.isEmpty()) return;
+
+        // Determine which component to operate on
+        javax.swing.text.JTextComponent comp;
+        if (!isTextFile && needsHtmlRendering) {
+            comp = htmlRenderedPane;
+        } else {
+            comp = rawPane;
+        }
+
+        // Repaint all highlights
+        Highlighter highlighter = comp.getHighlighter();
+        highlighter.removeAllHighlights();
+
+        try {
+            for (int i = 0; i < findMatchPositions.size(); i++) {
+                int matchPos = findMatchPositions.get(i);
+                int matchEnd = matchPos + query.length();
+                highlighter.addHighlight(matchPos, matchEnd,
+                        i == findMatchIndex ? ORANGE_PAINTER : YELLOW_DIM_PAINTER);
+            }
+
+            int currentPos = findMatchPositions.get(findMatchIndex);
+            comp.setCaretPosition(currentPos);
+            scrollToPosition(comp, currentPos);
+        } catch (BadLocationException ex) {
+            // ignore
+        }
+    }
+
+    /** Scroll a text component so the given character position is visible. */
+    private void scrollToPosition(javax.swing.text.JTextComponent comp, int pos) {
+        try {
+            Rectangle rect = comp.modelToView(pos);
+            if (rect != null) {
+                comp.scrollRectToVisible(rect);
+            }
+        } catch (BadLocationException ex) {
+            // ignore
+        }
+    }
+
+    // ── Step-search preference persistence ──
+
+    protected void persistStepSearchPreference(boolean stepSearch) {
+        try {
+            de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+            settings.applicationState.put(STEP_SEARCH_STATE_KEY, String.valueOf(stepSearch));
+            de.bund.zrb.helper.SettingsHelper.save(settings);
+        } catch (Exception ignored) { }
+    }
+
+    protected static boolean restoreStepSearchPreference() {
+        try {
+            de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+            String value = settings.applicationState.get(STEP_SEARCH_STATE_KEY);
+            if (value != null) {
+                return Boolean.parseBoolean(value);
+            }
+        } catch (Exception ignored) { }
+        return false; // default: highlight-all mode
     }
 
     // === DocumentPreviewTabAdapter Interface ===

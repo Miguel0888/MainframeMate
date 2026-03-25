@@ -1007,6 +1007,18 @@ public class MermaidDiagramPanel extends JPanel {
         return searchAndHighlight(lastSearchQuery);
     }
 
+    /**
+     * Go to the previous search result (wraps around).
+     * @return the number of total matches, or 0 if no search is active
+     */
+    public int searchPrev() {
+        if (lastSearchResults.isEmpty()) return 0;
+        // Move index back by 2 (because searchAndHighlight will advance +1)
+        lastSearchIndex -= 2;
+        if (lastSearchIndex < -1) lastSearchIndex = lastSearchResults.size() - 2;
+        return searchAndHighlight(lastSearchQuery);
+    }
+
     /** Clear search state and remove highlight. */
     public void clearSearch() {
         lastSearchResults = new ArrayList<DiagramNode>();

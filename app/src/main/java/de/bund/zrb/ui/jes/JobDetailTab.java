@@ -246,18 +246,13 @@ public class JobDetailTab implements AppTab {
         searchBar = new FindBarPanel("Suche im Spool-Output…",
                 "Suche im Spool-Output (z.B. JOBLIB, IEF, ABEND)");
         searchBar.addSearchAction(e -> searchInContent());
-
-        JButton searchNextBtn = new JButton("↓");
-        searchNextBtn.setMargin(new Insets(1, 4, 1, 4));
-        searchNextBtn.setFocusable(false);
-        searchNextBtn.setToolTipText("Nächstes Ergebnis");
-        searchNextBtn.addActionListener(e -> searchNextInContent());
+        searchBar.setPrevAction(e -> searchPrevInContent());
+        searchBar.setNextAction(e -> searchNextInContent());
 
         searchCountLabel = new JLabel("");
         searchCountLabel.setFont(searchCountLabel.getFont().deriveFont(Font.PLAIN, 11f));
         searchCountLabel.setForeground(Color.GRAY);
 
-        searchBar.addEastComponent(searchNextBtn);
         searchBar.addEastComponent(searchCountLabel);
 
         JPanel searchWrapper = new JPanel(new BorderLayout());
@@ -784,6 +779,54 @@ public class JobDetailTab implements AppTab {
         } else {
             searchCountLabel.setText("Nicht gefunden");
             lastSearchPos = 0;
+        }
+    }
+
+    private void searchPrevInContent() {
+        // ── Diagram search mode ──
+        if (diagramViewActive && mermaidDiagramPanel != null && mermaidDiagramPanel.hasDiagram()) {
+            String query = searchBar.getText();
+            if (query != null && !query.isEmpty()) {
+                int count = mermaidDiagramPanel.searchPrev();
+                searchCountLabel.setText(count > 0 ? count + " Treffer" : "Nicht gefunden");
+            }
+            return;
+        }
+
+        String query = searchBar.getText();
+        if (query == null || query.isEmpty()) return;
+
+        String text = contentArea.getText();
+        if (text == null || text.isEmpty()) return;
+
+        String textLower = text.toLowerCase();
+        String queryLower = query.toLowerCase();
+
+        // Count total matches
+        int count = 0;
+        int idx = 0;
+        while ((idx = textLower.indexOf(queryLower, idx)) >= 0) {
+            count++;
+            idx += queryLower.length();
+        }
+
+        // Find previous match before lastSearchPos
+        int searchBefore = lastSearchPos - query.length() - 1;
+        if (searchBefore < 0) searchBefore = textLower.length();
+        int pos = textLower.lastIndexOf(queryLower, searchBefore);
+        if (pos < 0) {
+            // Wrap to end
+            pos = textLower.lastIndexOf(queryLower);
+        }
+
+        if (pos >= 0) {
+            contentArea.setCaretPosition(pos);
+            contentArea.select(pos, pos + query.length());
+            contentArea.requestFocusInWindow();
+            lastSearchPos = pos;
+            searchCountLabel.setText(count + " Treffer");
+        } else {
+            searchCountLabel.setText("Nicht gefunden");
         }
     }
 

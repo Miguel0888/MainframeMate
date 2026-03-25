@@ -10,6 +10,7 @@ import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.sentence.SentenceMeta;
 import de.zrb.bund.newApi.ui.FileTab;
+import de.zrb.bund.newApi.ui.FindBarPanel;
 import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.api.FileServiceException;
 import de.bund.zrb.files.api.FileWriteResult;
@@ -204,6 +205,17 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         statusBarPanel.bindEvents(dispatcher);
         comparePanel.bindEvents(dispatcher);
 
+        // Wire step-search navigation on the status bar's FindBarPanel
+        statusBarPanel.getFindBar().setPrevAction(e -> navigateFindMatch(-1));
+        statusBarPanel.getFindBar().setNextAction(e -> navigateFindMatch(+1));
+        statusBarPanel.getFindBar().setStepSearchEnabled(restoreStepSearchPreference());
+        statusBarPanel.getFindBar().setStepSearchModeListener(new FindBarPanel.StepSearchModeListener() {
+            @Override
+            public void onStepSearchModeChanged(boolean stepSearch) {
+                persistStepSearchPreference(stepSearch);
+            }
+        });
+
         // Wire toolbar buttons (Compare toggle / Undo / Redo) to event dispatcher
         compareButton.addActionListener(e -> {
             if (compareButton.isSelected()) {
@@ -333,18 +345,25 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
     @Override
     protected void highlightFindMatches() {
         String query = statusBarPanel.getFindBar().getText().trim();
+        boolean stepMode = statusBarPanel.getFindBar().isStepSearchEnabled();
 
         if (!isTextFile && needsHtmlRendering) {
             // Binary document: rawPane has garbage, only search htmlRenderedPane
-            highlightInTextComponent(rawPane, ""); // clear old highlights
-            highlightInTextComponent(htmlRenderedPane, query);
+            highlightInTextComponent(rawPane, "", false); // clear old highlights
+            highlightInTextComponent(htmlRenderedPane, query, stepMode);
         } else if (needsHtmlRendering) {
             // Text-based HTML — search both panes
-            highlightInTextComponent(rawPane, query);
-            highlightInTextComponent(htmlRenderedPane, query);
+            highlightInTextComponent(rawPane, query, stepMode);
+            highlightInTextComponent(htmlRenderedPane, query, stepMode);
         } else {
             // Plain text / source code — only rawPane
-            highlightInTextComponent(rawPane, query);
+            highlightInTextComponent(rawPane, query, stepMode);
+        }
+
+        // In step mode, show the first result
+        if (stepMode && !findMatchPositions.isEmpty()) {
+            findMatchIndex = 0;
+            showCurrentMatch();
         }
     }
 
