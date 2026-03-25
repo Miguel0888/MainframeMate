@@ -1,6 +1,7 @@
 plugins {
     id 'java'
     id 'application'
+    id 'antlr'
 }
 
 sourceCompatibility = 1.8
@@ -23,9 +24,29 @@ dependencies {
     implementation 'org.apache.xmlgraphics:batik-transcoder:1.17'
     implementation 'org.apache.xmlgraphics:batik-codec:1.17'
 
+    // ANTLR for Mermaid parsing (4.9.3 = last Java 8 compatible version)
+    antlr 'org.antlr:antlr4:4.9.3'
+    implementation 'org.antlr:antlr4-runtime:4.9.3'
+
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
     testImplementation 'com.google.code.gson:gson:2.10.1'
 }
+
+// ANTLR configuration — generate parser into the mermaid parser package
+generateGrammarSource {
+    arguments += ['-visitor', '-listener', '-package', 'com.aresstack.mermaid.parser']
+    outputDirectory = file("${project.buildDir}/generated-src/antlr/main/com/aresstack/mermaid/parser")
+}
+
+sourceSets {
+    main {
+        java {
+            srcDir "${project.buildDir}/generated-src/antlr/main"
+        }
+    }
+}
+
+compileJava.dependsOn generateGrammarSource
 
 test {
     useJUnitPlatform()

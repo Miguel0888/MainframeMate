@@ -1,5 +1,6 @@
 package de.bund.zrb.mermaid;
 
+import com.aresstack.mermaid.editor.SourceEditBridge;
 import com.aresstack.mermaid.layout.*;
 import de.bund.zrb.wiki.ui.SvgRenderer;
 
@@ -574,7 +575,7 @@ public final class MermaidSelectionTest {
                                         String newSrc = cs.dragFromSource ? targetNode.getId() : cs.dragEdge.getSourceId();
                                         String newTgt = cs.dragFromSource ? cs.dragEdge.getTargetId() : targetNode.getId();
                                         if (!newSrc.equals(cs.dragEdge.getSourceId()) || !newTgt.equals(cs.dragEdge.getTargetId())) {
-                                            cs.currentSource = reconnectEdgeInSource(cs.currentSource,
+                                            cs.currentSource = SourceEditBridge.reconnectEdge(cs.currentSource,
                                                     cs.diagram.getDiagramType(), cs.dragEdge, newSrc, newTgt);
                                             cs.dragging = false;
                                             cs.dragEdge = null;
@@ -621,7 +622,7 @@ public final class MermaidSelectionTest {
                                         boolean leftToRight = e.getX() >= cs.dragStart.x;
                                         String srcId = leftToRight ? cs.dragSourceNode.getId() : targetNode.getId();
                                         String tgtId = leftToRight ? targetNode.getId() : cs.dragSourceNode.getId();
-                                        cs.currentSource = addEdgeToSource(cs.currentSource,
+                                        cs.currentSource = SourceEditBridge.addEdge(cs.currentSource,
                                                 cs.diagram.getDiagramType(), srcId, tgtId);
                                         cs.dragging = false;
                                         cs.dragSourceNode = null;
@@ -843,7 +844,7 @@ public final class MermaidSelectionTest {
                 @Override public void actionPerformed(ActionEvent e) {
                     String newName = nameField.getText().trim();
                     if (newName.isEmpty() || newName.equals(node.getId())) return;
-                    cs.currentSource = renameNodeInSource(cs.currentSource,
+                    cs.currentSource = SourceEditBridge.renameNode(cs.currentSource,
                             cs.diagram.getDiagramType(), node.getId(), node.getLabel(), newName);
                     onApplied.run();
                 }
@@ -1105,7 +1106,7 @@ public final class MermaidSelectionTest {
             @Override public void actionPerformed(ActionEvent e) {
                 String newLabel = labelField.getText().trim();
                 if (newLabel.equals(edge.getLabel())) return;
-                cs.currentSource = changeEdgeLabelInSource(cs.currentSource,
+                cs.currentSource = SourceEditBridge.changeEdgeLabel(cs.currentSource,
                         cs.diagram.getDiagramType(), edge, newLabel);
                 onApplied.run();
             }
@@ -1123,7 +1124,7 @@ public final class MermaidSelectionTest {
 
         deleteEdgeBtn.addActionListener(new ActionListener() {
             @Override public void actionPerformed(ActionEvent e) {
-                cs.currentSource = deleteEdgeFromSource(cs.currentSource,
+                cs.currentSource = SourceEditBridge.deleteEdge(cs.currentSource,
                         cs.diagram.getDiagramType(), edge);
                 cs.selectedEdge = null;
                 onApplied.run();
@@ -1141,7 +1142,7 @@ public final class MermaidSelectionTest {
 
         reverseBtn.addActionListener(new ActionListener() {
             @Override public void actionPerformed(ActionEvent e) {
-                cs.currentSource = reverseEdgeInSource(cs.currentSource,
+                cs.currentSource = SourceEditBridge.reverseEdge(cs.currentSource,
                         cs.diagram.getDiagramType(), edge);
                 onApplied.run();
             }
@@ -1195,7 +1196,7 @@ public final class MermaidSelectionTest {
                 @Override public void actionPerformed(ActionEvent e) {
                     LineStyle newStyle = lineStyles[styleCb.getSelectedIndex()];
                     ArrowHead newHead = arrowHeads[headCb.getSelectedIndex()];
-                    cs.currentSource = changeFlowchartEdgeStyle(cs.currentSource,
+                    cs.currentSource = SourceEditBridge.changeFlowchartEdgeStyle(cs.currentSource,
                             fe.getSourceId(), fe.getTargetId(), fe.getLabel(),
                             fe.getLineStyle(), fe.getHeadType(),
                             newStyle, newHead);
@@ -1356,9 +1357,9 @@ public final class MermaidSelectionTest {
                 @Override public void actionPerformed(ActionEvent e) {
                     MessageType newType = msgTypes[typeCb.getSelectedIndex()];
                     if (newType == sm.getMessageType()) return;
-                    cs.currentSource = changeSequenceMessageType(cs.currentSource,
+                    cs.currentSource = SourceEditBridge.changeSequenceMessageType(cs.currentSource,
                             sm.getSourceId(), sm.getTargetId(), sm.getLabel(),
-                            sm.getMessageType(), newType);
+                            sm.getMessageType().getMermaidSyntax(), newType.getMermaidSyntax());
                     onApplied.run();
                 }
             });
@@ -1433,7 +1434,7 @@ public final class MermaidSelectionTest {
                 String newSrc = srcField.getText().trim();
                 String newTgt = tgtField.getText().trim();
                 if (newSrc.equals(edge.getSourceId()) && newTgt.equals(edge.getTargetId())) return;
-                cs.currentSource = reconnectEdgeInSource(cs.currentSource,
+                cs.currentSource = SourceEditBridge.reconnectEdge(cs.currentSource,
                         cs.diagram.getDiagramType(), edge, newSrc, newTgt);
                 onApplied.run();
             }
