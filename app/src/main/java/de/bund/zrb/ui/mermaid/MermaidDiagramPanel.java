@@ -18,6 +18,8 @@ import java.util.List;
  * <p>
  * Features:
  * <ul>
+ *   <li>Mouse-wheel zoom (centered on cursor) + zoom toolbar</li>
+ *   <li>Right-click drag to pan; fit-to-panel on first layout</li>
  *   <li>Click-to-select nodes and edges (yellow highlight overlay)</li>
  *   <li>Detail display of the selected element</li>
  *   <li>If editable: rename nodes, change labels — changes are applied to source and re-rendered</li>
@@ -44,7 +46,7 @@ public class MermaidDiagramPanel extends JPanel {
     private DiagramEdge selectedEdge;
     private Rectangle highlightRect;
 
-    // Drag
+    // Drag (edge creation / reconnection)
     private DiagramNode dragSourceNode;
     private DiagramEdge dragEdge;
     private boolean dragFromSource;
@@ -52,11 +54,20 @@ public class MermaidDiagramPanel extends JPanel {
     private Point dragCurrent;
     private boolean dragging;
 
+    // ── Zoom & Pan state ──
+    private double zoom = 1.0;
+    private double panOffsetX = 0;
+    private double panOffsetY = 0;
+    private Point panDragStart;           // non-null while right-button dragging
+    private boolean fitDone = false;      // true after first fit-to-panel
+    private int baseW, baseH;             // image dimensions used as zoom reference
+
     // UI
     private final JPanel imagePanel;
     private final JTextArea detailArea;
     private final JPanel editPanel;
     private final JLabel statusLabel;
+    private final JLabel zoomLabel;
 
     // Listener for source changes
     private SourceChangeListener sourceChangeListener;
@@ -84,6 +95,18 @@ public class MermaidDiagramPanel extends JPanel {
         imagePanel.setPreferredSize(new Dimension(600, 400));
         setupMouseHandlers();
 
+        // ── Fit-to-panel on first valid layout ──
+        imagePanel.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                if (!fitDone && image != null
+                        && imagePanel.getWidth() > 0 && imagePanel.getHeight() > 0) {
+                    fitToPanel();
+                    fitDone = true;
+                }
+            }
+        });
+
         // ── Detail area ──
         detailArea = new JTextArea("Klicken Sie auf ein Element…");
         detailArea.setEditable(false);
@@ -105,6 +128,11 @@ public class MermaidDiagramPanel extends JPanel {
         statusLabel.setFont(statusLabel.getFont().deriveFont(Font.ITALIC, 10f));
         statusLabel.setForeground(Color.GRAY);
 
+        // ── Zoom toolbar ──
+        zoomLabel = new JLabel("100 %");
+        zoomLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+        JPanel zoomBar = buildZoomBar();
+
         // ── Layout ──
         JPanel bottomPanel = new JPanel();
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.Y_AXIS));
@@ -114,7 +142,11 @@ public class MermaidDiagramPanel extends JPanel {
         }
         bottomPanel.add(statusLabel);
 
-        add(new JScrollPane(imagePanel), BorderLayout.CENTER);
+        JPanel centerPanel = new JPanel(new BorderLayout());
+        centerPanel.add(imagePanel, BorderLayout.CENTER);
+        centerPanel.add(zoomBar, BorderLayout.SOUTH);
+
+        add(centerPanel, BorderLayout.CENTER);
         add(bottomPanel, BorderLayout.SOUTH);
     }
 
@@ -178,14 +210,29 @@ public class MermaidDiagramPanel extends JPanel {
                 image = renderedImage;
                 diagram = renderedDiagram;
                 svg = renderedSvg;
+
+                if (!error && image != null) {
+                    baseW = image.getWidth();
+                    baseH = image.getHeight();
+                    // Fit-to-panel when a new image is loaded
+                    if (imagePanel.getWidth() > 0 && imagePanel.getHeight() > 0) {
+                        fitToPanel();
+                        fitDone = true;
+                    } else {
+                        fitDone = false; // will be done by component listener
+                    }
+                }
+
                 imagePanel.repaint();
+                updateZoomLabel();
                 if (error) {
                     statusLabel.setText("⚠ Rendering fehlgeschlagen");
                 } else {
                     int nodes = diagram != null ? diagram.getNodes().size() : 0;
                     int edges = diagram != null ? diagram.getEdges().size() : 0;
                     statusLabel.setText(nodes + " Knoten, " + edges + " Kanten"
-                            + (editable ? " — Klicken zum Bearbeiten" : ""));
+                            + (editable ? " — Klicken zum Bearbeiten" : "")
+                            + " — Mausrad: Zoom, Rechtsklick ziehen: Pan");
                 }
             }
         };
@@ -194,6 +241,89 @@ public class MermaidDiagramPanel extends JPanel {
 
     public String getMermaidSource() {
         return mermaidSource;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Zoom & Pan
+    // ═══════════════════════════════════════════════════════════
+
+    /** Fit the diagram into the visible panel area. */
+    private void fitToPanel() {
+        if (image == null || baseW <= 0 || baseH <= 0) return;
+        int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
+        if (pw <= 0 || ph <= 0) return;
+        double sx = (double) pw / baseW;
+        double sy = (double) ph / baseH;
+        zoom = Math.min(sx, sy) * 0.95; // 5 % margin
+        double dw = baseW * zoom;
+        double dh = baseH * zoom;
+        panOffsetX = (pw - dw) / 2.0;
+        panOffsetY = (ph - dh) / 2.0;
+        updateZoomLabel();
+        imagePanel.repaint();
+    }
+
+    private void zoomBy(double factor, double pivotX, double pivotY) {
+        double oldZ = zoom;
+        zoom *= factor;
+        zoom = Math.max(0.02, Math.min(zoom, 50.0));
+        panOffsetX = pivotX - (pivotX - panOffsetX) * (zoom / oldZ);
+        panOffsetY = pivotY - (pivotY - panOffsetY) * (zoom / oldZ);
+        updateZoomLabel();
+        imagePanel.repaint();
+    }
+
+    private void updateZoomLabel() {
+        int pct = (int) Math.round(zoom * 100);
+        zoomLabel.setText(pct + " %");
+    }
+
+    private JPanel buildZoomBar() {
+        JPanel zoomBar = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 2));
+        zoomBar.setBackground(new Color(240, 240, 240));
+
+        JButton btnZoomIn = new JButton("+");
+        JButton btnZoomOut = new JButton("\u2013"); // en-dash looks like minus
+        JButton btnFit = new JButton("\uD83D\uDD04 Einpassen");
+        btnZoomIn.setToolTipText("Vergrößern (Mausrad hoch)");
+        btnZoomOut.setToolTipText("Verkleinern (Mausrad runter)");
+        btnFit.setToolTipText("An Panel anpassen");
+        btnZoomIn.setMargin(new Insets(2, 8, 2, 8));
+        btnZoomOut.setMargin(new Insets(2, 8, 2, 8));
+        btnFit.setMargin(new Insets(2, 6, 2, 6));
+        btnZoomIn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
+        btnZoomOut.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
+
+        btnZoomIn.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                double cx = imagePanel.getWidth() / 2.0;
+                double cy = imagePanel.getHeight() / 2.0;
+                zoomBy(1.4, cx, cy);
+            }
+        });
+        btnZoomOut.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                double cx = imagePanel.getWidth() / 2.0;
+                double cy = imagePanel.getHeight() / 2.0;
+                zoomBy(1.0 / 1.4, cx, cy);
+            }
+        });
+        btnFit.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                fitToPanel();
+            }
+        });
+
+        zoomBar.add(btnZoomOut);
+        zoomBar.add(zoomLabel);
+        zoomBar.add(btnZoomIn);
+        zoomBar.add(Box.createHorizontalStrut(12));
+        zoomBar.add(btnFit);
+        zoomBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        return zoomBar;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -212,20 +342,19 @@ public class MermaidDiagramPanel extends JPanel {
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                 RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 
-        int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
-        int imgW = image.getWidth(), imgH = image.getHeight();
-        double scale = Math.min((double) pw / imgW, (double) ph / imgH);
-        int dw = (int) (imgW * scale), dh = (int) (imgH * scale);
-        int ox = (pw - dw) / 2, oy = (ph - dh) / 2;
-
+        // Draw image using zoom + pan transform
+        int dw = (int) Math.round(baseW * zoom);
+        int dh = (int) Math.round(baseH * zoom);
+        int ox = (int) Math.round(panOffsetX);
+        int oy = (int) Math.round(panOffsetY);
         g.drawImage(image, ox, oy, dw, dh, null);
 
-        // Highlight
+        // Highlight selected element
         if (highlightRect != null) {
-            int hx = (int) (highlightRect.x * scale) + ox;
-            int hy = (int) (highlightRect.y * scale) + oy;
-            int hw = (int) (highlightRect.width * scale);
-            int hh = (int) (highlightRect.height * scale);
+            int hx = (int) (highlightRect.x * zoom) + ox;
+            int hy = (int) (highlightRect.y * zoom) + oy;
+            int hw = (int) (highlightRect.width * zoom);
+            int hh = (int) (highlightRect.height * zoom);
             g.setColor(new Color(255, 255, 0, 100));
             g.fillRect(hx, hy, hw, hh);
             g.setColor(new Color(255, 180, 0, 200));
@@ -233,7 +362,7 @@ public class MermaidDiagramPanel extends JPanel {
             g.drawRect(hx, hy, hw, hh);
         }
 
-        // Drag line
+        // Drag line (edge creation / reconnection)
         if (dragging && dragStart != null && dragCurrent != null) {
             Color lineColor = dragEdge != null
                     ? new Color(255, 140, 0, 200)   // orange = reconnection
@@ -250,9 +379,28 @@ public class MermaidDiagramPanel extends JPanel {
     // ═══════════════════════════════════════════════════════════
 
     private void setupMouseHandlers() {
+
+        // ── Mouse-wheel zoom (centered on cursor) ──
+        imagePanel.addMouseWheelListener(new MouseWheelListener() {
+            @Override
+            public void mouseWheelMoved(MouseWheelEvent e) {
+                if (image == null) return;
+                double factor = e.getWheelRotation() < 0 ? 1.25 : 1.0 / 1.25;
+                zoomBy(factor, e.getX(), e.getY());
+            }
+        });
+
         imagePanel.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
+                // ── Right-click (or Ctrl+click) → start panning ──
+                if (SwingUtilities.isRightMouseButton(e)
+                        || (e.getModifiers() & InputEvent.CTRL_MASK) != 0) {
+                    panDragStart = new Point(e.getX(), e.getY());
+                    imagePanel.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                    return;
+                }
+
                 if (image == null || diagram == null) return;
                 double[] svgCoords = screenToSvg(e.getX(), e.getY());
                 if (svgCoords == null) return;
@@ -338,6 +486,13 @@ public class MermaidDiagramPanel extends JPanel {
 
             @Override
             public void mouseReleased(MouseEvent e) {
+                // ── End panning ──
+                if (panDragStart != null) {
+                    panDragStart = null;
+                    imagePanel.setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+                    return;
+                }
+
                 if (!editable || image == null || diagram == null) return;
 
                 if (dragging) {
@@ -369,6 +524,16 @@ public class MermaidDiagramPanel extends JPanel {
         imagePanel.addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseDragged(MouseEvent e) {
+                // ── Pan with right-button / Ctrl ──
+                if (panDragStart != null) {
+                    panOffsetX += e.getX() - panDragStart.x;
+                    panOffsetY += e.getY() - panDragStart.y;
+                    panDragStart = new Point(e.getX(), e.getY());
+                    imagePanel.repaint();
+                    return;
+                }
+
+                // ── Edge drag (editable only) ──
                 if (!editable) return;
                 if (dragStart != null && (dragSourceNode != null || dragEdge != null)) {
                     int dx = e.getX() - dragStart.x;
@@ -385,16 +550,11 @@ public class MermaidDiagramPanel extends JPanel {
         });
     }
 
-    /** Convert screen coordinates to SVG viewBox coordinates. */
+    /** Convert screen coordinates to SVG viewBox coordinates using current zoom+pan. */
     private double[] screenToSvg(int sx, int sy) {
-        if (image == null) return null;
-        int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
-        int imgW = image.getWidth(), imgH = image.getHeight();
-        double scale = Math.min((double) pw / imgW, (double) ph / imgH);
-        int dw = (int) (imgW * scale), dh = (int) (imgH * scale);
-        int ox = (pw - dw) / 2, oy = (ph - dh) / 2;
-        double svgX = (sx - ox) / scale;
-        double svgY = (sy - oy) / scale;
+        if (image == null || zoom <= 0) return null;
+        double svgX = (sx - panOffsetX) / zoom;
+        double svgY = (sy - panOffsetY) / zoom;
         return new double[]{svgX, svgY};
     }
 
