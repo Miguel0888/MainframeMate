@@ -1,8 +1,5 @@
 package de.bund.zrb.mermaid;
 
-import com.aresstack.mermaid.JsExecutionResult;
-import com.aresstack.mermaid.MermaidRenderer;
-import com.aresstack.mermaid.MermaidSvgFixup;
 import de.bund.zrb.wiki.ui.SvgRenderer;
 import org.junit.jupiter.api.Test;
 

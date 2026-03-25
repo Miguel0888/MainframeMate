@@ -1,6 +1,5 @@
 package de.bund.zrb.mermaid;
 
-import com.aresstack.mermaid.MermaidRenderer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 

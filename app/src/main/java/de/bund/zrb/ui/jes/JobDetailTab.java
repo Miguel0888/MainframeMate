@@ -4,8 +4,14 @@ import de.bund.zrb.files.impl.ftp.jes.JesFtpService;
 import de.bund.zrb.files.impl.ftp.jes.JesJob;
 import de.bund.zrb.files.impl.ftp.jes.JesSpoolFile;
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.jcl.model.JclOutlineModel;
+import de.bund.zrb.jcl.parser.AntlrJclParser;
+import de.bund.zrb.jcl.parser.CobolParser;
+import de.bund.zrb.jcl.parser.NaturalParser;
 import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.ui.mermaid.MermaidDiagramPanel;
+import de.bund.zrb.ui.mermaid.OutlineToMermaidConverter;
 import de.bund.zrb.ui.syntax.MainframeSyntaxSupport;
 import de.zrb.bund.newApi.ui.AppTab;
 import de.zrb.bund.newApi.ui.FindBarPanel;
@@ -67,6 +73,17 @@ public class JobDetailTab implements AppTab {
 
     /** Callback to notify TabbedPaneManager that content/language changed → outline refresh */
     private Runnable outlineRefreshCallback;
+
+    /** Mermaid diagram panel — lazy-initialized on first toggle. */
+    private MermaidDiagramPanel mermaidDiagramPanel;
+    /** Toggle button for diagram view. */
+    private JToggleButton diagramToggleButton;
+    /** The content panel holding the spool content (for diagram swap). */
+    private JPanel contentPanelRef;
+    /** The scroll pane wrapping the RSyntaxTextArea. */
+    private RTextScrollPane contentScrollRef;
+    /** True when diagram view is active. */
+    private boolean diagramViewActive = false;
 
     public JobDetailTab(JesFtpService service, JesJob job) {
         this.service = service;
@@ -137,10 +154,12 @@ public class JobDetailTab implements AppTab {
         contentArea.setLineWrap(false);
         contentArea.setWrapStyleWord(false);
         RTextScrollPane contentScroll = new RTextScrollPane(contentArea);
+        this.contentScrollRef = contentScroll;
 
         // Content panel: just the content (search bar moves to bottom)
         JPanel contentPanel = new JPanel(new BorderLayout());
         contentPanel.add(contentScroll, BorderLayout.CENTER);
+        this.contentPanelRef = contentPanel;
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, spoolScroll, contentPanel);
         splitPane.setDividerLocation(160);
@@ -176,6 +195,13 @@ public class JobDetailTab implements AppTab {
             }
         });
         leftPanel.add(copyButton);
+
+        // Diagram toggle button (read-only, for JCL/COBOL/Natural spool content)
+        diagramToggleButton = new JToggleButton("\uD83D\uDCC8 Diagramm");
+        diagramToggleButton.setToolTipText("Interaktives Mermaid-Diagramm anzeigen (Read-Only)");
+        diagramToggleButton.setFocusable(false);
+        diagramToggleButton.addActionListener(e -> toggleDiagramView());
+        leftPanel.add(diagramToggleButton);
 
 
         bottomPanel.add(leftPanel, BorderLayout.WEST);
@@ -1166,6 +1192,65 @@ public class JobDetailTab implements AppTab {
 
     @Override
     public void markAsChanged() { }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Mermaid diagram view (read-only)
+    // ═══════════════════════════════════════════════════════════════════
+
+    private void toggleDiagramView() {
+        diagramViewActive = !diagramViewActive;
+
+        if (diagramViewActive) {
+            String content = contentArea.getText();
+            if (content == null || content.trim().isEmpty()) {
+                diagramViewActive = false;
+                diagramToggleButton.setSelected(false);
+                return;
+            }
+
+            String mermaidCode = parseMermaidFromOutline(content);
+            if (mermaidCode == null) {
+                JOptionPane.showMessageDialog(mainPanel,
+                        "Kein Diagramm erzeugbar — die Datei enthält keine erkennbare Struktur.",
+                        "Diagramm", JOptionPane.INFORMATION_MESSAGE);
+                diagramViewActive = false;
+                diagramToggleButton.setSelected(false);
+                return;
+            }
+
+            if (mermaidDiagramPanel == null) {
+                mermaidDiagramPanel = new MermaidDiagramPanel(false); // always read-only for spool
+            }
+            mermaidDiagramPanel.setMermaidSource(mermaidCode);
+
+            contentPanelRef.removeAll();
+            contentPanelRef.add(mermaidDiagramPanel, BorderLayout.CENTER);
+            contentPanelRef.revalidate();
+            contentPanelRef.repaint();
+        } else {
+            // Restore normal content view
+            contentPanelRef.removeAll();
+            contentPanelRef.add(contentScrollRef, BorderLayout.CENTER);
+            contentPanelRef.revalidate();
+            contentPanelRef.repaint();
+        }
+    }
+
+    private String parseMermaidFromOutline(String content) {
+        JclOutlineModel model = null;
+
+        if (isNaturalContent(content)) {
+            model = new NaturalParser().parse(content, job.getJobName());
+        } else if (isCobolContent(content)) {
+            model = new CobolParser().parse(content, job.getJobName());
+        } else if (isJclContent(content)) {
+            model = new AntlrJclParser().parse(content, job.getJobName());
+        }
+
+        if (model == null || model.isEmpty()) return null;
+        return OutlineToMermaidConverter.convert(model);
+    }
+
 
     // ═══════════════════════════════════════════════════════════════════
     //  Spool table model

@@ -5,7 +5,13 @@ import de.bund.zrb.chat.attachment.AttachTabToChatUseCase;
 import de.bund.zrb.ingestion.model.document.Document;
 import de.bund.zrb.ingestion.model.document.DocumentMetadata;
 import de.bund.zrb.ingestion.ui.ChatMarkdownFormatter;
+import de.bund.zrb.jcl.model.JclOutlineModel;
+import de.bund.zrb.jcl.parser.AntlrJclParser;
+import de.bund.zrb.jcl.parser.CobolParser;
+import de.bund.zrb.jcl.parser.NaturalParser;
 import de.bund.zrb.rag.service.RagService;
+import de.bund.zrb.ui.mermaid.MermaidDiagramPanel;
+import de.bund.zrb.ui.mermaid.OutlineToMermaidConverter;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 import de.zrb.bund.newApi.ui.FindBarPanel;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -180,6 +186,18 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /** Line-wrap toggle checkbox (in toolbar). */
     protected JCheckBox lineWrapCheckBox;
 
+    /** Mermaid diagram toggle button — only shown for mainframe source code. */
+    protected JToggleButton diagramToggleButton;
+
+    /** Mermaid diagram panel — lazy-initialized on first toggle. */
+    protected MermaidDiagramPanel mermaidDiagramPanel;
+
+    /** True when the interactive diagram view is currently active. */
+    protected boolean diagramViewActive = false;
+
+    /** Cached: whether the current content is mainframe code (JCL/COBOL/Natural). */
+    protected boolean isMainframeCode = false;
+
     public SplitPreviewTab(String sourceName, String rawContent, DocumentMetadata metadata,
                            List<String> warnings, Document document, boolean isRemote) {
         this(sourceName, rawContent, metadata, warnings, document, isRemote,
@@ -203,6 +221,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         this.needsHtmlRendering = needsHtmlRendering(sourceName, metadata);
         this.markdownFormatter = ChatMarkdownFormatter.getInstance();
         this.isEditable = isTextFile && !"BETAVIEW".equals(this.backendType);
+        this.isMainframeCode = isJclContent(this.rawContent)
+                || isCobolContent(this.rawContent)
+                || isNaturalContent(this.rawContent);
 
         // Editing action buttons — only shown for editable text files
         this.compareButton = createIconToggleButton("\uD83D\uDD00", "Vergleichen");  // 🔀
@@ -706,6 +727,17 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             toolbar.addSeparator(new Dimension(8, 0));
         }
 
+        // ── Mermaid diagram toggle (JCL / COBOL / Natural only) ──
+        if (isMainframeCode) {
+            diagramToggleButton = createIconToggleButton("\uD83D\uDCC8", // 📈
+                    "Interaktives Mermaid-Diagramm anzeigen");
+            diagramToggleButton.setText("\uD83D\uDCC8 Diagramm");
+            diagramToggleButton.setFont(diagramToggleButton.getFont().deriveFont(Font.BOLD, 12f));
+            diagramToggleButton.addActionListener(e -> toggleDiagramView());
+            toolbar.add(diagramToggleButton);
+            toolbar.addSeparator(new Dimension(8, 0));
+        }
+
         // ── Line-Wrap checkbox ──
         boolean lineWrapDefault = restoreLineWrapPreference();
         lineWrapCheckBox = new JCheckBox("Zeilenumbruch", lineWrapDefault);
@@ -836,6 +868,82 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
         contentPanel.revalidate();
         contentPanel.repaint();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Mermaid diagram view
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Toggle between normal code view and interactive Mermaid diagram view.
+     * The diagram is generated from the parsed JCL/COBOL/Natural outline model.
+     */
+    protected void toggleDiagramView() {
+        diagramViewActive = !diagramViewActive;
+
+        if (diagramViewActive) {
+            // Parse outline and generate Mermaid code
+            String mermaidCode = parseMermaidFromOutline();
+            if (mermaidCode == null || mermaidCode.trim().isEmpty()) {
+                JOptionPane.showMessageDialog(this,
+                        "Kein Diagramm erzeugbar — die Datei enthält keine erkennbare Struktur.",
+                        "Diagramm", JOptionPane.INFORMATION_MESSAGE);
+                diagramViewActive = false;
+                if (diagramToggleButton != null) diagramToggleButton.setSelected(false);
+                return;
+            }
+
+            // Lazy-init MermaidDiagramPanel
+            if (mermaidDiagramPanel == null) {
+                mermaidDiagramPanel = new MermaidDiagramPanel(isEditable);
+                // If editable, diagram changes update the code editor
+                if (isEditable) {
+                    mermaidDiagramPanel.setSourceChangeListener(new MermaidDiagramPanel.SourceChangeListener() {
+                        @Override
+                        public void onSourceChanged(String newMermaidSource) {
+                            // Note: The Mermaid source is the *diagram* source, not the original
+                            // mainframe code. A future enhancement could map diagram edits back
+                            // to the original source. For now, we just log it.
+                            System.out.println("[SplitPreviewTab] Diagram source changed (Mermaid)");
+                        }
+                    });
+                }
+            }
+
+            mermaidDiagramPanel.setMermaidSource(mermaidCode);
+
+            // Replace content panel with diagram
+            contentPanel.removeAll();
+            contentPanel.add(mermaidDiagramPanel, BorderLayout.CENTER);
+            contentPanel.revalidate();
+            contentPanel.repaint();
+        } else {
+            // Restore normal code view
+            applyViewMode(currentMode);
+        }
+    }
+
+    /**
+     * Parse the current content into a {@link JclOutlineModel} and convert
+     * it to Mermaid diagram code using {@link OutlineToMermaidConverter}.
+     *
+     * @return Mermaid source code, or {@code null} if parsing fails
+     */
+    protected String parseMermaidFromOutline() {
+        if (rawContent == null || rawContent.isEmpty()) return null;
+
+        JclOutlineModel model = null;
+
+        if (isNaturalContent(rawContent)) {
+            model = new NaturalParser().parse(rawContent, sourceName);
+        } else if (isCobolContent(rawContent)) {
+            model = new CobolParser().parse(rawContent, sourceName);
+        } else if (isJclContent(rawContent)) {
+            model = new AntlrJclParser().parse(rawContent, sourceName);
+        }
+
+        if (model == null || model.isEmpty()) return null;
+        return OutlineToMermaidConverter.convert(model);
     }
 
     // ── Line-wrap persistence ──────────────────────────────────

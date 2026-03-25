@@ -1,6 +1,6 @@
 package de.bund.zrb.ingestion.ui;
 
-import com.aresstack.mermaid.MermaidRenderer;
+import de.bund.zrb.mermaid.MermaidRenderer;
 import org.commonmark.Extension;
 import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.node.Node;
