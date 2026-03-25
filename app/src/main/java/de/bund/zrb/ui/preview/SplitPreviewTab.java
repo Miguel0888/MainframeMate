@@ -12,6 +12,7 @@ import de.bund.zrb.jcl.parser.NaturalParser;
 import de.bund.zrb.rag.service.RagService;
 import de.bund.zrb.ui.mermaid.MermaidDiagramPanel;
 import de.bund.zrb.ui.mermaid.OutlineToMermaidConverter;
+import de.bund.zrb.ui.mermaid.OutlineToMermaidConverter.DiagramType;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 import de.zrb.bund.newApi.ui.FindBarPanel;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -197,6 +198,13 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
     /** Cached: whether the current content is mainframe code (JCL/COBOL/Natural). */
     protected boolean isMainframeCode = false;
+
+    /** Panel with small square toggle buttons for diagram type switching. */
+    protected JPanel diagramTypeBar;
+
+    /** Currently selected diagram type (default: STRUCTURE). */
+    protected OutlineToMermaidConverter.DiagramType activeDiagramType =
+            OutlineToMermaidConverter.DiagramType.STRUCTURE;
 
     public SplitPreviewTab(String sourceName, String rawContent, DocumentMetadata metadata,
                            List<String> warnings, Document document, boolean isRemote) {
@@ -715,6 +723,49 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         copyButton.addActionListener(this::copyRaw);
         toolbar.add(copyButton);
 
+        toolbar.addSeparator(new Dimension(8, 0));
+
+        // ── Mermaid diagram toggle + type selector (JCL / COBOL / Natural only) ──
+        if (isMainframeCode) {
+            diagramToggleButton = createIconToggleButton("\uD83D\uDCC8", // 📈
+                    "Interaktives Mermaid-Diagramm anzeigen");
+            diagramToggleButton.setText("\uD83D\uDCC8 Diagramm");
+            diagramToggleButton.setFont(diagramToggleButton.getFont().deriveFont(Font.BOLD, 12f));
+            diagramToggleButton.addActionListener(e -> toggleDiagramView());
+            toolbar.add(diagramToggleButton);
+
+            // Small square icon buttons for diagram type switching
+            toolbar.add(Box.createHorizontalStrut(2));
+            diagramTypeBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 1, 0));
+            diagramTypeBar.setOpaque(false);
+            ButtonGroup typeGroup = new ButtonGroup();
+            for (final OutlineToMermaidConverter.DiagramType dt : OutlineToMermaidConverter.DiagramType.values()) {
+                final JToggleButton tb = new JToggleButton(dt.getIcon());
+                tb.setToolTipText(dt.getLabel());
+                tb.setFont(tb.getFont().deriveFont(Font.PLAIN, 14f));
+                tb.setMargin(new Insets(2, 4, 2, 4));
+                Dimension sq = new Dimension(28, 28);
+                tb.setPreferredSize(sq);
+                tb.setMinimumSize(sq);
+                tb.setMaximumSize(sq);
+                tb.setFocusable(false);
+                if (dt == OutlineToMermaidConverter.DiagramType.STRUCTURE) {
+                    tb.setSelected(true);
+                }
+                tb.addActionListener(e -> {
+                    activeDiagramType = dt;
+                    if (diagramViewActive) {
+                        switchDiagramType(dt);
+                    }
+                });
+                typeGroup.add(tb);
+                diagramTypeBar.add(tb);
+            }
+            diagramTypeBar.setVisible(true);
+            toolbar.add(diagramTypeBar);
+            toolbar.addSeparator(new Dimension(8, 0));
+        }
+
         toolbar.add(Box.createHorizontalGlue());
 
         // ── Editable: Undo / Redo / Compare ──
@@ -724,17 +775,6 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             toolbar.add(redoButton);
             toolbar.addSeparator(new Dimension(8, 0));
             toolbar.add(compareButton);
-            toolbar.addSeparator(new Dimension(8, 0));
-        }
-
-        // ── Mermaid diagram toggle (JCL / COBOL / Natural only) ──
-        if (isMainframeCode) {
-            diagramToggleButton = createIconToggleButton("\uD83D\uDCC8", // 📈
-                    "Interaktives Mermaid-Diagramm anzeigen");
-            diagramToggleButton.setText("\uD83D\uDCC8 Diagramm");
-            diagramToggleButton.setFont(diagramToggleButton.getFont().deriveFont(Font.BOLD, 12f));
-            diagramToggleButton.addActionListener(e -> toggleDiagramView());
-            toolbar.add(diagramToggleButton);
             toolbar.addSeparator(new Dimension(8, 0));
         }
 
@@ -930,6 +970,13 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
      * @return Mermaid source code, or {@code null} if parsing fails
      */
     protected String parseMermaidFromOutline() {
+        return parseMermaidFromOutline(activeDiagramType);
+    }
+
+    /**
+     * Parse the current content and convert to the given diagram type.
+     */
+    protected String parseMermaidFromOutline(OutlineToMermaidConverter.DiagramType type) {
         if (rawContent == null || rawContent.isEmpty()) return null;
 
         JclOutlineModel model = null;
@@ -943,7 +990,30 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         }
 
         if (model == null || model.isEmpty()) return null;
-        return OutlineToMermaidConverter.convert(model);
+        return OutlineToMermaidConverter.convert(model, type);
+    }
+
+    /**
+     * Switch the diagram type while the diagram view is active.
+     */
+    protected void switchDiagramType(OutlineToMermaidConverter.DiagramType type) {
+        if (!diagramViewActive || mermaidDiagramPanel == null) return;
+        String mermaidCode = parseMermaidFromOutline(type);
+        if (mermaidCode == null || mermaidCode.trim().isEmpty()) {
+            statusLabel("Kein " + type.getLabel() + "-Diagramm erzeugbar.");
+            return;
+        }
+        mermaidDiagramPanel.setMermaidSource(mermaidCode);
+    }
+
+    /**
+     * Helper to set the status label text — used when no statusLabel field is directly available.
+     */
+    private void statusLabel(String text) {
+        // show a brief tooltip-style message via the diagram panel
+        if (mermaidDiagramPanel != null) {
+            JOptionPane.showMessageDialog(this, text, "Diagramm", JOptionPane.INFORMATION_MESSAGE);
+        }
     }
 
     // ── Line-wrap persistence ──────────────────────────────────

@@ -84,6 +84,9 @@ public class JobDetailTab implements AppTab {
     private RTextScrollPane contentScrollRef;
     /** True when diagram view is active. */
     private boolean diagramViewActive = false;
+    /** Currently selected diagram type. */
+    private OutlineToMermaidConverter.DiagramType activeDiagramType =
+            OutlineToMermaidConverter.DiagramType.STRUCTURE;
 
     public JobDetailTab(JesFtpService service, JesJob job) {
         this.service = service;
@@ -202,6 +205,30 @@ public class JobDetailTab implements AppTab {
         diagramToggleButton.setFocusable(false);
         diagramToggleButton.addActionListener(e -> toggleDiagramView());
         leftPanel.add(diagramToggleButton);
+
+        // Small diagram type toggle buttons
+        ButtonGroup dtGroup = new ButtonGroup();
+        for (final OutlineToMermaidConverter.DiagramType dt : OutlineToMermaidConverter.DiagramType.values()) {
+            final JToggleButton tb = new JToggleButton(dt.getIcon());
+            tb.setToolTipText(dt.getLabel());
+            tb.setFont(tb.getFont().deriveFont(Font.PLAIN, 14f));
+            tb.setMargin(new Insets(2, 4, 2, 4));
+            Dimension sq = new Dimension(28, 28);
+            tb.setPreferredSize(sq);
+            tb.setMinimumSize(sq);
+            tb.setMaximumSize(sq);
+            tb.setFocusable(false);
+            if (dt == OutlineToMermaidConverter.DiagramType.STRUCTURE) tb.setSelected(true);
+            tb.addActionListener(ev -> {
+                activeDiagramType = dt;
+                if (diagramViewActive && mermaidDiagramPanel != null) {
+                    String code = parseMermaidFromOutline(contentArea.getText(), dt);
+                    if (code != null) mermaidDiagramPanel.setMermaidSource(code);
+                }
+            });
+            dtGroup.add(tb);
+            leftPanel.add(tb);
+        }
 
 
         bottomPanel.add(leftPanel, BorderLayout.WEST);
@@ -1258,6 +1285,10 @@ public class JobDetailTab implements AppTab {
     }
 
     private String parseMermaidFromOutline(String content) {
+        return parseMermaidFromOutline(content, activeDiagramType);
+    }
+
+    private String parseMermaidFromOutline(String content, OutlineToMermaidConverter.DiagramType type) {
         JclOutlineModel model = null;
 
         if (isNaturalContent(content)) {
@@ -1269,7 +1300,7 @@ public class JobDetailTab implements AppTab {
         }
 
         if (model == null || model.isEmpty()) return null;
-        return OutlineToMermaidConverter.convert(model);
+        return OutlineToMermaidConverter.convert(model, type);
     }
 
 

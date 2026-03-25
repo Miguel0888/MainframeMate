@@ -322,8 +322,83 @@ public class MermaidDiagramPanel extends JPanel {
         zoomBar.add(btnZoomIn);
         zoomBar.add(Box.createHorizontalStrut(12));
         zoomBar.add(btnFit);
+
+        // ── Re-render button (re-rasterize SVG at current zoom for crisp image) ──
+        zoomBar.add(Box.createHorizontalStrut(12));
+        JButton btnReRender = new JButton("\uD83D\uDD04 Neu rendern");
+        btnReRender.setToolTipText("SVG bei aktuellem Zoom-Level neu rastern (schärferes Bild)");
+        btnReRender.setMargin(new Insets(2, 6, 2, 6));
+        btnReRender.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                reRasterize();
+            }
+        });
+        zoomBar.add(btnReRender);
+
         zoomBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
         return zoomBar;
+    }
+
+    /**
+     * Re-rasterize the existing SVG at a resolution that matches the current zoom level.
+     * This avoids running the Mermaid→SVG pipeline again — only the Batik rasterization
+     * is repeated at a higher pixel width, resulting in a crisp image at the current zoom.
+     */
+    private void reRasterize() {
+        if (svg == null || svg.isEmpty()) {
+            statusLabel.setText("⚠ Kein SVG zum Neu-Rendern vorhanden");
+            return;
+        }
+        statusLabel.setText("Neu rendern…");
+
+        final String currentSvg = this.svg;
+        final double currentZoom = this.zoom;
+        final double currentPanX = this.panOffsetX;
+        final double currentPanY = this.panOffsetY;
+
+        SwingWorker<BufferedImage, Void> worker = new SwingWorker<BufferedImage, Void>() {
+            @Override
+            protected BufferedImage doInBackground() {
+                try {
+                    // Compute the desired pixel width: baseW × zoom, plus some headroom
+                    float targetWidth = (float) (baseW * Math.max(currentZoom, 1.0) * 1.5);
+                    targetWidth = Math.max(targetWidth, 800);
+                    targetWidth = Math.min(targetWidth, 16000); // cap to avoid OOM
+                    return SvgRenderer.renderToBufferedImageForced(
+                            currentSvg.getBytes("UTF-8"), targetWidth);
+                } catch (Exception e) {
+                    System.err.println("[MermaidDiagramPanel] Re-rasterize error: " + e);
+                    return null;
+                }
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    BufferedImage newImage = get();
+                    if (newImage != null) {
+                        // Scale factor between old and new image
+                        double scaleRatio = (double) newImage.getWidth() / baseW;
+                        image = newImage;
+                        baseW = newImage.getWidth();
+                        baseH = newImage.getHeight();
+                        // Adjust zoom + pan so the view stays the same
+                        zoom = currentZoom / scaleRatio;
+                        panOffsetX = currentPanX;
+                        panOffsetY = currentPanY;
+                        updateZoomLabel();
+                        imagePanel.repaint();
+                        statusLabel.setText("✓ Neu gerendert (" + baseW + "×" + baseH + " px)");
+                    } else {
+                        statusLabel.setText("⚠ Neu-Rendern fehlgeschlagen");
+                    }
+                } catch (Exception e) {
+                    statusLabel.setText("⚠ Neu-Rendern fehlgeschlagen");
+                }
+            }
+        };
+        worker.execute();
     }
 
     // ═══════════════════════════════════════════════════════════
