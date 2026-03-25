@@ -2,6 +2,9 @@ package de.bund.zrb.ui.jes;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -156,6 +159,54 @@ class JesSpoolNormalizerTest {
     //  Detection: non-spool content is returned unchanged
     // ═══════════════════════════════════════════════════════════════════
 
+    /**
+     * Entire Operations JCL has a very long JOB card header (90+ comment lines
+     * with symbol table info before the second numbered statement).
+     * The normalizer must still detect and normalize such spool output.
+     */
+    @Test
+    void normalizeLongJobHeaderSpool() {
+        StringBuilder spool = new StringBuilder();
+        spool.append("        1 //MYJOB    JOB (60760,F29,1,9999),                                      J0310702\n");
+        spool.append("          //         'MYNETWORK-47358',                                                   \n");
+        spool.append("          //           CLASS=B,                                                           \n");
+        spool.append("          //          MSGCLASS=R,                                                         \n");
+        spool.append("          //          REGION=0M,                                                          \n");
+        spool.append("          //          NOTIFY=USR01,USER=BATCH01                                           \n");
+        // 90 symbol dump comment lines (like Entire Operations generates)
+        for (int i = 0; i < 90; i++) {
+            spool.append("          //* Symbol: SYM").append(i).append("                                                            \n");
+        }
+        spool.append("        2 //OUTFEHL1 OUTPUT DEST=U0011,CLASS=C                                            \n");
+        spool.append("        3 //STEP1    EXEC PGM=WAIT4END,PARM='MYJOB'                                       \n");
+        spool.append("        4 //STEP2    EXEC MYPROC                                                          \n");
+        spool.append("        5 XXSTEP2    EXEC PGM=MYPGM,REGION=0M                                             \n");
+        spool.append("          IEFC653I SUBSTITUTION JCL - PGM=MYPGM,REGION=0M                                 \n");
+        spool.append("        6 XXSTEPLIB  DD DSN=MY.LOAD,DISP=SHR                                              \n");
+        spool.append("          IEFC653I SUBSTITUTION JCL - DSN=MY.LOAD,DISP=SHR                                \n");
+        spool.append("        7 //SYSOUT   DD SYSOUT=*                                                          \n");
+
+        String result = JobDetailTab.normalizeJesSpoolJcl(spool.toString());
+
+        // Must be normalized (not returned unchanged)
+        assertFalse(result.contains("IEFC653I"), "IEFC messages must be stripped");
+        assertFalse(result.contains("XX"), "XX proc expansion lines must be stripped");
+        assertTrue(result.contains("//MYJOB    JOB (60760,F29,1,9999),"), "JOB card must be present");
+        assertFalse(result.contains("J0310702"), "JES job number must be stripped from JOB card");
+        assertTrue(result.contains("//OUTFEHL1 OUTPUT DEST=U0011,CLASS=C"), "OUTPUT card must be present");
+        assertTrue(result.contains("//STEP1    EXEC PGM=WAIT4END"), "EXEC step must be present");
+        assertTrue(result.contains("//STEP2    EXEC MYPROC"), "PROC call must be present");
+        assertTrue(result.contains("//SYSOUT   DD SYSOUT=*"), "DD after proc must be present");
+
+        // Every output line must start with // or /*
+        for (String line : result.split("\\n")) {
+            if (!line.trim().isEmpty()) {
+                assertTrue(line.startsWith("//") || line.startsWith("/*"),
+                        "Line must start with // or /*: " + line);
+            }
+        }
+    }
+
     @Test
     void nonSpoolContentReturnedUnchanged() {
         String plain = "This is just plain text.\nNo JCL here.\nLine three.";
@@ -203,6 +254,69 @@ class JesSpoolNormalizerTest {
                 "//DD1      DD DSN=MY.DATA,DISP=SHR"
         };
         assertFalse(JobDetailTab.looksLikeJesSpool(lines));
+    }
+
+    /**
+     * Entire Operations (Software AG) prepends 90+ comment lines to JOB cards.
+     * The second numbered statement only appears well past line 50.
+     * Detection must scan deep enough to find it.
+     */
+    @Test
+    void looksLikeJesSpool_detectsLongJobHeader() {
+        // Build a spool with stmt 1 at line 0, then 95 comment/continuation lines,
+        // then stmt 2 and 3 — mimics the ABHOLA pattern from Entire Operations.
+        List<String> lineList = new ArrayList<>();
+        lineList.add("        1 //MYJOB    JOB (60760,F29,1,9999),                                      J0310702");
+        lineList.add("          //         'MYJOB-47358',                                                       ");
+        // Add 90 comment lines (like Entire Operations symbol table dump)
+        for (int i = 0; i < 90; i++) {
+            lineList.add("          //* Symbol line " + i + "                                                           ");
+        }
+        lineList.add("        2 //OUTFEHL1 OUTPUT DEST=U0011,CLASS=C,                                           ");
+        lineList.add("        3 //STEP1    EXEC PGM=WAIT4END,PARM='MYJOB'                                       ");
+
+        String[] lines = lineList.toArray(new String[0]);
+        assertTrue(JobDetailTab.looksLikeJesSpool(lines),
+                "Must detect spool format even when numbered JCL lines are spread across 100+ lines");
+    }
+
+    /**
+     * Even a single numbered JCL line + PROC expansion (XX) and IEFC messages
+     * should be detected as spool format.
+     */
+    @Test
+    void looksLikeJesSpool_detectsWithSecondaryEvidence() {
+        // Only 1 numbered JCL line but XX and IEFC provide additional evidence
+        List<String> lineList = new ArrayList<>();
+        lineList.add("        1 //MYJOB    JOB (ACCT),'PGMR',CLASS=A                                           ");
+        // Many comments before the PROC expansion
+        for (int i = 0; i < 60; i++) {
+            lineList.add("          //* Comment line " + i + "                                                         ");
+        }
+        lineList.add("        2 //STEP1    EXEC MYPROC                                                          ");
+        lineList.add("        3 XXSTEP1    EXEC PGM=MYPGM,REGION=0M                                             ");
+        lineList.add("          IEFC653I SUBSTITUTION JCL - PGM=MYPGM,REGION=0M                                 ");
+        lineList.add("        4 //STEPLIB  DD DSN=MY.LOAD,DISP=SHR                                              ");
+
+        String[] lines = lineList.toArray(new String[0]);
+        assertTrue(JobDetailTab.looksLikeJesSpool(lines));
+    }
+
+    /**
+     * A single numbered JCL line combined with XX/IEFC evidence should
+     * be detected early, even if only 1 numbered line has been seen so far.
+     */
+    @Test
+    void looksLikeJesSpool_singleNumberedLineWithXxAndIefc() {
+        String[] lines = {
+                "        1 //MYJOB    JOB (ACCT),'PGMR'",
+                "          //         CLASS=A",
+                "        2 //STEP1    EXEC MYPROC",
+                "        3 XXSTEP1    EXEC PGM=IEFBR14,REGION=0M",
+                "          IEFC653I SUBSTITUTION JCL - PGM=IEFBR14,REGION=0M",
+        };
+        assertTrue(JobDetailTab.looksLikeJesSpool(lines),
+                "1 numbered + XX + IEFC = strong spool evidence");
     }
 
     // ═══════════════════════════════════════════════════════════════════

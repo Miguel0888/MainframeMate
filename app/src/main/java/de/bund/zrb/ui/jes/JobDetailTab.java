@@ -925,10 +925,19 @@ public class JobDetailTab implements AppTab {
      * Detect whether the content lines follow JES JESJCL spool format.
      * Checks for the characteristic pattern of numbered JCL lines:
      * 10-char prefix with right-justified statement number followed by {@code //}.
+     * <p>
+     * Also counts secondary evidence (XX/X/ proc expansion lines, IEFC substitution
+     * messages) that only appear in spool output, allowing earlier detection even when
+     * JCL has very long JOB card headers with many comment/continuation lines before
+     * the second numbered statement (e.g. Entire Operations generated JCL).
      */
     static boolean looksLikeJesSpool(String[] lines) {
         int numberedJclLines = 0;
-        int checkLimit = Math.min(lines.length, 50);
+        int xxLines = 0;
+        int iefcLines = 0;
+        // Scan up to 500 lines — Entire Operations / long JOB headers can easily
+        // push the second numbered statement past line 50.
+        int checkLimit = Math.min(lines.length, 500);
 
         for (int i = 0; i < checkLimit; i++) {
             String line = lines[i];
@@ -944,6 +953,18 @@ public class JobDetailTab implements AppTab {
                     numberedJclLines++;
                 }
             }
+
+            // Secondary evidence: PROC expansion, override, or JES substitution messages
+            if (after.startsWith("XX") || after.startsWith("X/")) {
+                xxLines++;
+            }
+            if (after.startsWith("IEFC")) {
+                iefcLines++;
+            }
+
+            // Early exit: strong evidence already found
+            if (numberedJclLines >= 3) return true;
+            if (numberedJclLines >= 1 && (xxLines + iefcLines) >= 2) return true;
         }
 
         return numberedJclLines >= 3;
