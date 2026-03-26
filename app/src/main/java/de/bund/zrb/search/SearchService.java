@@ -128,11 +128,11 @@ public class SearchService {
                 LOG.log(Level.WARNING, "[Search] Lucene search failed", e);
             }
 
-            // ── 2. Optional semantic/RAG search ──
-            // Triggered when embeddings are available OR a reranker is configured.
-            // The HybridRetriever handles the case where only BM25 + Reranker are
-            // available (Stage 1 + Stage 3 without Stage 2 vectors).
-            if (isSemanticAvailable() || isRerankerAvailable()) {
+            // ── 2. Hybrid Search (BM25 + Embeddings) ──
+            // Embeddings widen the search net: "Auto" also finds "KFZ", "Wagen".
+            // This MUST run before any reranking — the reranker needs these
+            // semantically enriched candidates as input.
+            if (isSemanticAvailable()) {
                 try {
                     List<SearchResult> semResults = searchRag(query, maxResults);
                     if (!semResults.isEmpty()) {
@@ -227,10 +227,14 @@ public class SearchService {
                 allResults = new ArrayList<>(allResults.subList(0, maxResults));
             }
 
-            // ── 4. Optional final reranking (cross-encoder on ALL merged results) ──
-            // This re-scores results from ALL sources (Lucene, RAG, live backends)
-            // so that Wiki/Confluence live results are also properly ranked.
-            if (isRerankerAvailable()) {
+            // ── 4. Reranking: Re-score ALL merged results (replaces BM25 scoring) ──
+            // The reranker REPLACES BM25 scoring with a much better cross-encoder
+            // score. But it REQUIRES that Step 2 (Embeddings) ran first — without
+            // the semantic enrichment, the candidate set only contains keyword
+            // matches, making reranking pointless.
+            //
+            // Pipeline: 1+2 (Hybrid Search) → 3 (Reranking) → 4 (optional LLM)
+            if (isSemanticAvailable() && isRerankerAvailable()) {
                 allResults = rerankFinalResults(allResults, query, maxResults);
             }
 

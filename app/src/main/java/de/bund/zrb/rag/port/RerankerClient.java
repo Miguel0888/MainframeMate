@@ -4,29 +4,24 @@ import java.util.List;
 
 /**
  * Port interface for cross-encoder reranking (Stage 3 of the RAG pipeline).
- *
- * <h3>3-Stage RAG Architecture</h3>
+ ** <h3>Pipeline Architecture (Google-style)</h3>
  * <pre>
- *   Stage 1 — BM25 (Lucene):   Keyword matching, very fast, catches exact terms
- *   Stage 2 — Vectors (HNSW):  Semantic similarity via bi-encoder embeddings,
- *                               acts as a "magnet" pulling the ~50 most promising
- *                               candidates from millions of chunks in milliseconds
- *   Stage 3 — Reranker:        Cross-encoder "magnifying glass" that reads the raw
- *                               text of each candidate jointly with the query,
- *                               producing highly accurate relevance scores
+ *   Stage 1+2 — Hybrid Search:   BM25 keywords + Embedding vectors (semantic).
+ *                                 Embeddings widen the search: "Auto" finds "KFZ".
+ *                                 → ~50 candidate passages
+ *   Stage 3   — Reranking:       Cross-encoder scores each (query, passage) pair
+ *                                 on RAW TEXT. REPLACES BM25 scoring with much
+ *                                 more accurate relevance scores.
+ *                                 → top 3–5 results
+ *   Stage 4   — LLM Generation:  (optional) Summarize top results into an answer.
  * </pre>
  *
- * <p>The key insight: <b>vectors are only for pre-selection</b> (speed).
- * The reranker does <b>not</b> work with vectors — it works with the raw text
- * of the candidate passages. It scores each (query, passage) pair independently
- * using a cross-encoder model, yielding dramatically better relevance than
- * bi-encoder cosine similarity, but at higher per-item cost.
+ * <p><b>Prerequisite:</b> Embeddings (Stage 2) MUST be active before reranking
+ * is useful. Without semantic search, the candidate set only contains keyword
+ * matches, making cross-encoder reranking pointless. The reranker is NOT a
+ * replacement for embeddings — it is a replacement for BM25 <em>scoring</em>.
  *
- * <p>This is why you need both:
- * <ul>
- *   <li><b>Vectors</b> make the system <em>scalable</em> (speed — milliseconds over millions)</li>
- *   <li><b>Reranking</b> makes the system <em>intelligent</em> (precision — the right 3 out of 50)</li>
- * </ul>
+ * <p>Stages 1–3 run on <b>CPU only</b>. Only Stage 4 requires GPU/cloud.
  */
 public interface RerankerClient {
 

@@ -12,38 +12,43 @@ import java.util.*;
 import java.util.logging.Logger;
 
 /**
- * Hybrid retriever implementing a 3-stage RAG retrieval pipeline:
+ * Hybrid retriever implementing a multi-stage RAG retrieval pipeline
+ * modelled after Google's search architecture:
  *
  * <pre>
  * ┌─────────────────────────────────────────────────────────────────────┐
- * │  Stage 1 — BM25 (Lucene)         "Keyword Fishing Net"            │
- * │  Fast keyword matching. Catches exact terms, acronyms, IDs.       │
- * │  → hundreds of candidate chunks                                   │
+ * │  Stage 1+2 — Hybrid Search (BM25 + Embeddings)                     │
+ * │                                                                     │
+ * │  BM25 (Lucene):  Keyword matching — fast, catches exact terms.     │
+ * │  Embeddings:     Semantic search — "Auto" also finds "KFZ"/"Wagen".│
+ * │                  Embeddings widen the search net so that fuzzy      │
+ * │                  concepts are discovered, not just exact keywords.  │
+ * │  → merged candidate pool (~50 chunks)                              │
  * ├─────────────────────────────────────────────────────────────────────┤
- * │  Stage 2 — Vectors / HNSW        "Semantic Magnet"                │
- * │  Bi-encoder embeddings. Pulls semantically similar chunks from    │
- * │  millions in milliseconds. Vectors are ONLY for pre-selection.    │
- * │  → hundreds of candidate chunks                                   │
+ * │  Stage 3 — Scoring / Ranking                                       │
+ * │                                                                     │
+ * │  Without Reranker: BM25 hybrid score (okay, but imprecise).        │
+ * │  With Reranker:    Cross-encoder re-scores each (query, passage)   │
+ * │                    pair on RAW TEXT — REPLACES BM25 scoring.        │
+ * │                    Much more accurate: the "Google feeling".        │
+ * │  → final top 3–5 chunks                                            │
  * ├─────────────────────────────────────────────────────────────────────┤
- * │  Merge: BM25 ∪ Vectors → weighted hybrid score → top ~50 pool    │
- * ├─────────────────────────────────────────────────────────────────────┤
- * │  Stage 3 — Reranker (optional)    "Cross-Encoder Magnifying Glass"│
- * │  Takes the RAW TEXT of the ~50 candidates + query, scores each    │
- * │  (query, passage) pair jointly. Much more accurate than vectors.  │
- * │  Does NOT use vectors — works purely on text.                     │
- * │  → final top 3–5 chunks for LLM context                          │
+ * │  Stage 4 — (optional) LLM generates answer from top chunks         │
+ * │  Many users are already satisfied with the ranked result list       │
+ * │  from Stage 3 without needing LLM generation.                      │
  * └─────────────────────────────────────────────────────────────────────┘
  * </pre>
  *
- * <p><b>Why both vectors AND reranker?</b>
+ * <p><b>Key insight:</b> Embeddings and reranking serve <em>different</em> purposes.
  * <ul>
- *   <li>Vectors make the system <em>scalable</em> (speed over millions of chunks)</li>
- *   <li>Reranking makes the system <em>intelligent</em> (precision on the final few)</li>
+ *   <li><b>Embeddings</b> = finding candidates (semantic widening of the search net)</li>
+ *   <li><b>Reranker</b>   = scoring candidates (replaces BM25 scoring with cross-encoder)</li>
  * </ul>
+ * Embeddings are a <b>prerequisite</b> for effective reranking — without them,
+ * the candidate set only contains keyword matches, making reranking pointless.
  *
- * <p>Without vectors you'd need to run the cross-encoder on every chunk in the
- * index — that would take minutes instead of milliseconds. Without the reranker
- * you miss the "deep reading" that catches subtle relevance cues.
+ * <p>Stages 1–3 run on <b>CPU only</b>. Only Stage 4 (LLM generation) needs
+ * a GPU or cloud provider.
  */
 public class HybridRetriever {
 

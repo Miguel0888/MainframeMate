@@ -161,24 +161,25 @@ public class SearchTab extends JPanel implements AppTab {
         int semSize = de.bund.zrb.rag.service.RagService.getInstance().getSemanticIndexSize();
         de.bund.zrb.rag.port.RerankerClient reranker = de.bund.zrb.rag.service.RagService.getInstance().getRerankerClient();
         boolean hasReranker = reranker != null && reranker.isAvailable();
+        // Pipeline states (reranking REQUIRES embeddings as prior stage):
+        //   BM25 only           → grey    (no embeddings, no reranker)
+        //   Hybrid              → green   (embeddings, no reranker — BM25 scoring)
+        //   Hybrid + Reranker   → blue    (embeddings + reranker — best quality)
         String ragLabel;
         String ragTooltip;
         Color ragColor;
-        if (hasReranker && semSize > 0) {
+        if (semSize > 0 && hasReranker) {
             ragLabel = "\uD83E\uDD16 Hybrid + Reranker (" + semSize + " Emb.)";
-            ragTooltip = "3-stufig: BM25 + " + semSize + " Embeddings + Cross-Encoder Reranker";
+            ragTooltip = "Stufe 1+2: BM25 + " + semSize + " Embeddings → Stufe 3: Cross-Encoder Reranking";
             ragColor = new Color(33, 150, 243); // Blue
-        } else if (hasReranker) {
-            ragLabel = "\uD83D\uDD0D BM25 + Reranker";
-            ragTooltip = "2-stufig: BM25 + Cross-Encoder Reranker (ohne Embeddings)";
-            ragColor = new Color(76, 175, 80); // Green
         } else if (semSize > 0) {
             ragLabel = "\uD83E\uDD16 Hybrid (" + semSize + " Emb.)";
-            ragTooltip = "Hybrid-Suche aktiv: BM25 + " + semSize + " Embeddings";
-            ragColor = new Color(76, 175, 80);
+            ragTooltip = "Stufe 1+2: BM25 + " + semSize + " Embeddings (Reranker nicht konfiguriert)";
+            ragColor = new Color(76, 175, 80); // Green
         } else {
             ragLabel = "\uD83D\uDCDD BM25";
-            ragTooltip = "Nur Volltextsuche. Aktiviere Embeddings oder Reranker in den Einstellungen.";
+            ragTooltip = "Nur Keyword-Suche. Aktiviere Embeddings für semantische Suche"
+                    + (hasReranker ? " (Reranker wartet auf Embeddings)." : ".");
             ragColor = Color.GRAY;
         }
         ragStatusLabel = new JLabel(ragLabel);
@@ -528,19 +529,18 @@ public class SearchTab extends JPanel implements AppTab {
                         statusLabel.setForeground(new Color(158, 158, 158));
                     }
 
-                    // Update RAG status
+                    // Update RAG status (reranking requires embeddings as prior stage)
                     de.bund.zrb.rag.port.RerankerClient rr = de.bund.zrb.rag.service.RagService.getInstance().getRerankerClient();
                     boolean rActive = rr != null && rr.isAvailable();
-                    if (rActive && sem > 0) {
+                    if (sem > 0 && rActive) {
                         ragStatusLabel.setText("\uD83E\uDD16 Hybrid + Reranker (" + sem + " Emb.)");
                         ragStatusLabel.setForeground(new Color(33, 150, 243));
-                    } else if (rActive) {
-                        ragStatusLabel.setText("\uD83D\uDD0D BM25 + Reranker");
+                    } else if (sem > 0) {
+                        ragStatusLabel.setText("\uD83E\uDD16 Hybrid (" + sem + " Emb.)");
                         ragStatusLabel.setForeground(new Color(76, 175, 80));
                     } else {
-                        ragStatusLabel.setText(sem > 0
-                                ? "\uD83E\uDD16 Hybrid (" + sem + " Emb.)" : "\uD83D\uDCDD BM25");
-                        ragStatusLabel.setForeground(sem > 0 ? new Color(76, 175, 80) : Color.GRAY);
+                        ragStatusLabel.setText("\uD83D\uDCDD BM25");
+                        ragStatusLabel.setForeground(Color.GRAY);
                     }
                 } catch (Exception e) {
                     statusLabel.setText("\u274C Fehler: " + e.getMessage());
