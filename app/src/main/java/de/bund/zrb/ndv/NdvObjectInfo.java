@@ -24,11 +24,27 @@ public class NdvObjectInfo {
     private final String sourceDate;
     private final int databaseId;
     private final int fileNumber;
+    private final boolean structured;
+    private final String codePage;
+    private final String gpUser;
+    private final String gpDate;
+    private final String accessDate;
 
     public NdvObjectInfo(String name, String longName, int kind, int type,
                          String typeName, String typeExtension,
                          int sourceSize, String user, String sourceDate,
                          int databaseId, int fileNumber) {
+        this(name, longName, kind, type, typeName, typeExtension,
+                sourceSize, user, sourceDate, databaseId, fileNumber,
+                false, "", "", "", "");
+    }
+
+    public NdvObjectInfo(String name, String longName, int kind, int type,
+                         String typeName, String typeExtension,
+                         int sourceSize, String user, String sourceDate,
+                         int databaseId, int fileNumber,
+                         boolean structured, String codePage,
+                         String gpUser, String gpDate, String accessDate) {
         this.name = name;
         this.longName = longName;
         this.kind = kind;
@@ -40,6 +56,11 @@ public class NdvObjectInfo {
         this.sourceDate = sourceDate;
         this.databaseId = databaseId;
         this.fileNumber = fileNumber;
+        this.structured = structured;
+        this.codePage = codePage != null ? codePage : "";
+        this.gpUser = gpUser != null ? gpUser : "";
+        this.gpDate = gpDate != null ? gpDate : "";
+        this.accessDate = accessDate != null ? accessDate : "";
     }
 
     public static NdvObjectInfo fromPalObject(IPalTypeObject obj) {
@@ -68,7 +89,26 @@ public class NdvObjectInfo {
         int dbid = obj.getDatabaseId();
         int fnr = obj.getFileNumber();
 
-        return new NdvObjectInfo(name, longName, kind, type, typeName, typeExt, sourceSize, user, dateStr, dbid, fnr);
+        // ── Additional metadata (Eclipse NaturalONE-style) ──
+        boolean structured = obj.isStructured();
+        String codePage = obj.getCodePage() != null ? obj.getCodePage().trim() : "";
+        String gpUser = obj.getGpUser() != null ? obj.getGpUser().trim() : "";
+
+        String gpDateStr = "";
+        PalDate gDate = obj.getGpDate();
+        if (gDate != null) {
+            gpDateStr = gDate.toString();
+        }
+
+        String accessDateStr = "";
+        PalDate aDate = obj.getAccessDate();
+        if (aDate != null) {
+            accessDateStr = aDate.toString();
+        }
+
+        return new NdvObjectInfo(name, longName, kind, type, typeName, typeExt,
+                sourceSize, user, dateStr, dbid, fnr,
+                structured, codePage, gpUser, gpDateStr, accessDateStr);
     }
 
     public String getName() { return name; }
@@ -96,6 +136,29 @@ public class NdvObjectInfo {
     public String getSourceDate() { return sourceDate; }
     public int getDatabaseId() { return databaseId; }
     public int getFileNumber() { return fileNumber; }
+    public boolean isStructured() { return structured; }
+    public String getCodePage() { return codePage; }
+    public String getGpUser() { return gpUser; }
+    public String getGpDate() { return gpDate; }
+    public String getAccessDate() { return accessDate; }
+
+    /**
+     * Get the programming mode label (Structured/Reporting/–).
+     * Only meaningful for Source or Source/GP kinds.
+     */
+    public String getProgrammingMode() {
+        if (kind == ObjectKind.SOURCE || kind == ObjectKind.SOURCE_OR_GP) {
+            return structured ? "Structured" : "Reporting";
+        }
+        return "";
+    }
+
+    /**
+     * Get the object kind label (Source, GP, Source/GP, Resource, etc.).
+     */
+    public String getKindName() {
+        return ObjectKind.get(kind);
+    }
 
     /**
      * Get display name: name (typSchluessel).

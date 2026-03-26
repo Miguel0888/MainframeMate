@@ -274,6 +274,13 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
         // ── Populate ℹ info popup with resource-specific metadata ──
         populateInfoProperties();
+
+        // ── NDV metadata banner (Eclipse NaturalONE-style) ──
+        JPanel ndvBanner = createNdvMetadataBanner();
+        if (ndvBanner != null) {
+            contentPanel.add(ndvBanner, BorderLayout.NORTH);
+            contentPanel.revalidate();
+        }
     }
 
     /**
@@ -294,6 +301,11 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
             if (obj != null) {
                 addInfoProperty("Library", ndvState.getLibrary());
                 addInfoProperty("Typ", obj.getTypeName());
+                addInfoProperty("Kind", obj.getKindName());
+                String mode = obj.getProgrammingMode();
+                if (!mode.isEmpty()) {
+                    addInfoProperty("Modus", mode);
+                }
                 addInfoProperty("User", obj.getUser());
                 addInfoProperty("Datum", obj.getSourceDate());
                 addInfoProperty("Größe", obj.getSourceSize() > 0
@@ -302,8 +314,121 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                         ? String.valueOf(obj.getDatabaseId()) : null);
                 addInfoProperty("FNR", obj.getFileNumber() > 0
                         ? String.valueOf(obj.getFileNumber()) : null);
+                if (!obj.getCodePage().isEmpty()) {
+                    addInfoProperty("CodePage", obj.getCodePage());
+                }
+                if (!obj.getGpUser().isEmpty()) {
+                    addInfoProperty("GP-User", obj.getGpUser());
+                }
+                if (!obj.getGpDate().isEmpty()) {
+                    addInfoProperty("GP-Datum", obj.getGpDate());
+                }
+                if (!obj.getAccessDate().isEmpty()) {
+                    addInfoProperty("Zugriff", obj.getAccessDate());
+                }
             }
         }
+    }
+
+    /**
+     * Create a compact metadata banner for NDV sources, similar to Eclipse NaturalONE's
+     * header area that shows Library, Type, Mode (Structured/Reporting), DBID/FNR, User, Date, etc.
+     *
+     * @return the banner panel, or null if not an NDV resource
+     */
+    private JPanel createNdvMetadataBanner() {
+        if (resource == null || resource.getBackendType() != VirtualBackendType.NDV) return null;
+
+        NdvResourceState ndvState = resource.getNdvState();
+        if (ndvState == null) return null;
+
+        de.bund.zrb.ndv.NdvObjectInfo obj = ndvState.getObjectInfo();
+        if (obj == null) return null;
+
+        // Build a single-line summary like Eclipse NaturalONE:
+        // "Library: LIBNAME  |  Program (Structured)  |  DBID: 10  FNR: 32  |  User: NATUSER  |  2025-01-15"
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("Library: ").append(ndvState.getLibrary());
+        sb.append("   \u2502   "); // │ separator
+
+        sb.append(obj.getTypeName());
+        String mode = obj.getProgrammingMode();
+        if (!mode.isEmpty()) {
+            sb.append(" (").append(mode).append(")");
+        }
+        String kindName = obj.getKindName();
+        if (!kindName.isEmpty() && !"SOURCE".equals(kindName)) {
+            sb.append(" [").append(kindName).append("]");
+        }
+
+        if (obj.getDatabaseId() > 0 || obj.getFileNumber() > 0) {
+            sb.append("   \u2502   ");
+            if (obj.getDatabaseId() > 0) {
+                sb.append("DBID: ").append(obj.getDatabaseId());
+            }
+            if (obj.getFileNumber() > 0) {
+                if (obj.getDatabaseId() > 0) sb.append("  ");
+                sb.append("FNR: ").append(obj.getFileNumber());
+            }
+        }
+
+        if (!obj.getUser().isEmpty()) {
+            sb.append("   \u2502   User: ").append(obj.getUser());
+        }
+
+        if (!obj.getSourceDate().isEmpty()) {
+            sb.append("   \u2502   ").append(obj.getSourceDate());
+        }
+
+        if (!obj.getCodePage().isEmpty()) {
+            sb.append("   \u2502   CP: ").append(obj.getCodePage());
+        }
+
+        JPanel banner = new JPanel(new BorderLayout());
+        banner.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(180, 180, 180)),
+                BorderFactory.createEmptyBorder(3, 8, 3, 8)
+        ));
+        banner.setBackground(new Color(0xF0, 0xF4, 0xFA)); // light blue-grey background
+
+        JLabel label = new JLabel(sb.toString());
+        label.setFont(label.getFont().deriveFont(Font.PLAIN, 11f));
+        label.setForeground(new Color(80, 80, 100));
+        banner.add(label, BorderLayout.CENTER);
+
+        // Second line with GP/Access details if available
+        StringBuilder sb2 = new StringBuilder();
+        if (!obj.getGpUser().isEmpty()) {
+            sb2.append("GP-User: ").append(obj.getGpUser());
+        }
+        if (!obj.getGpDate().isEmpty()) {
+            if (sb2.length() > 0) sb2.append("   \u2502   ");
+            sb2.append("GP-Datum: ").append(obj.getGpDate());
+        }
+        if (!obj.getAccessDate().isEmpty()) {
+            if (sb2.length() > 0) sb2.append("   \u2502   ");
+            sb2.append("Zugriff: ").append(obj.getAccessDate());
+        }
+        if (obj.getSourceSize() > 0) {
+            if (sb2.length() > 0) sb2.append("   \u2502   ");
+            sb2.append("Größe: ").append(obj.getSourceSize()).append(" Bytes");
+        }
+
+        if (sb2.length() > 0) {
+            JLabel label2 = new JLabel(sb2.toString());
+            label2.setFont(label2.getFont().deriveFont(Font.PLAIN, 10f));
+            label2.setForeground(new Color(120, 120, 140));
+            JPanel twoLines = new JPanel();
+            twoLines.setLayout(new BoxLayout(twoLines, BoxLayout.Y_AXIS));
+            twoLines.setOpaque(false);
+            twoLines.add(label);
+            twoLines.add(label2);
+            banner.remove(label);
+            banner.add(twoLines, BorderLayout.CENTER);
+        }
+
+        return banner;
     }
 
     /**

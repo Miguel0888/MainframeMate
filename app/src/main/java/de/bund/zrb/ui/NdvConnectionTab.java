@@ -1994,10 +1994,15 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
                 if (showDetails) {
                     StringBuilder sb = new StringBuilder();
                     sb.append(obj.getIcon()).append(" ").append(obj.getEffectiveName());
-                    sb.append("  [").append(obj.getTypeName()).append("]");
+                    sb.append("  [").append(obj.getTypeName());
+                    String mode = obj.getProgrammingMode();
+                    if (!mode.isEmpty()) sb.append("/").append(mode);
+                    sb.append("]");
                     if (!obj.getUser().isEmpty()) sb.append("  (").append(obj.getUser()).append(")");
                     if (!obj.getSourceDate().isEmpty()) sb.append("  ").append(obj.getSourceDate());
                     if (obj.getSourceSize() > 0) sb.append("  ").append(obj.getSourceSize()).append("B");
+                    if (obj.getDatabaseId() > 0) sb.append("  DBID:").append(obj.getDatabaseId());
+                    if (obj.getFileNumber() > 0) sb.append("  FNR:").append(obj.getFileNumber());
                     setText(sb.toString());
                 } else {
                     setText(obj.getIcon() + " " + obj.getEffectiveName() + "  [" + obj.getTypeName() + "]"
@@ -2031,9 +2036,13 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
                     if (showDetails) {
                         StringBuilder sb = new StringBuilder();
                         sb.append(obj.getIcon()).append(" ").append(obj.getEffectiveName());
+                        String mode = obj.getProgrammingMode();
+                        if (!mode.isEmpty()) sb.append("  [").append(mode).append("]");
                         if (!obj.getUser().isEmpty()) sb.append("  (").append(obj.getUser()).append(")");
                         if (!obj.getSourceDate().isEmpty()) sb.append("  ").append(obj.getSourceDate());
                         if (obj.getSourceSize() > 0) sb.append("  ").append(obj.getSourceSize()).append("B");
+                        if (obj.getDatabaseId() > 0) sb.append("  DBID:").append(obj.getDatabaseId());
+                        if (obj.getFileNumber() > 0) sb.append("  FNR:").append(obj.getFileNumber());
                         setText(sb.toString());
                     } else {
                         setText(obj.getIcon() + " " + obj.getEffectiveName());
