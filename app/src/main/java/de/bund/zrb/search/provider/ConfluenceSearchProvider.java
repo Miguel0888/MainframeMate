@@ -246,6 +246,44 @@ public final class ConfluenceSearchProvider implements BackendSearchProvider {
         }
 
         ConfluencePrefetchService pfs = new ConfluencePrefetchService(client, cacheRepo, 50, 200, 4);
+
+        // Auto-index prefetched pages into Lucene for RAG/Reranking
+        pfs.setAutoIndexCallback((pageId, cachedPage) -> {
+            try {
+                String docId = "confluence://" + pageId;
+                de.bund.zrb.rag.service.RagService rag = de.bund.zrb.rag.service.RagService.getInstance();
+                if (rag.isIndexed(docId)) return;
+
+                String html = cachedPage.html();
+                if (html == null || html.isEmpty()) return;
+
+                // Strip HTML tags for clean text indexing
+                String text = html.replaceAll("<[^>]+>", " ")
+                        .replaceAll("&[a-zA-Z]+;", " ")
+                        .replaceAll("\\s+", " ").trim();
+                if (text.isEmpty()) return;
+
+                de.bund.zrb.ingestion.model.document.DocumentMetadata meta =
+                        de.bund.zrb.ingestion.model.document.DocumentMetadata.builder()
+                                .sourceName(cachedPage.title())
+                                .mimeType("text/html")
+                                .attribute("sourcePath", docId)
+                                .attribute("confluencePageId", pageId)
+                                .build();
+                de.bund.zrb.ingestion.model.document.Document doc =
+                        de.bund.zrb.ingestion.model.document.Document.builder()
+                                .metadata(meta)
+                                .paragraph(text)
+                                .build();
+                // Index without embeddings (BM25 only, fast) — embeddings generated on-demand
+                rag.indexDocument(docId, cachedPage.title(), doc, false);
+                LOG.info("[ConfluenceSearch] Auto-indexed: " + cachedPage.title()
+                        + " (" + text.length() + " chars)");
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "[ConfluenceSearch] Auto-index failed for page " + pageId, e);
+            }
+        });
+
         ConfluencePrefetchService prev = prefetchServices.putIfAbsent(entryId, pfs);
         return prev != null ? prev : pfs;
     }

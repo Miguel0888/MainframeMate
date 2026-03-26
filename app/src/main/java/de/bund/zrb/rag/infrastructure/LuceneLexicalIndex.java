@@ -262,20 +262,32 @@ public class LuceneLexicalIndex implements LexicalIndex {
 
     /**
      * Build a smart Lucene query that searches across multiple fields,
-     * supports wildcards, fuzzy matching, and handles short queries gracefully.
+     * supports wildcards, fuzzy matching, proximity boosting, and field-specific
+     * boosting. Handles short queries gracefully.
      *
-     * The custom subword analyzer splits tokens like "OP02Hamburg" into
-     * ["op", "02", "hamburg"], so searching for "hamburg" now works.
+     * <h3>BM25 Enhancements</h3>
+     * <ul>
+     *   <li><b>Proximity Boosting</b>: When query has 2+ words, a SpanNearQuery
+     *       boosts documents where the words appear close together (slop=5).
+     *       This is critical for queries like "error OP02" where co-occurrence matters.</li>
+     *   <li><b>Field Boosting</b>: Heading matches get 3× boost, sourceName 2× boost,
+     *       because structured fields carry more signal than body text.</li>
+     *   <li><b>Subword Splitting</b>: "OP02Hamburg" → ["op", "02", "hamburg"] via
+     *       WordDelimiterGraphFilter, so partial term searches work.</li>
+     * </ul>
      *
      * Strategy:
      * - Short query (1-2 chars): prefix search
      * - Normal query (3+ chars): analyzed term + wildcard + fuzzy across all fields
+     * - Multi-word queries: add proximity boost via SpanNearQuery
      */
     private Query buildSmartQuery(String queryStr) {
         org.apache.lucene.search.BooleanQuery.Builder mainQuery =
                 new org.apache.lucene.search.BooleanQuery.Builder();
 
         String[] fields = {FIELD_TEXT, FIELD_SOURCE_NAME, FIELD_HEADING};
+        // Field-specific boost factors: heading > sourceName > text
+        float[] boosts = {1.0f, 2.0f, 3.0f};
         String[] words = queryStr.toLowerCase().split("\\s+");
 
         for (String word : words) {
@@ -283,26 +295,28 @@ public class LuceneLexicalIndex implements LexicalIndex {
                     new org.apache.lucene.search.BooleanQuery.Builder();
 
             if (word.length() <= 2) {
-                // Short words: prefix query on all fields
-                for (String field : fields) {
-                    wordQuery.add(new org.apache.lucene.search.PrefixQuery(
-                            new Term(field, word)), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                // Short words: prefix query on all fields with boost
+                for (int f = 0; f < fields.length; f++) {
+                    Query pq = new org.apache.lucene.search.PrefixQuery(new Term(fields[f], word));
+                    wordQuery.add(new org.apache.lucene.search.BoostQuery(pq, boosts[f]),
+                            org.apache.lucene.search.BooleanClause.Occur.SHOULD);
                 }
             } else {
                 // Analyzed term query (uses subword analyzer – splits compound tokens)
-                for (String field : fields) {
-                    QueryParser parser = new QueryParser(field, analyzer);
+                for (int f = 0; f < fields.length; f++) {
+                    QueryParser parser = new QueryParser(fields[f], analyzer);
                     try {
                         Query q = parser.parse(word);
-                        wordQuery.add(q, org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                        wordQuery.add(new org.apache.lucene.search.BoostQuery(q, boosts[f]),
+                                org.apache.lucene.search.BooleanClause.Occur.SHOULD);
                     } catch (Exception ignored) {}
                 }
 
-                // Wildcard fallback: "hamburg" → "hamburg*" (catches prefixes)
-                for (String field : fields) {
-                    wordQuery.add(new org.apache.lucene.search.WildcardQuery(
-                            new Term(field, "*" + word + "*")),
-                            org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                // Wildcard fallback: "hamburg" → "*hamburg*" (catches prefixes)
+                for (int f = 0; f < fields.length; f++) {
+                    Query wq = new org.apache.lucene.search.WildcardQuery(
+                            new Term(fields[f], "*" + word + "*"));
+                    wordQuery.add(wq, org.apache.lucene.search.BooleanClause.Occur.SHOULD);
                 }
 
                 // Fuzzy query for typo tolerance (edit distance 1 for words > 4 chars)
@@ -314,6 +328,29 @@ public class LuceneLexicalIndex implements LexicalIndex {
             }
 
             mainQuery.add(wordQuery.build(), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+        }
+
+        // ── Proximity Boosting (SpanNearQuery) ──
+        // When the query has 2+ words, boost documents where the words
+        // appear within 5 tokens of each other. This massively helps queries
+        // like "error OP02" or "CALLNAT SUBPROG" where co-occurrence is key.
+        if (words.length >= 2 && words.length <= 8) {
+            try {
+                org.apache.lucene.search.spans.SpanQuery[] spans =
+                        new org.apache.lucene.search.spans.SpanQuery[words.length];
+                for (int i = 0; i < words.length; i++) {
+                    spans[i] = new org.apache.lucene.search.spans.SpanTermQuery(
+                            new Term(FIELD_TEXT, words[i]));
+                }
+                org.apache.lucene.search.spans.SpanNearQuery proximityQuery =
+                        new org.apache.lucene.search.spans.SpanNearQuery(spans, 5, false);
+                // Boost proximity matches significantly (2.5×)
+                mainQuery.add(new org.apache.lucene.search.BoostQuery(proximityQuery, 2.5f),
+                        org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+            } catch (Exception e) {
+                // SpanQuery construction can fail for some edge cases — ignore
+                LOG.fine("[Search] Proximity boost skipped: " + e.getMessage());
+            }
         }
 
         return mainQuery.build();

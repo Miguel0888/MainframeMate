@@ -9,6 +9,7 @@ import de.bund.zrb.archive.store.CacheRepository;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.*;
+import java.util.function.BiConsumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -48,6 +49,15 @@ public class ConfluencePrefetchService {
             new CopyOnWriteArrayList<Future<?>>();
 
     /**
+     * Optional callback for auto-indexing loaded pages into Lucene/RAG.
+     * Receives (pageId, CachedPage) for each successfully loaded page.
+     */
+    private BiConsumer<String, CachedPage> autoIndexCallback;
+
+    /** Dedicated single-thread executor for auto-indexing (avoids Lucene contention with prefetch). */
+    private final ExecutorService autoIndexExecutor = Executors.newSingleThreadExecutor();
+
+    /**
      * @param client          Confluence REST client (thread-safe for GET requests)
      * @param cacheRepository persistent cache (H2), may be {@code null}
      * @param maxVolatileMb   max DB size for volatile entries
@@ -66,6 +76,14 @@ public class ConfluencePrefetchService {
         int poolSize = Math.max(1, Math.min(concurrency, 8));
         this.prefetchPool = Executors.newFixedThreadPool(poolSize);
         this.priorityThread = Executors.newSingleThreadExecutor();
+    }
+
+    /**
+     * Set a callback that indexes each loaded page into Lucene (for auto-indexing).
+     * The callback receives (pageId, CachedPage) for each successfully loaded page.
+     */
+    public void setAutoIndexCallback(BiConsumer<String, CachedPage> callback) {
+        this.autoIndexCallback = callback;
     }
 
     // ════════════════════════════════════════════════════════════
@@ -167,6 +185,7 @@ public class ConfluencePrefetchService {
         cancelRunningPrefetches();
         prefetchPool.shutdownNow();
         priorityThread.shutdownNow();
+        autoIndexExecutor.shutdownNow();
         memoryCache.clear();
     }
 
@@ -197,6 +216,25 @@ public class ConfluencePrefetchService {
 
         // Persist to DB (best-effort)
         persistToDb(pageId, title, html);
+
+        // Auto-index into Lucene if callback is set (async, to avoid Lucene contention)
+        if (autoIndexCallback != null) {
+            final CachedPage pageToIndex = page;
+            autoIndexExecutor.submit(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        autoIndexCallback.accept(pageId, pageToIndex);
+                        // Small pause between index operations to avoid starving search threads
+                        Thread.sleep(100);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    } catch (Exception e) {
+                        LOG.log(Level.WARNING, "[ConfluencePrefetch] Auto-index failed for: " + title, e);
+                    }
+                }
+            });
+        }
 
         return page;
     }

@@ -598,6 +598,14 @@ public class RagService {
     }
 
     /**
+     * Get the current reranker client, or {@code null} if none is configured.
+     * Used by SearchService to check availability and apply final reranking.
+     */
+    public de.bund.zrb.rag.port.RerankerClient getRerankerClient() {
+        return retriever.getRerankerClient();
+    }
+
+    /**
      * Shutdown the service.
      */
     public void shutdown() {

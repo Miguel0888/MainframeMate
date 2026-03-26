@@ -2,6 +2,7 @@ package de.bund.zrb.search;
 
 import de.bund.zrb.rag.model.Chunk;
 import de.bund.zrb.rag.model.ScoredChunk;
+import de.bund.zrb.rag.port.RerankerClient;
 import de.bund.zrb.rag.service.RagService;
 
 import java.util.*;
@@ -128,7 +129,10 @@ public class SearchService {
             }
 
             // ── 2. Optional semantic/RAG search ──
-            if (isSemanticAvailable()) {
+            // Triggered when embeddings are available OR a reranker is configured.
+            // The HybridRetriever handles the case where only BM25 + Reranker are
+            // available (Stage 1 + Stage 3 without Stage 2 vectors).
+            if (isSemanticAvailable() || isRerankerAvailable()) {
                 try {
                     List<SearchResult> semResults = searchRag(query, maxResults);
                     if (!semResults.isEmpty()) {
@@ -223,7 +227,14 @@ public class SearchService {
                 allResults = new ArrayList<>(allResults.subList(0, maxResults));
             }
 
-            // ── 4. Trigger prefetch of content for live results ──
+            // ── 4. Optional final reranking (cross-encoder on ALL merged results) ──
+            // This re-scores results from ALL sources (Lucene, RAG, live backends)
+            // so that Wiki/Confluence live results are also properly ranked.
+            if (isRerankerAvailable()) {
+                allResults = rerankFinalResults(allResults, query, maxResults);
+            }
+
+            // ── 5. Trigger prefetch of content for live results ──
             triggerPrefetch(allResults);
 
             return allResults;
@@ -347,6 +358,99 @@ public class SearchService {
             return rag.getSemanticIndexSize() > 0;
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    /**
+     * Check if a cross-encoder reranker is configured and available.
+     * When true, the search pipeline uses the HybridRetriever (which applies
+     * reranking) even when no embeddings are available.
+     */
+    private boolean isRerankerAvailable() {
+        try {
+            RagService rag = RagService.getInstance();
+            RerankerClient reranker = rag.getRerankerClient();
+            return reranker != null && reranker.isAvailable();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Apply cross-encoder reranking to the final merged search results.
+     * <p>
+     * This re-scores all results (from Lucene, RAG, and live backends) by
+     * sending their text snippets to the reranker. This ensures that live
+     * backend results (Wiki, Confluence) are also reranked, not just the
+     * Lucene-indexed content.
+     * <p>
+     * Best-effort: if reranking fails, the original results are returned unchanged.
+     */
+    private List<SearchResult> rerankFinalResults(List<SearchResult> results, String query, int maxResults) {
+        if (results == null || results.size() <= 1) return results;
+
+        try {
+            RagService rag = RagService.getInstance();
+            RerankerClient reranker = rag.getRerankerClient();
+            if (reranker == null || !reranker.isAvailable()) return results;
+
+            // Limit candidates to reranker pool size
+            int poolSize = Math.min(reranker.getCandidatePoolSize(), results.size());
+            List<SearchResult> candidates = results.subList(0, poolSize);
+
+            // Collect text for each candidate
+            List<String> passages = new ArrayList<>(candidates.size());
+            for (SearchResult r : candidates) {
+                // Prefer full text from index, fall back to snippet
+                String text = null;
+                if (r.getDocumentId() != null) {
+                    text = getDocumentText(r.getDocumentId(), 2000);
+                }
+                if (text == null || text.isEmpty()) {
+                    text = r.getSnippet() != null ? r.getSnippet() : "";
+                }
+                passages.add(text);
+            }
+
+            long start = System.currentTimeMillis();
+            float[] scores = reranker.rerank(query, passages);
+            float threshold = reranker.getScoreThreshold();
+
+            // Rebuild results with reranker scores
+            List<SearchResult> reranked = new ArrayList<>();
+            for (int i = 0; i < candidates.size(); i++) {
+                float score = (i < scores.length) ? scores[i] : 0f;
+                if (threshold > 0f && score < threshold) continue;
+
+                SearchResult original = candidates.get(i);
+                reranked.add(new SearchResult(
+                        original.getSource(), original.getDocumentId(),
+                        original.getDocumentName(), original.getPath(),
+                        original.getSnippet(), score,
+                        original.getChunkId(), original.getHeading()));
+            }
+
+            // Sort by reranker score descending
+            Collections.sort(reranked);
+
+            // Take final topN
+            int topN = Math.min(reranker.getTopN(), maxResults);
+            if (reranked.size() > topN) {
+                reranked = new ArrayList<>(reranked.subList(0, topN));
+            }
+
+            // Append non-reranked results (beyond pool) for completeness
+            if (results.size() > poolSize) {
+                reranked.addAll(results.subList(poolSize, results.size()));
+            }
+
+            long duration = System.currentTimeMillis() - start;
+            LOG.info(String.format("[Search] Final reranking: %d candidates → %d results in %dms",
+                    candidates.size(), reranked.size(), duration));
+            return reranked;
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[Search] Final reranking failed, using original order", e);
+            return results;
         }
     }
 
