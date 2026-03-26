@@ -5,6 +5,7 @@ import de.bund.zrb.api.WDWebSocketManager;
 import de.bund.zrb.command.response.WDSessionResult;
 import de.bund.zrb.manager.*;
 import de.bund.zrb.service.WDEventDispatcher;
+import de.bund.zrb.type.session.WDCapabilitiesRequest;
 import de.bund.zrb.type.session.WDSubscription;
 import de.bund.zrb.type.session.WDSubscriptionRequest;
 
@@ -161,6 +162,21 @@ public class WebDriver {
         WDSessionResult.NewResult sessionResponse = session().newSession(browserName); // ToDo: Does not work with Chrome!
 
         // Kontext-ID extrahieren oder neuen Kontext erstellen
+        if (sessionResponse == null) {
+            throw new IllegalArgumentException("SessionResponse darf nicht null sein!");
+        }
+        sessionId = sessionResponse.getSessionId();
+        return this; // fluent API
+    }
+
+    /**
+     * Creates a new session with explicit capabilities (e.g. pageLoadStrategy).
+     *
+     * @param capabilities the full capabilities request to send with session.new
+     */
+    public WebDriver connect(WDCapabilitiesRequest capabilities) throws InterruptedException, ExecutionException {
+        WDSessionResult.NewResult sessionResponse = session().newSession(capabilities);
+
         if (sessionResponse == null) {
             throw new IllegalArgumentException("SessionResponse darf nicht null sein!");
         }

@@ -5,6 +5,7 @@ import de.bund.zrb.command.request.WDSessionRequest;
 import de.bund.zrb.command.request.parameters.session.parameters.UnsubscribeParameters;
 import de.bund.zrb.command.response.WDEmptyResult;
 import de.bund.zrb.command.response.WDSessionResult;
+import de.bund.zrb.type.session.WDCapabilitiesRequest;
 import de.bund.zrb.type.browsingContext.WDBrowsingContext;
 import de.bund.zrb.type.session.WDSubscription;
 import de.bund.zrb.type.session.WDSubscriptionRequest;
@@ -53,6 +54,13 @@ public class WDSessionManager implements WDModule {
      */
     public WDSessionResult.NewResult newSession(String browserName) {
         return WDWebSocketManager.sendAndWaitForResponse(new WDSessionRequest.New(browserName), WDSessionResult.NewResult.class);
+    }
+
+    /**
+     * Erstellt eine neue Session mit expliziten Capabilities (z.B. pageLoadStrategy).
+     */
+    public WDSessionResult.NewResult newSession(WDCapabilitiesRequest capabilities) {
+        return WDWebSocketManager.sendAndWaitForResponse(new WDSessionRequest.New(capabilities), WDSessionResult.NewResult.class);
     }
 
 

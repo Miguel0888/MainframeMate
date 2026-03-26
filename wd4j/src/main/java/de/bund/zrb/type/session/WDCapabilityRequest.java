@@ -31,19 +31,36 @@ public class WDCapabilityRequest {
     private final String platformName; // Optional
     private final WDProxyConfiguration proxy; // Optional
     private final WDUserPromptHandler unhandledPromptBehavior; // Optional
+    private final WDPageLoadStrategy pageLoadStrategy; // Optional
 
     public WDCapabilityRequest() {
-        this(null, null, null, null, null, null);
+        this(null, null, null, null, null, null, null);
     }
 
+    /**
+     * Legacy constructor (without pageLoadStrategy) — kept for backward compatibility.
+     */
     public WDCapabilityRequest(Boolean acceptInsecureCerts, String browserName, String browserVersion,
                                String platformName, WDProxyConfiguration proxy, WDUserPromptHandler unhandledPromptBehavior) {
+        this(acceptInsecureCerts, browserName, browserVersion, platformName, proxy, unhandledPromptBehavior, null);
+    }
+
+    /**
+     * Full constructor including pageLoadStrategy.
+     *
+     * @param pageLoadStrategy the page load strategy; {@code null} means the browser default ("normal")
+     */
+    public WDCapabilityRequest(Boolean acceptInsecureCerts, String browserName, String browserVersion,
+                               String platformName, WDProxyConfiguration proxy,
+                               WDUserPromptHandler unhandledPromptBehavior,
+                               WDPageLoadStrategy pageLoadStrategy) {
         this.acceptInsecureCerts = acceptInsecureCerts;
         this.browserName = browserName;
         this.browserVersion = browserVersion;
         this.platformName = platformName;
         this.proxy = proxy;
         this.unhandledPromptBehavior = unhandledPromptBehavior;
+        this.pageLoadStrategy = pageLoadStrategy;
     }
 
     public Boolean getAcceptInsecureCerts() {
@@ -68,5 +85,9 @@ public class WDCapabilityRequest {
 
     public WDUserPromptHandler getUnhandledPromptBehavior() {
         return unhandledPromptBehavior;
+    }
+
+    public WDPageLoadStrategy getPageLoadStrategy() {
+        return pageLoadStrategy;
     }
 }

@@ -13,6 +13,9 @@ import de.bund.zrb.type.script.*;
 import de.bund.zrb.support.ScriptHelper;
 
 import de.bund.zrb.type.log.WDLogEntry;
+import de.bund.zrb.type.session.WDCapabilitiesRequest;
+import de.bund.zrb.type.session.WDCapabilityRequest;
+import de.bund.zrb.type.session.WDPageLoadStrategy;
 import de.bund.zrb.type.session.WDSubscriptionRequest;
 import de.bund.zrb.event.WDLogEvent;
 
@@ -51,6 +54,20 @@ public class BrowserSession {
 
     /**
      * Connect to an already-running browser via its BiDi WebSocket URL.
+     *
+     * <p><b>WORKAROUND (Firefox pageLoadStrategy=NONE):</b>
+     * Firefox's WebDriver BiDi implementation is not yet fully stable when it comes
+     * to page-load synchronisation. Navigation commands frequently hang because Firefox
+     * waits for a "complete" (or "interactive") page-load state that never arrives —
+     * especially on pages with long-running scripts, streaming content, or service workers.
+     * Setting {@code pageLoadStrategy} to {@link WDPageLoadStrategy#NONE NONE} in the
+     * session capabilities tells Firefox to return from navigation immediately without
+     * waiting for any readiness state, which avoids these hangs.
+     * Chrome does not exhibit this problem (the Chrome BiDi mapper tab handles it
+     * correctly), so we only apply the workaround for Firefox.
+     * <p>
+     * <b>TODO:</b> Remove this workaround once Firefox's WebDriver BiDi navigation
+     * handling is stable (track upstream Bugzilla / geckodriver issues).
      */
     public void connect(String bidiWebSocketUrl, String browserName, boolean createContext)
             throws ExecutionException, InterruptedException {
@@ -58,7 +75,25 @@ public class BrowserSession {
         this.webSocket = new WDWebSocketImpl(uri, 30_000.0);
         this.driver = new WebDriver(webSocket);
 
-        driver.connect(browserName);
+        boolean isFirefox = "firefox".equalsIgnoreCase(browserName);
+
+        if (isFirefox) {
+            // ──────────────────────────────────────────────────────────────
+            // WORKAROUND: Use pageLoadStrategy=NONE for Firefox to prevent
+            // navigation hangs caused by Firefox's incomplete BiDi support.
+            // See class-level Javadoc for details.
+            // ──────────────────────────────────────────────────────────────
+            LOG.info("[BrowserSession] Applying pageLoadStrategy=NONE workaround for Firefox");
+            WDCapabilityRequest capability = new WDCapabilityRequest(
+                    null, browserName, null,
+                    null, null, null,
+                    WDPageLoadStrategy.NONE
+            );
+            WDCapabilitiesRequest capabilities = new WDCapabilitiesRequest(capability);
+            driver.connect(capabilities);
+        } else {
+            driver.connect(browserName);
+        }
 
         // Subscribe to browser console logs via BiDi
         subscribeToConsoleLogs();
