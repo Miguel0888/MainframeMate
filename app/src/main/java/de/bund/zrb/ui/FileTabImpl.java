@@ -172,6 +172,11 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         model.setResource(resource);
         model.setSentenceType(sentenceType);
 
+        // ── NDV metadata-based syntax detection ──
+        // NDV objects always carry type info (Program, Subprogram, etc.) from the server.
+        // Use this to force Natural syntax highlighting even when the file has no extension.
+        applyNdvSyntaxDetection(resource);
+
         // Create compare panel for diff functionality
         comparePanel = new ComparePanel(resource.getResolvedPath(), content);
         comparePanel.setVisible(false);
@@ -297,6 +302,39 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                         ? String.valueOf(obj.getDatabaseId()) : null);
                 addInfoProperty("FNR", obj.getFileNumber() > 0
                         ? String.valueOf(obj.getFileNumber()) : null);
+            }
+        }
+    }
+
+    /**
+     * Detect Natural syntax style from NDV metadata.
+     * NDV objects always carry type info (Program, Subprogram, Subroutine, etc.) from the server,
+     * so we can determine the syntax style without relying on file extensions.
+     * File extension is only used as a fallback for non-NDV backends.
+     */
+    private void applyNdvSyntaxDetection(VirtualResource res) {
+        if (res == null || res.getBackendType() != VirtualBackendType.NDV) return;
+
+        NdvResourceState ndvState = res.getNdvState();
+        if (ndvState == null) return;
+
+        de.bund.zrb.ndv.NdvObjectInfo obj = ndvState.getObjectInfo();
+        if (obj == null) return;
+
+        // All NDV source objects (Program, Subprogram, Subroutine, Copycode, Map, Helproutine,
+        // Function, Class, etc.) are Natural source code
+        if (obj.hasSource()) {
+            String naturalStyle = de.bund.zrb.ui.syntax.MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL;
+            if (!naturalStyle.equals(syntaxStyle)) {
+                System.out.println("[FileTabImpl] NDV metadata → forcing Natural syntax (type: "
+                        + obj.getTypeName() + ", ext: " + obj.getTypeExtension() + ")");
+                this.syntaxStyle = naturalStyle;
+                this.isSourceCode = true;
+                this.isMainframeCode = true;
+                rawPane.setSyntaxEditingStyle(naturalStyle);
+                rawPane.setCodeFoldingEnabled(true);
+                // Re-apply view mode so the highlighting takes effect
+                applyViewMode(currentMode);
             }
         }
     }

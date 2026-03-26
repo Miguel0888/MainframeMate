@@ -168,7 +168,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     protected final boolean isTextFile;
     protected final boolean isRemote;
     protected final String backendType; // e.g. "LOCAL", "FTP", "NDV", "MAIL", "WEB", "BETAVIEW"
-    protected final String syntaxStyle;
+    protected String syntaxStyle;
     protected boolean isSourceCode;       // Source code files use RSyntaxTextArea for rendering
     protected boolean needsHtmlRendering; // MD/HTML/Binary docs use JEditorPane for rendering
     protected final ChatMarkdownFormatter markdownFormatter;
@@ -2220,10 +2220,11 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
             case "JCL":
                 // JCL → source code with properties-file syntax
+                this.syntaxStyle = SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE;
                 this.isSourceCode = true;
                 this.isMainframeCode = true;
                 this.needsHtmlRendering = false;
-                rawPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE);
+                rawPane.setSyntaxEditingStyle(syntaxStyle);
                 rawPane.setCodeFoldingEnabled(true);
                 ensureDiagramToggleVisible();
                 applyViewMode(currentMode);
@@ -2232,10 +2233,11 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
             case "COBOL":
                 // COBOL → source code (no native highlighting)
+                this.syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
                 this.isSourceCode = true;
                 this.isMainframeCode = true;
                 this.needsHtmlRendering = false;
-                rawPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+                rawPane.setSyntaxEditingStyle(syntaxStyle);
                 rawPane.setCodeFoldingEnabled(true);
                 ensureDiagramToggleVisible();
                 applyViewMode(currentMode);
@@ -2244,11 +2246,11 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
             case "NATURAL":
                 // Natural → source code with custom syntax
+                this.syntaxStyle = MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL;
                 this.isSourceCode = true;
                 this.isMainframeCode = true;
                 this.needsHtmlRendering = false;
-                rawPane.setSyntaxEditingStyle(
-                        de.bund.zrb.ui.syntax.MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL);
+                rawPane.setSyntaxEditingStyle(syntaxStyle);
                 rawPane.setCodeFoldingEnabled(true);
                 ensureDiagramToggleVisible();
                 applyViewMode(currentMode);
@@ -2270,6 +2272,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         this.rawBytes = null;
         this.isSourceCode = isSourceCodeFile(sourceName);
         this.needsHtmlRendering = needsHtmlRendering(sourceName, metadata);
+        // If syntaxStyle was set to a known language (e.g., via NDV metadata detection),
+        // preserve isSourceCode even if the filename has no extension.
+        if (!isSourceCode && syntaxStyle != null
+                && !SyntaxConstants.SYNTAX_STYLE_NONE.equals(syntaxStyle)) {
+            isSourceCode = true;
+        }
         if (isSourceCode) {
             rawPane.setSyntaxEditingStyle(syntaxStyle);
         } else {
@@ -2295,9 +2303,16 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             resetFileTypeRendering();
             return;
         }
+        this.syntaxStyle = syntaxStyleConstant;
         this.isSourceCode = true;
         this.needsHtmlRendering = false;
         this.activeFileType = null; // not a document type
+        // Check if this is a Mainframe language
+        if (MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL.equals(syntaxStyleConstant)
+                || SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE.equals(syntaxStyleConstant)) {
+            this.isMainframeCode = true;
+            ensureDiagramToggleVisible();
+        }
         rawPane.setSyntaxEditingStyle(syntaxStyleConstant);
         rawPane.setCodeFoldingEnabled(true);
         applyViewMode(currentMode);
