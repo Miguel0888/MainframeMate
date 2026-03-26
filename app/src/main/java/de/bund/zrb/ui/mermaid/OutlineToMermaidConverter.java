@@ -13,6 +13,7 @@ import java.util.*;
  * Supported diagram types:
  * <ul>
  *   <li><b>STRUCTURE</b> — flowchart showing structural hierarchy</li>
+ *   <li><b>FLOWCHART</b> — flowchart focusing on control flow: branches, loops, and external calls</li>
  *   <li><b>SEQUENCE</b> — sequence diagram showing execution/call flow</li>
  *   <li><b>MINDMAP</b> — mind-map for quick overview of code structure</li>
  * </ul>
@@ -27,6 +28,8 @@ public final class OutlineToMermaidConverter {
     public enum DiagramType {
         /** Flowchart showing structural hierarchy (JOB→STEP→DD, Divisions, Subroutines). */
         STRUCTURE("\uD83C\uDFD7", "Struktur"),   // 🏗
+        /** Flowchart focusing on control flow: branches, loops, and external calls. */
+        FLOWCHART("\uD83D\uDD00", "Ablauf"),       // 🔀
         /** Sequence diagram showing execution / call flow. */
         SEQUENCE("\u21C4", "Sequenz"),              // ⇄
         /** Mind-map for quick bird's-eye overview. */
@@ -63,10 +66,11 @@ public final class OutlineToMermaidConverter {
         if (type == null) type = DiagramType.STRUCTURE;
 
         switch (type) {
-            case SEQUENCE: return convertSequence(model);
-            case MINDMAP:  return convertMindmap(model);
+            case FLOWCHART: return convertFlowchart(model);
+            case SEQUENCE:  return convertSequence(model);
+            case MINDMAP:   return convertMindmap(model);
             case STRUCTURE:
-            default:       return convertStructure(model);
+            default:        return convertStructure(model);
         }
     }
 
@@ -330,6 +334,332 @@ public final class OutlineToMermaidConverter {
             }
             prevId = id;
         }
+        return sb.toString();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  FLOWCHART (control flow: branches, loops, external calls)
+    // ═══════════════════════════════════════════════════════════
+
+    private static String convertFlowchart(JclOutlineModel model) {
+        switch (model.getLanguage()) {
+            case JCL:     return convertJclFlowchart(model);
+            case COBOL:   return convertCobolFlowchart(model);
+            case NATURAL: return convertNaturalFlowchart(model);
+            default:      return convertJclFlowchart(model);
+        }
+    }
+
+    private static String convertJclFlowchart(JclOutlineModel model) {
+        StringBuilder sb = new StringBuilder("flowchart TD\n");
+        Set<String> usedIds = new HashSet<String>();
+        List<JclElement> all = model.getElements();
+        List<JclElement> steps = model.getSteps();
+
+        // Start node
+        String startId = safeId("START", usedIds);
+        sb.append("    ").append(startId).append("([\"START\"])\n");
+
+        String prevId = startId;
+
+        // Check for IF/ELSE/ENDIF conditional blocks
+        boolean hasConditionals = false;
+        for (JclElement e : all) {
+            if (e.getType() == JclElementType.IF) { hasConditionals = true; break; }
+        }
+
+        if (hasConditionals) {
+            // Build flow with conditionals
+            prevId = buildJclConditionalFlow(sb, all, steps, usedIds, startId);
+        } else {
+            // Linear step flow
+            for (JclElement step : steps) {
+                String label = step.getName() != null ? step.getName() : "(Step)";
+                String pgm = step.getParameter("PGM");
+                String proc = step.getParameter("PROC");
+                String stepId = safeId("STEP_" + label, usedIds);
+
+                sb.append("    ").append(stepId).append("[\"").append(esc(label));
+                if (pgm != null) sb.append("\\nPGM=").append(esc(pgm));
+                else if (proc != null) sb.append("\\nPROC=").append(esc(proc));
+                sb.append("\"]\n");
+
+                sb.append("    ").append(prevId).append(" --> ").append(stepId).append("\n");
+
+                // Highlight PROC calls as external (different shape + style)
+                if (proc != null) {
+                    String extId = safeId("EXT_" + proc, usedIds);
+                    sb.append("    ").append(extId).append(">\"").append(esc(proc))
+                            .append("\\n(externe Prozedur)\"]\n");
+                    sb.append("    ").append(stepId).append(" -.->|PROC| ").append(extId).append("\n");
+                    sb.append("    style ").append(extId).append(" fill:#ffe0b2,stroke:#e65100,stroke-width:2px\n");
+                }
+
+                prevId = stepId;
+            }
+        }
+
+        // End node
+        String endId = safeId("END", usedIds);
+        sb.append("    ").append(endId).append("([\"ENDE\"])\n");
+        sb.append("    ").append(prevId).append(" --> ").append(endId).append("\n");
+
+        return sb.toString();
+    }
+
+    /**
+     * Build JCL flow with IF/ELSE/ENDIF conditional branches.
+     * Returns the ID of the last node in the flow.
+     */
+    private static String buildJclConditionalFlow(StringBuilder sb, List<JclElement> all,
+                                                   List<JclElement> steps,
+                                                   Set<String> usedIds, String startId) {
+        String prevId = startId;
+        int stepIdx = 0;
+
+        for (int i = 0; i < all.size(); i++) {
+            JclElement e = all.get(i);
+
+            if (e.getType() == JclElementType.IF) {
+                // Decision diamond
+                String condId = safeId("IF_" + (i + 1), usedIds);
+                String condLabel = e.getName() != null ? e.getName() : "Bedingung";
+                sb.append("    ").append(condId).append("{\"").append(esc(condLabel)).append("\"}\n");
+                sb.append("    ").append(prevId).append(" --> ").append(condId).append("\n");
+
+                // Find matching ELSE/ENDIF
+                String trueBranch = condId;
+                String falseBranch = null;
+                String mergeId = safeId("MERGE_" + (i + 1), usedIds);
+
+                // Steps between IF and ELSE/ENDIF → true branch
+                String trueEnd = trueBranch;
+                for (int j = i + 1; j < all.size(); j++) {
+                    JclElement next = all.get(j);
+                    if (next.getType() == JclElementType.ELSE || next.getType() == JclElementType.ENDIF) {
+                        if (next.getType() == JclElementType.ELSE) {
+                            falseBranch = condId;
+                        }
+                        break;
+                    }
+                    if (next.getType() == JclElementType.EXEC && stepIdx < steps.size()) {
+                        JclElement step = steps.get(stepIdx++);
+                        String label = step.getName() != null ? step.getName() : "(Step)";
+                        String stepId = safeId("STEP_" + label, usedIds);
+                        sb.append("    ").append(stepId).append("[\"").append(esc(label)).append("\"]\n");
+                        sb.append("    ").append(trueEnd).append(" -->|Ja| ").append(stepId).append("\n");
+                        trueEnd = stepId;
+                    }
+                }
+                sb.append("    ").append(trueEnd).append(" --> ").append(mergeId).append("\n");
+
+                // ELSE branch
+                if (falseBranch != null) {
+                    String falseEnd = condId;
+                    boolean inElse = false;
+                    for (int j = i + 1; j < all.size(); j++) {
+                        JclElement next = all.get(j);
+                        if (next.getType() == JclElementType.ELSE) { inElse = true; continue; }
+                        if (next.getType() == JclElementType.ENDIF) break;
+                        if (inElse && next.getType() == JclElementType.EXEC && stepIdx < steps.size()) {
+                            JclElement step = steps.get(stepIdx++);
+                            String label = step.getName() != null ? step.getName() : "(Step)";
+                            String stepId = safeId("STEP_" + label, usedIds);
+                            sb.append("    ").append(stepId).append("[\"").append(esc(label)).append("\"]\n");
+                            sb.append("    ").append(falseEnd).append(" -->|Nein| ").append(stepId).append("\n");
+                            falseEnd = stepId;
+                        }
+                    }
+                    sb.append("    ").append(falseEnd).append(" --> ").append(mergeId).append("\n");
+                } else {
+                    sb.append("    ").append(condId).append(" -->|Nein| ").append(mergeId).append("\n");
+                }
+
+                sb.append("    ").append(mergeId).append("(( ))\n"); // merge point (circle)
+                prevId = mergeId;
+
+            } else if (e.getType() == JclElementType.EXEC) {
+                // Regular step (not inside IF)
+                if (stepIdx < steps.size()) {
+                    JclElement step = steps.get(stepIdx++);
+                    String label = step.getName() != null ? step.getName() : "(Step)";
+                    String stepId = safeId("STEP_" + label, usedIds);
+                    sb.append("    ").append(stepId).append("[\"").append(esc(label)).append("\"]\n");
+                    sb.append("    ").append(prevId).append(" --> ").append(stepId).append("\n");
+                    prevId = stepId;
+                }
+            }
+        }
+
+        return prevId;
+    }
+
+    private static String convertCobolFlowchart(JclOutlineModel model) {
+        StringBuilder sb = new StringBuilder("flowchart TD\n");
+        Set<String> usedIds = new HashSet<String>();
+        List<JclElement> all = model.getElements();
+
+        // Program root
+        String progName = "PROGRAM";
+        for (JclElement e : all) {
+            if (e.getType() == JclElementType.PROGRAM_ID && e.getName() != null) {
+                progName = e.getName();
+                break;
+            }
+        }
+        String startId = safeId("START", usedIds);
+        sb.append("    ").append(startId).append("([\"").append(esc(progName)).append("\"])\n");
+
+        // Paragraphs as main flow
+        String prevId = startId;
+        for (JclElement para : model.getParagraphs()) {
+            String paraId = safeId("PARA_" + para.getName(), usedIds);
+            sb.append("    ").append(paraId).append("[\"").append(esc(para.getName())).append("\"]\n");
+            sb.append("    ").append(prevId).append(" --> ").append(paraId).append("\n");
+            prevId = paraId;
+        }
+
+        // PERFORM edges (loops / internal calls)
+        for (JclElement e : all) {
+            if (e.getType() == JclElementType.PERFORM_STMT) {
+                String target = e.getParameter("TARGET");
+                if (target == null) continue;
+                String sourceParent = findParentParagraph(e, all);
+                String fromId = sourceParent != null ? findIdForName("PARA_" + sourceParent, usedIds) : startId;
+                String toId = findIdForName("PARA_" + target, usedIds);
+                if (fromId != null && toId != null) {
+                    sb.append("    ").append(fromId).append(" -.->|PERFORM| ").append(toId).append("\n");
+                }
+            }
+        }
+
+        // CALL edges (external programs — highlighted)
+        for (JclElement e : all) {
+            if (e.getType() == JclElementType.CALL_STMT) {
+                String target = e.getParameter("TARGET");
+                if (target == null) continue;
+                String sourceParent = findParentParagraph(e, all);
+                String fromId = sourceParent != null ? findIdForName("PARA_" + sourceParent, usedIds) : startId;
+
+                String extId = safeId("EXT_" + target, usedIds);
+                sb.append("    ").append(extId).append(">\"").append(esc(target))
+                        .append("\\n(externes Programm)\"]\n");
+                sb.append("    style ").append(extId).append(" fill:#ffe0b2,stroke:#e65100,stroke-width:2px\n");
+                if (fromId != null) {
+                    sb.append("    ").append(fromId).append(" ==>|CALL| ").append(extId).append("\n");
+                }
+            }
+        }
+
+        // End node
+        String endId = safeId("END", usedIds);
+        sb.append("    ").append(endId).append("([\"STOP RUN\"])\n");
+        sb.append("    ").append(prevId).append(" --> ").append(endId).append("\n");
+
+        return sb.toString();
+    }
+
+    private static String convertNaturalFlowchart(JclOutlineModel model) {
+        StringBuilder sb = new StringBuilder("flowchart TD\n");
+        Set<String> usedIds = new HashSet<String>();
+        List<JclElement> all = model.getElements();
+
+        // Program name
+        String progName = model.getSourceName() != null ? model.getSourceName() : "PROGRAM";
+        for (JclElement e : all) {
+            if (e.getType() == JclElementType.NAT_PROGRAM
+                    || e.getType() == JclElementType.NAT_SUBPROGRAM
+                    || e.getType() == JclElementType.NAT_FUNCTION) {
+                if (e.getName() != null) progName = e.getName();
+                break;
+            }
+        }
+        String startId = safeId("START", usedIds);
+        sb.append("    ").append(startId).append("([\"").append(esc(progName)).append("\"])\n");
+
+        String prevId = startId;
+
+        // Walk through elements and build control flow
+        for (JclElement e : all) {
+            JclElementType t = e.getType();
+
+            // ── Branches (IF, DECIDE) ──
+            if (t == JclElementType.NAT_IF_BLOCK || t == JclElementType.NAT_DECIDE) {
+                String condLabel = e.getName() != null ? e.getName() : t.getDisplayName();
+                String condId = safeId("COND_" + condLabel, usedIds);
+                sb.append("    ").append(condId).append("{\"").append(esc(condLabel)).append("\"}\n");
+                sb.append("    ").append(prevId).append(" --> ").append(condId).append("\n");
+                prevId = condId;
+            }
+            // ── Loops (FOR, REPEAT, READ, FIND, HISTOGRAM) ──
+            else if (t == JclElementType.NAT_FOR || t == JclElementType.NAT_REPEAT) {
+                String loopLabel = e.getName() != null ? e.getName() : t.getDisplayName();
+                String loopId = safeId("LOOP_" + loopLabel, usedIds);
+                sb.append("    ").append(loopId).append("{{\"").append(esc(loopLabel)).append("\"}}\n");
+                sb.append("    ").append(prevId).append(" --> ").append(loopId).append("\n");
+                // Self-loop arrow to indicate repetition
+                sb.append("    ").append(loopId).append(" -.-> ").append(loopId).append("\n");
+                prevId = loopId;
+            }
+            // ── DB loops (READ/FIND/HISTOGRAM — highlighted as data access loops) ──
+            else if (t == JclElementType.NAT_READ || t == JclElementType.NAT_FIND
+                    || t == JclElementType.NAT_HISTOGRAM) {
+                String file = e.getParameter("FILE");
+                String loopLabel = t.getDisplayName() + (file != null ? " " + file : "");
+                String loopId = safeId("DBLOOP_" + loopLabel, usedIds);
+                sb.append("    ").append(loopId).append("[(\"").append(esc(loopLabel)).append("\")]\n");
+                sb.append("    ").append(prevId).append(" --> ").append(loopId).append("\n");
+                sb.append("    style ").append(loopId).append(" fill:#e3f2fd,stroke:#1565c0,stroke-width:2px\n");
+                prevId = loopId;
+            }
+            // ── External calls (CALLNAT, CALL, FETCH — prominently highlighted) ──
+            else if (t == JclElementType.NAT_CALLNAT || t == JclElementType.NAT_CALL
+                    || t == JclElementType.NAT_FETCH) {
+                String target = e.getParameter("TARGET");
+                if (target == null) target = e.getName();
+                if (target == null) continue;
+                String extId = safeId("EXT_" + target, usedIds);
+                sb.append("    ").append(extId).append(">\"").append(esc(target))
+                        .append("\\n(").append(esc(t.getDisplayName())).append(")\"]\n");
+                sb.append("    ").append(prevId).append(" ==>|").append(t.getDisplayName())
+                        .append("| ").append(extId).append("\n");
+                sb.append("    style ").append(extId).append(" fill:#ffe0b2,stroke:#e65100,stroke-width:2px\n");
+                // Don't change prevId — external call returns and flow continues
+            }
+            // ── Inline PERFORM (internal subroutine calls) ──
+            else if (t == JclElementType.NAT_PERFORM) {
+                String target = e.getParameter("TARGET");
+                if (target == null) target = e.getName();
+                if (target == null) continue;
+                String perfTarget = findIdForName("SUB_" + target, usedIds);
+                if (perfTarget == null) {
+                    perfTarget = safeId("SUB_" + target, usedIds);
+                    sb.append("    ").append(perfTarget).append("{{\"").append(esc(target)).append("\"}}\n");
+                }
+                sb.append("    ").append(prevId).append(" -.->|PERFORM| ").append(perfTarget).append("\n");
+            }
+            // ── Inline subroutine definitions ──
+            else if (t == JclElementType.NAT_INLINE_SUBROUTINE || t == JclElementType.NAT_SUBROUTINE) {
+                String subId = safeId("SUB_" + e.getName(), usedIds);
+                sb.append("    ").append(subId).append("{{\"").append(esc(e.getName())).append("\"}}\n");
+                sb.append("    ").append(prevId).append(" --> ").append(subId).append("\n");
+                prevId = subId;
+            }
+            // ── Error handling ──
+            else if (t == JclElementType.NAT_ON_ERROR) {
+                String errId = safeId("ONERR", usedIds);
+                sb.append("    ").append(errId).append("{\"ON ERROR\"}\n");
+                sb.append("    ").append(prevId).append(" --> ").append(errId).append("\n");
+                sb.append("    style ").append(errId).append(" fill:#ffcdd2,stroke:#c62828,stroke-width:2px\n");
+                prevId = errId;
+            }
+        }
+
+        // End node
+        String endId = safeId("END", usedIds);
+        sb.append("    ").append(endId).append("([\"END\"])\n");
+        sb.append("    ").append(prevId).append(" --> ").append(endId).append("\n");
+
         return sb.toString();
     }
 

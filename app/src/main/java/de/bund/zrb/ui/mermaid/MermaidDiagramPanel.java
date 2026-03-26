@@ -39,10 +39,9 @@ public class MermaidDiagramPanel extends JPanel {
     private String svg;
     private boolean renderError;
 
-    // Selection
+    // Selection (highlight is computed dynamically from these in paintDiagram)
     private DiagramNode selectedNode;
     private DiagramEdge selectedEdge;
-    private Rectangle highlightRect;
 
     // Drag (edge creation / reconnection)
     private DiagramNode dragSourceNode;
@@ -92,6 +91,12 @@ public class MermaidDiagramPanel extends JPanel {
         void onDetailChanged();
     }
     private DetailChangeListener detailChangeListener;
+
+    /** Optional listener notified when the user selects a node (for external outline sync). */
+    public interface NodeSelectionListener {
+        void onNodeSelected(DiagramNode node);
+    }
+    private NodeSelectionListener nodeSelectionListener;
 
     public MermaidDiagramPanel(boolean editable) {
         this.editable = editable;
@@ -300,6 +305,10 @@ public class MermaidDiagramPanel extends JPanel {
         this.detailChangeListener = listener;
     }
 
+    public void setNodeSelectionListener(NodeSelectionListener listener) {
+        this.nodeSelectionListener = listener;
+    }
+
     public void setSourceChangeListener(SourceChangeListener listener) {
         this.sourceChangeListener = listener;
     }
@@ -320,7 +329,6 @@ public class MermaidDiagramPanel extends JPanel {
         this.mermaidSource = source;
         this.selectedNode = null;
         this.selectedEdge = null;
-        this.highlightRect = null;
         this.renderError = false;
         this.dragging = false;
 
@@ -531,36 +539,77 @@ public class MermaidDiagramPanel extends JPanel {
             return;
         }
 
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                 RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 
         int dw = (int) Math.round(baseW * zoom);
         int dh = (int) Math.round(baseH * zoom);
         int ox = (int) Math.round(panOffsetX);
         int oy = (int) Math.round(panOffsetY);
-        g.drawImage(image, ox, oy, dw, dh, null);
+        g2.drawImage(image, ox, oy, dw, dh, null);
 
-        if (highlightRect != null) {
-            int hx = (int) (highlightRect.x * zoom) + ox;
-            int hy = (int) (highlightRect.y * zoom) + oy;
-            int hw = (int) (highlightRect.width * zoom);
-            int hh = (int) (highlightRect.height * zoom);
-            g.setColor(new Color(255, 255, 0, 100));
-            g.fillRect(hx, hy, hw, hh);
-            g.setColor(new Color(255, 180, 0, 200));
-            g.setStroke(new BasicStroke(2));
-            g.drawRect(hx, hy, hw, hh);
+        // ── Highlight all search results with a lighter colour ──
+        if (!lastSearchResults.isEmpty() && diagram != null) {
+            g2.setColor(new Color(255, 220, 100, 50));
+            for (int i = 0; i < lastSearchResults.size(); i++) {
+                if (i == lastSearchIndex) continue; // active result is drawn separately
+                DiagramNode sr = lastSearchResults.get(i);
+                Rectangle r = computeScreenRect(sr.getX(), sr.getY(), sr.getWidth(), sr.getHeight(), ox, oy);
+                g2.fillRect(r.x, r.y, r.width, r.height);
+            }
         }
 
+        // ── Highlight selected node or edge (computed fresh from current baseW/zoom) ──
+        Rectangle hlRect = null;
+        if (selectedNode != null && diagram != null) {
+            hlRect = computeScreenRect(selectedNode.getX(), selectedNode.getY(),
+                    selectedNode.getWidth(), selectedNode.getHeight(), ox, oy);
+        } else if (selectedEdge != null && diagram != null) {
+            hlRect = computeScreenRect(selectedEdge.getX(), selectedEdge.getY(),
+                    selectedEdge.getWidth(), selectedEdge.getHeight(), ox, oy);
+        }
+        if (hlRect != null) {
+            g2.setColor(new Color(255, 255, 0, 100));
+            g2.fillRect(hlRect.x, hlRect.y, hlRect.width, hlRect.height);
+            g2.setColor(new Color(255, 180, 0, 200));
+            g2.setStroke(new BasicStroke(2));
+            g2.drawRect(hlRect.x, hlRect.y, hlRect.width, hlRect.height);
+        }
+
+        // ── Drag rubber-band line ──
         if (dragging && dragStart != null && dragCurrent != null) {
             Color lineColor = dragEdge != null
                     ? new Color(255, 140, 0, 200)
                     : new Color(0, 100, 255, 180);
-            g.setColor(lineColor);
-            g.setStroke(new BasicStroke(2.5f, BasicStroke.CAP_ROUND,
+            g2.setColor(lineColor);
+            g2.setStroke(new BasicStroke(2.5f, BasicStroke.CAP_ROUND,
                     BasicStroke.JOIN_ROUND, 0, new float[]{6, 4}, 0));
-            g.drawLine(dragStart.x, dragStart.y, dragCurrent.x, dragCurrent.y);
+            g2.drawLine(dragStart.x, dragStart.y, dragCurrent.x, dragCurrent.y);
         }
+        g2.dispose();
+    }
+
+    /**
+     * Convert SVG viewBox coordinates to screen rectangle, using the CURRENT
+     * baseW / baseH / zoom / panOffset.  This ensures the highlight is always
+     * correct even after reRasterize changes baseW.
+     */
+    private Rectangle computeScreenRect(double svgX, double svgY, double svgW, double svgH,
+                                         int ox, int oy) {
+        if (diagram == null || baseW <= 0 || baseH <= 0) {
+            return new Rectangle(ox, oy, 5, 5);
+        }
+        double vbX = diagram.getViewBoxX();
+        double vbY = diagram.getViewBoxY();
+        double vbW = diagram.getViewBoxWidth();
+        double vbH = diagram.getViewBoxHeight();
+        // SVG → image pixel → screen pixel (in one step)
+        int hx = (int) Math.round(((svgX - vbX) / vbW * baseW) * zoom) + ox;
+        int hy = (int) Math.round(((svgY - vbY) / vbH * baseH) * zoom) + oy;
+        int hw = Math.max((int) Math.round((svgW / vbW * baseW) * zoom), 4);
+        int hh = Math.max((int) Math.round((svgH / vbH * baseH) * zoom), 4);
+        return new Rectangle(hx, hy, hw, hh);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -637,8 +686,6 @@ public class MermaidDiagramPanel extends JPanel {
                     if (foundNode != null) {
                         selectedNode = foundNode;
                         selectedEdge = null;
-                        highlightRect = toImageRect(foundNode.getX(), foundNode.getY(),
-                                foundNode.getWidth(), foundNode.getHeight());
                         dragSourceNode = foundNode;
                         dragStart = new Point(e.getX(), e.getY());
                         dragging = false;
@@ -745,11 +792,10 @@ public class MermaidDiagramPanel extends JPanel {
         if (foundNode != null) {
             selectedNode = foundNode;
             selectedEdge = null;
-            highlightRect = toImageRect(foundNode.getX(), foundNode.getY(),
-                    foundNode.getWidth(), foundNode.getHeight());
             updateDetailArea();
             updateEditPanel();
             imagePanel.repaint();
+            if (nodeSelectionListener != null) nodeSelectionListener.onNodeSelected(foundNode);
             return;
         }
 
@@ -768,8 +814,6 @@ public class MermaidDiagramPanel extends JPanel {
         if (foundEdge != null) {
             selectedEdge = foundEdge;
             selectedNode = null;
-            highlightRect = toImageRect(foundEdge.getX(), foundEdge.getY(),
-                    foundEdge.getWidth(), foundEdge.getHeight());
             updateDetailArea();
             updateEditPanel();
             imagePanel.repaint();
@@ -779,7 +823,6 @@ public class MermaidDiagramPanel extends JPanel {
         // Deselect
         selectedNode = null;
         selectedEdge = null;
-        highlightRect = null;
         updateDetailArea();
         updateEditPanel();
         imagePanel.repaint();
@@ -823,21 +866,6 @@ public class MermaidDiagramPanel extends JPanel {
         double svgX = vbX + (imgPx / baseW) * vbW;
         double svgY = vbY + (imgPy / baseH) * vbH;
         return new double[]{svgX, svgY};
-    }
-
-    private Rectangle toImageRect(double svgX, double svgY, double svgW, double svgH) {
-        if (diagram == null || baseW <= 0 || baseH <= 0) {
-            return new Rectangle((int) svgX, (int) svgY, (int) svgW, (int) svgH);
-        }
-        double vbX = diagram.getViewBoxX();
-        double vbY = diagram.getViewBoxY();
-        double vbW = diagram.getViewBoxWidth();
-        double vbH = diagram.getViewBoxHeight();
-        int rx = (int) ((svgX - vbX) / vbW * baseW);
-        int ry = (int) ((svgY - vbY) / vbH * baseH);
-        int rw = (int) (svgW / vbW * baseW);
-        int rh = (int) (svgH / vbH * baseH);
-        return new Rectangle(rx, ry, Math.max(rw, 5), Math.max(rh, 5));
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -1062,7 +1090,6 @@ public class MermaidDiagramPanel extends JPanel {
         }
 
         if (lastSearchResults.isEmpty()) {
-            highlightRect = null;
             selectedNode = null;
             selectedEdge = null;
             statusLabel.setText("Keine Treffer f\u00FCr \"" + query.trim() + "\"");
@@ -1113,8 +1140,6 @@ public class MermaidDiagramPanel extends JPanel {
         DiagramNode node = lastSearchResults.get(lastSearchIndex);
         selectedNode = node;
         selectedEdge = null;
-        highlightRect = toImageRect(node.getX(), node.getY(),
-                node.getWidth(), node.getHeight());
         updateDetailArea();
         updateEditPanel();
 
@@ -1128,6 +1153,7 @@ public class MermaidDiagramPanel extends JPanel {
         statusLabel.setText("Treffer " + (lastSearchIndex + 1) + " / " + lastSearchResults.size()
                 + " \u2014 \"" + (node.getLabel() != null ? node.getLabel() : node.getId()) + "\"");
         imagePanel.repaint();
+        if (nodeSelectionListener != null) nodeSelectionListener.onNodeSelected(node);
     }
 
     public void clearSearch() {
@@ -1187,6 +1213,95 @@ public class MermaidDiagramPanel extends JPanel {
 
         panOffsetX = pw / 2.0 - nodeCenterImgX * zoom;
         panOffsetY = ph / 2.0 - nodeCenterImgY * zoom;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Navigate to element (from outline drawer or external caller)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Navigate to a diagram element by label or ID.
+     * Highlights the element and pans/zooms to it (like the first search hit).
+     * Useful for synchronising with outline tree or drawer navigation.
+     *
+     * @param elementLabel the label or ID to find (case-insensitive partial match)
+     * @return true if the element was found and navigated to
+     */
+    public boolean navigateToElement(String elementLabel) {
+        if (elementLabel == null || elementLabel.trim().isEmpty()
+                || diagram == null || image == null) {
+            return false;
+        }
+        String q = elementLabel.trim().toLowerCase();
+
+        // Exact ID match first, then exact label match, then partial
+        DiagramNode best = null;
+        DiagramNode partialMatch = null;
+        for (DiagramNode n : diagram.getNodes()) {
+            if (n instanceof SequenceFragment) continue;
+            String id = n.getId() != null ? n.getId().toLowerCase() : "";
+            String label = n.getLabel() != null ? n.getLabel().toLowerCase() : "";
+            if (id.equals(q) || label.equals(q)) {
+                best = n;
+                break;
+            }
+            if (partialMatch == null && (id.contains(q) || label.contains(q))) {
+                partialMatch = n;
+            }
+        }
+        if (best == null) best = partialMatch;
+        if (best == null) return false;
+
+        selectedNode = best;
+        selectedEdge = null;
+        updateDetailArea();
+        updateEditPanel();
+
+        // Zoom to the element if it's far off-screen, otherwise just pan
+        if (isNodeVisibleInViewport(best)) {
+            panToNode(best);
+        } else {
+            zoomToNode(best);
+        }
+
+        imagePanel.repaint();
+        if (nodeSelectionListener != null) nodeSelectionListener.onNodeSelected(best);
+        return true;
+    }
+
+    /**
+     * Check if a node is at least partially visible in the current viewport.
+     */
+    private boolean isNodeVisibleInViewport(DiagramNode node) {
+        if (diagram == null || baseW <= 0 || baseH <= 0) return false;
+        int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
+        if (pw <= 0 || ph <= 0) return false;
+
+        double vbX = diagram.getViewBoxX();
+        double vbY = diagram.getViewBoxY();
+        double vbW = diagram.getViewBoxWidth();
+        double vbH = diagram.getViewBoxHeight();
+
+        double imgX = (node.getX() + node.getWidth() / 2.0 - vbX) / vbW * baseW;
+        double imgY = (node.getY() + node.getHeight() / 2.0 - vbY) / vbH * baseH;
+        double screenX = imgX * zoom + panOffsetX;
+        double screenY = imgY * zoom + panOffsetY;
+
+        return screenX >= -50 && screenX <= pw + 50 && screenY >= -50 && screenY <= ph + 50;
+    }
+
+    /**
+     * Get the currently selected node (may be null).
+     */
+    public DiagramNode getSelectedNode() {
+        return selectedNode;
+    }
+
+    /**
+     * Get the RenderedDiagram metadata (for external navigation).
+     */
+    public RenderedDiagram getDiagram() {
+        return diagram;
     }
 
     /** Returns true if the diagram view has loaded content (image + diagram metadata). */

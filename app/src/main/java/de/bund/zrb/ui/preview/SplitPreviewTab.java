@@ -224,6 +224,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /** Currently selected diagram type (restored from ApplicationState or default STRUCTURE). */
     protected OutlineToMermaidConverter.DiagramType activeDiagramType = restoreDiagramTypePreference();
 
+    /** @return true if the interactive diagram view is currently active. */
+    public boolean isDiagramViewActive() { return diagramViewActive; }
+
+    /** @return the MermaidDiagramPanel (may be null if not yet initialized). */
+    public MermaidDiagramPanel getMermaidDiagramPanel() { return mermaidDiagramPanel; }
+
     public SplitPreviewTab(String sourceName, String rawContent, DocumentMetadata metadata,
                            List<String> warnings, Document document, boolean isRemote) {
         this(sourceName, rawContent, metadata, warnings, document, isRemote,

@@ -7,6 +7,7 @@ import de.bund.zrb.ui.drawer.LeftDrawer;
 import de.bund.zrb.ui.drawer.RightDrawer;
 import de.bund.zrb.ui.help.HelpContentProvider;
 import de.bund.zrb.ui.jes.JobDetailTab;
+import de.bund.zrb.ui.mermaid.MermaidDiagramPanel;
 import de.bund.zrb.ui.preview.SplitPreviewTab;
 import de.bund.zrb.util.AppLogger;
 import de.zrb.bund.api.MainframeContext;
@@ -912,15 +913,39 @@ public class TabbedPaneManager {
         if (showOutline) {
             rightDrawer.updateJclOutline(content, sourceName, sentenceType);
 
-            // Set up line navigator to jump to line in editor
+            // Set up line navigator to jump to line in editor (double-click)
+            // When diagram view is active, also navigate to the element in the diagram
             rightDrawer.getOutlinePanel().setLineNavigator(lineNumber -> {
                 navigateToLine(tab, lineNumber);
+                navigateOutlineToDiagram(tab, rightDrawer);
+            });
+
+            // Single-click tree selection → navigate in diagram if active
+            rightDrawer.getOutlinePanel().addTreeSelectionListener(e -> {
+                navigateOutlineToDiagram(tab, rightDrawer);
             });
 
             // Auto-switch to Outline tab so the user can see the outline
             rightDrawer.showOutlineTab();
         } else {
             rightDrawer.clearJclOutline();
+        }
+    }
+
+    /**
+     * If the active tab has diagram view, navigate the diagram to the currently
+     * selected outline element. Called from both tree selection and double-click.
+     */
+    private void navigateOutlineToDiagram(Object tab, de.bund.zrb.ui.drawer.RightDrawer rightDrawer) {
+        if (!(tab instanceof SplitPreviewTab)) return;
+        SplitPreviewTab previewTab = (SplitPreviewTab) tab;
+        if (!previewTab.isDiagramViewActive()) return;
+        MermaidDiagramPanel panel = previewTab.getMermaidDiagramPanel();
+        if (panel == null || !panel.hasDiagram()) return;
+
+        de.bund.zrb.jcl.model.JclElement selected = rightDrawer.getOutlinePanel().getSelectedElement();
+        if (selected != null && selected.getName() != null && !selected.getName().isEmpty()) {
+            panel.navigateToElement(selected.getName());
         }
     }
 
