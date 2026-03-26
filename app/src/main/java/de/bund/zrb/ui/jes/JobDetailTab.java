@@ -1332,27 +1332,55 @@ public class JobDetailTab implements AppTab {
                 return;
             }
 
-            String mermaidCode = parseMermaidFromOutline(content);
-            if (mermaidCode == null) {
-                JOptionPane.showMessageDialog(mainPanel,
-                        "Kein Diagramm erzeugbar — die Datei enthält keine erkennbare Struktur.",
-                        "Diagramm", JOptionPane.INFORMATION_MESSAGE);
-                diagramViewActive = false;
-                diagramToggleButton.setSelected(false);
-                return;
-            }
-
             if (mermaidDiagramPanel == null) {
                 mermaidDiagramPanel = new MermaidDiagramPanel(false); // always read-only for spool
                 mermaidDiagramPanel.setAutoRefreshThresholdPercent(
                         SplitPreviewTab.restoreAutoRefreshThreshold());
             }
-            mermaidDiagramPanel.setMermaidSource(mermaidCode);
 
+            // Show loading state immediately
+            mermaidDiagramPanel.setLoading();
             contentPanelRef.removeAll();
             contentPanelRef.add(mermaidDiagramPanel, BorderLayout.CENTER);
             contentPanelRef.revalidate();
             contentPanelRef.repaint();
+
+            // Generate mermaid code in background, then render
+            final String contentText = content;
+            SwingWorker<String, Void> genWorker = new SwingWorker<String, Void>() {
+                @Override
+                protected String doInBackground() {
+                    return parseMermaidFromOutline(contentText);
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        String mermaidCode = get();
+                        if (mermaidCode == null) {
+                            JOptionPane.showMessageDialog(mainPanel,
+                                    "Kein Diagramm erzeugbar \u2014 die Datei enth\u00E4lt keine erkennbare Struktur.",
+                                    "Diagramm", JOptionPane.INFORMATION_MESSAGE);
+                            diagramViewActive = false;
+                            diagramToggleButton.setSelected(false);
+                            contentPanelRef.removeAll();
+                            contentPanelRef.add(contentScrollRef, BorderLayout.CENTER);
+                            contentPanelRef.revalidate();
+                            contentPanelRef.repaint();
+                            return;
+                        }
+                        mermaidDiagramPanel.setMermaidSource(mermaidCode);
+                    } catch (Exception ex) {
+                        diagramViewActive = false;
+                        diagramToggleButton.setSelected(false);
+                        contentPanelRef.removeAll();
+                        contentPanelRef.add(contentScrollRef, BorderLayout.CENTER);
+                        contentPanelRef.revalidate();
+                        contentPanelRef.repaint();
+                    }
+                }
+            };
+            genWorker.execute();
         } else {
             // Restore normal content view
             searchBar.resetToEnterButton();

@@ -181,6 +181,9 @@ public class LeftDrawer extends JPanel {
     public void addApplicationState(Map<String, String> state) {
         if (state == null) return;
         state.put("drawer.left.selectedTab", String.valueOf(tabbedPane.getSelectedIndex()));
+        if (relationsSplitPane != null) {
+            state.put("drawer.left.relationsSplitDivider", String.valueOf(relationsSplitPane.getDividerLocation()));
+        }
     }
 
     /**
@@ -194,6 +197,15 @@ public class LeftDrawer extends JPanel {
                 int idx = Integer.parseInt(tabIdx);
                 if (idx >= 0 && idx < tabbedPane.getTabCount()) {
                     tabbedPane.setSelectedIndex(idx);
+                }
+            } catch (NumberFormatException ignored) { /* keep default */ }
+        }
+        String splitDiv = state.get("drawer.left.relationsSplitDivider");
+        if (splitDiv != null && relationsSplitPane != null) {
+            try {
+                int div = Integer.parseInt(splitDiv);
+                if (div > 0) {
+                    relationsSplitPane.setDividerLocation(div);
                 }
             } catch (NumberFormatException ignored) { /* keep default */ }
         }
