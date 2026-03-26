@@ -266,6 +266,39 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
         // Add JES Submit button for FTP+MVS+JCL tabs
         initJesSubmitButton(content, sentenceType);
+
+        // ── Populate ℹ info popup with resource-specific metadata ──
+        populateInfoProperties();
+    }
+
+    /**
+     * Populate the ℹ info popup properties with metadata from the VirtualResource.
+     * For NDV backends, adds Natural object details (Type, Library, User, Date, DBID/FNR).
+     * For FTP backends, adds the remote path.
+     */
+    private void populateInfoProperties() {
+        if (resource == null) return;
+
+        addInfoProperty("Pfad", resource.getResolvedPath());
+        addInfoProperty("Backend", resource.getBackendType().name());
+
+        // ── NDV-specific metadata from NdvResourceState ──
+        NdvResourceState ndvState = resource.getNdvState();
+        if (ndvState != null) {
+            de.bund.zrb.ndv.NdvObjectInfo obj = ndvState.getObjectInfo();
+            if (obj != null) {
+                addInfoProperty("Library", ndvState.getLibrary());
+                addInfoProperty("Typ", obj.getTypeName());
+                addInfoProperty("User", obj.getUser());
+                addInfoProperty("Datum", obj.getSourceDate());
+                addInfoProperty("Größe", obj.getSourceSize() > 0
+                        ? obj.getSourceSize() + " Bytes" : null);
+                addInfoProperty("DBID", obj.getDatabaseId() > 0
+                        ? String.valueOf(obj.getDatabaseId()) : null);
+                addInfoProperty("FNR", obj.getFileNumber() > 0
+                        ? String.valueOf(obj.getFileNumber()) : null);
+            }
+        }
     }
 
     /**

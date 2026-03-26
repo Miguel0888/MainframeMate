@@ -227,6 +227,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /** Line-wrap toggle checkbox (in toolbar). */
     protected JCheckBox lineWrapCheckBox;
 
+    /** Extra info properties shown in the ℹ popup (populated by subclasses). */
+    protected final java.util.LinkedHashMap<String, String> infoProperties = new java.util.LinkedHashMap<String, String>();
+
+    /** The ℹ button in the toolbar. */
+    private JButton infoButton;
+
     // ── Step-search navigation state ──
     /** All match positions (character offsets) in the current rawPane search. */
     protected java.util.List<Integer> findMatchPositions = new java.util.ArrayList<Integer>();
@@ -908,6 +914,13 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         sidebarBtn.setToolTipText("Datei-Details und Index-Status anzeigen");
         sidebarBtn.addActionListener(e -> toggleSidebar());
         toolbar.add(sidebarBtn);
+
+        // ── Info button (ℹ) ──
+        infoButton = new JButton("ℹ");
+        infoButton.setToolTipText("Zusätzliche Informationen zu dieser Datei");
+        infoButton.setFocusable(false);
+        infoButton.addActionListener(e -> showInfoPopup());
+        toolbar.add(infoButton);
 
         return toolbar;
     }
@@ -2461,5 +2474,76 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
      */
     public String getSyntaxStyle() {
         return syntaxStyle;
+    }
+
+    /**
+     * Add extra info properties that will be shown when the ℹ button is clicked.
+     * Subclasses (e.g. FileTabImpl) call this to add NDV/FTP specific metadata.
+     *
+     * @param key   display label (e.g. "Library", "User")
+     * @param value the value (null/empty values are ignored)
+     */
+    public void addInfoProperty(String key, String value) {
+        if (key != null && value != null && !value.isEmpty()) {
+            infoProperties.put(key, value);
+        }
+    }
+
+    /**
+     * Show the extra info popup with details about the file (BetaView-style ℹ popup).
+     * Combines generic file metadata with any extra properties set by subclasses.
+     */
+    protected void showInfoPopup() {
+        JPopupMenu infoPopup = new JPopupMenu();
+        JPanel content = new JPanel(new GridBagLayout());
+        content.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.anchor = GridBagConstraints.NORTHWEST;
+        gc.insets = new Insets(2, 4, 2, 8);
+        gc.gridy = 0;
+
+        // ── Extra properties first (NDV metadata, etc.) ──
+        for (Map.Entry<String, String> entry : infoProperties.entrySet()) {
+            if (entry.getValue() != null && !entry.getValue().isEmpty()) {
+                addInfoPopupRow(content, gc, entry.getKey(), entry.getValue());
+            }
+        }
+
+        // ── Generic file metadata as fallback ──
+        if (!infoProperties.containsKey("Datei")) {
+            addInfoPopupRow(content, gc, "Datei", sourceName);
+        }
+        if (!infoProperties.containsKey("Backend")) {
+            addInfoPopupRow(content, gc, "Backend", backendType);
+        }
+        if (metadata != null && metadata.getMimeType() != null
+                && !infoProperties.containsKey("MIME")) {
+            addInfoPopupRow(content, gc, "MIME", metadata.getMimeType());
+        }
+
+        if (gc.gridy == 0) {
+            // No info at all
+            content.add(new JLabel("Keine zusätzlichen Informationen verfügbar."));
+        }
+
+        infoPopup.add(content);
+        infoPopup.show(infoButton, 0, infoButton.getHeight());
+    }
+
+    /** Add a label+value row to the info popup (BetaView style). */
+    private static void addInfoPopupRow(JPanel panel, GridBagConstraints gc, String label, String value) {
+        gc.gridx = 0;
+        gc.weightx = 0.0;
+        gc.fill = GridBagConstraints.NONE;
+        JLabel lbl = new JLabel(label + ":");
+        lbl.setFont(lbl.getFont().deriveFont(Font.BOLD));
+        panel.add(lbl, gc);
+
+        gc.gridx = 1;
+        gc.weightx = 1.0;
+        gc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(new JLabel(value != null ? value : "\u2013"), gc);
+        gc.gridy++;
     }
 }
