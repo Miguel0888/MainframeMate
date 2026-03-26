@@ -209,4 +209,19 @@ public class HttpRerankerClient implements RerankerClient {
         return (settings.getModel() != null ? settings.getModel() : "unknown")
                 + " @ " + settings.getApiUrl();
     }
+
+    @Override
+    public int getCandidatePoolSize() {
+        return settings.getCandidatePoolSize();
+    }
+
+    @Override
+    public int getTopN() {
+        return settings.getTopN();
+    }
+
+    @Override
+    public float getScoreThreshold() {
+        return settings.getScoreThreshold();
+    }
 }

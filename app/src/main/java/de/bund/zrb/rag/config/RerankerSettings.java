@@ -69,7 +69,7 @@ public class RerankerSettings {
      * Should be larger than {@code topN} — typically 3–5× larger.
      * The reranker scores all candidates and keeps only the best {@code topN}.
      */
-    private int candidatePoolSize = 25;
+    private int candidatePoolSize = 50;
 
     /** HTTP request timeout in seconds. */
     private int timeoutSeconds = 30;
@@ -193,7 +193,7 @@ public class RerankerSettings {
         try { result.setTopN(Integer.parseInt(cfg.getOrDefault("topN", "5"))); }
         catch (NumberFormatException e) { /* keep default */ }
 
-        try { result.setCandidatePoolSize(Integer.parseInt(cfg.getOrDefault("candidatePoolSize", "25"))); }
+        try { result.setCandidatePoolSize(Integer.parseInt(cfg.getOrDefault("candidatePoolSize", "50"))); }
         catch (NumberFormatException e) { /* keep default */ }
 
         try { result.setTimeoutSeconds(Integer.parseInt(cfg.getOrDefault("timeout", "30"))); }

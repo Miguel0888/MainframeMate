@@ -12,7 +12,38 @@ import java.util.*;
 import java.util.logging.Logger;
 
 /**
- * Hybrid retriever that combines lexical (BM25) and semantic (embedding) search.
+ * Hybrid retriever implementing a 3-stage RAG retrieval pipeline:
+ *
+ * <pre>
+ * ┌─────────────────────────────────────────────────────────────────────┐
+ * │  Stage 1 — BM25 (Lucene)         "Keyword Fishing Net"            │
+ * │  Fast keyword matching. Catches exact terms, acronyms, IDs.       │
+ * │  → hundreds of candidate chunks                                   │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │  Stage 2 — Vectors / HNSW        "Semantic Magnet"                │
+ * │  Bi-encoder embeddings. Pulls semantically similar chunks from    │
+ * │  millions in milliseconds. Vectors are ONLY for pre-selection.    │
+ * │  → hundreds of candidate chunks                                   │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │  Merge: BM25 ∪ Vectors → weighted hybrid score → top ~50 pool    │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │  Stage 3 — Reranker (optional)    "Cross-Encoder Magnifying Glass"│
+ * │  Takes the RAW TEXT of the ~50 candidates + query, scores each    │
+ * │  (query, passage) pair jointly. Much more accurate than vectors.  │
+ * │  Does NOT use vectors — works purely on text.                     │
+ * │  → final top 3–5 chunks for LLM context                          │
+ * └─────────────────────────────────────────────────────────────────────┘
+ * </pre>
+ *
+ * <p><b>Why both vectors AND reranker?</b>
+ * <ul>
+ *   <li>Vectors make the system <em>scalable</em> (speed over millions of chunks)</li>
+ *   <li>Reranking makes the system <em>intelligent</em> (precision on the final few)</li>
+ * </ul>
+ *
+ * <p>Without vectors you'd need to run the cross-encoder on every chunk in the
+ * index — that would take minutes instead of milliseconds. Without the reranker
+ * you miss the "deep reading" that catches subtle relevance cues.
  */
 public class HybridRetriever {
 
@@ -143,45 +174,79 @@ public class HybridRetriever {
             merged = mergeAndScore(lexicalResults, semanticResults);
         }
 
-        // Sort by score and take initial candidate set.
-        // When a reranker is active, keep a larger candidate pool so the cross-encoder
-        // can re-score more passages and find the truly best ones.
+        // ══════════════════════════════════════════════════════════════════
+        // Build the candidate pool for Stage 3 (Reranker) or final output.
+        //
+        // When a reranker is active:  keep a larger candidate pool (e.g. 50)
+        //   so the cross-encoder has enough material to find the real gems.
+        //   The pool size comes from RerankerClient.getCandidatePoolSize().
+        //
+        // Without reranker:  use the caller's topK directly.
+        // ══════════════════════════════════════════════════════════════════
         Collections.sort(merged);
         RerankerClient reranker = this.rerankerClient;
         boolean willRerank = reranker != null && reranker.isAvailable();
-        int candidatePoolSize = willRerank ? Math.max(topK * 3, merged.size()) : topK;
-        // Clamp to actual size
-        candidatePoolSize = Math.min(candidatePoolSize, merged.size());
-        List<ScoredChunk> topResults = merged.size() > candidatePoolSize
-                ? new ArrayList<>(merged.subList(0, candidatePoolSize))
+
+        int poolSize;
+        if (willRerank) {
+            // Use the configured candidate pool size (default 25–50).
+            // This is how many text snippets we'll send to the cross-encoder.
+            poolSize = Math.max(reranker.getCandidatePoolSize(), topK);
+        } else {
+            poolSize = topK;
+        }
+        poolSize = Math.min(poolSize, merged.size());
+
+        List<ScoredChunk> topResults = merged.size() > poolSize
+                ? new ArrayList<>(merged.subList(0, poolSize))
                 : new ArrayList<>(merged);
 
         // ══════════════════════════════════════════════════════════════════
-        // Cross-encoder reranking (optional)
+        // Stage 3 — Cross-encoder reranking (optional)
         //
-        // If a reranker client is configured and available, we take the
-        // initial candidate pool and re-score every (query, passage) pair
-        // with a cross-encoder model (e.g. BAAI/bge-reranker-v2-m3).
-        // Cross-encoders process query and passage jointly and produce
-        // much more accurate relevance scores than bi-encoder similarity.
+        // The reranker does NOT use vectors. It receives the RAW TEXT of
+        // each candidate passage together with the user's query and scores
+        // each (query, passage) pair jointly through a cross-encoder model
+        // (e.g. BAAI/bge-reranker-v2-m3).
+        //
+        // This "deep reading" produces far more accurate relevance scores
+        // than the bi-encoder cosine similarity from Stage 2, because the
+        // cross-encoder can attend to fine-grained interactions between
+        // query tokens and passage tokens.
+        //
+        // Flow:
+        //   1. Load raw text snippets for the ~50 candidate chunk IDs
+        //   2. POST { query, documents: [text1, text2, ...] } to reranker
+        //   3. Receive relevance scores per passage
+        //   4. Filter by score threshold, sort, take final top-N
         // ══════════════════════════════════════════════════════════════════
         if (willRerank && !topResults.isEmpty()) {
             try {
                 long rerankStart = System.currentTimeMillis();
 
-                // Collect passage texts for the reranker
+                // Collect the raw text of each candidate — this is what the
+                // reranker "reads", not the vectors.
                 List<String> passages = new ArrayList<>(topResults.size());
                 for (ScoredChunk sc : topResults) {
                     passages.add(sc.getText());
                 }
 
-                // Call the cross-encoder reranker
+                // Call the cross-encoder reranker API
                 float[] rerankScores = reranker.rerank(query, passages);
 
-                // Rebuild scored chunks with reranker scores
+                // Rebuild scored chunks with the reranker's relevance scores
                 List<ScoredChunk> reranked = new ArrayList<>(topResults.size());
+                float threshold = reranker.getScoreThreshold();
+
                 for (int i = 0; i < topResults.size(); i++) {
                     float newScore = (i < rerankScores.length) ? rerankScores[i] : 0f;
+
+                    // Apply score threshold: discard passages the reranker
+                    // considers irrelevant, even if they were in the pool.
+                    if (threshold > 0f && newScore < threshold) {
+                        continue;
+                    }
+
                     reranked.add(new ScoredChunk(
                             topResults.get(i).getChunk(),
                             newScore,
@@ -189,22 +254,42 @@ public class HybridRetriever {
                     ));
                 }
 
-                // Sort by reranker score (highest first) and take final top-K
+                // Sort by reranker score (highest first)
                 Collections.sort(reranked);
-                topResults = reranked.size() > topK ? new ArrayList<>(reranked.subList(0, topK)) : reranked;
+
+                // Take final top-N from the reranker settings.
+                // This is typically much smaller than the candidate pool
+                // (e.g. 3–5 vs. 50) — only the truly relevant chunks survive.
+                int finalTopN = Math.min(reranker.getTopN(), topK);
+                if (reranked.size() > finalTopN) {
+                    reranked = new ArrayList<>(reranked.subList(0, finalTopN));
+                }
+                topResults = reranked;
 
                 long rerankDuration = System.currentTimeMillis() - rerankStart;
-                LOG.info(String.format("Reranking: %d candidates → %d results in %dms (model=%s)",
-                        passages.size(), topResults.size(), rerankDuration, reranker.getDescription()));
+                LOG.info(String.format(
+                        "Stage 3 Reranking: %d candidates (raw text) → %d results in %dms "
+                      + "(model=%s, threshold=%.2f)",
+                        passages.size(), topResults.size(), rerankDuration,
+                        reranker.getDescription(), threshold));
             } catch (Exception e) {
-                // Reranking is best-effort — fall back to the original order
-                LOG.warning("Reranking failed, using original scores: " + e.getMessage());
+                // Reranking is best-effort — if it fails, fall through with
+                // the Stage 1+2 hybrid scores (still useful, just less precise).
+                LOG.warning("Stage 3 reranking failed, falling back to hybrid scores: " + e.getMessage());
+                // Trim to topK since we kept a larger pool for reranking
+                if (topResults.size() > topK) {
+                    topResults = new ArrayList<>(topResults.subList(0, topK));
+                }
             }
         }
 
         long duration = System.currentTimeMillis() - startTime;
-        LOG.info(String.format("Hybrid retrieval: %d results in %dms (lexical=%d, semantic=%d)",
-                topResults.size(), duration, lexicalResults.size(), semanticResults.size()));
+        LOG.info(String.format(
+                "RAG retrieval complete: %d final results in %dms "
+              + "(Stage1-BM25=%d, Stage2-Vector=%d, merged=%d%s)",
+                topResults.size(), duration,
+                lexicalResults.size(), semanticResults.size(), merged.size(),
+                willRerank ? ", Stage3-Reranked" : ""));
 
         return new ArrayList<>(topResults);
     }

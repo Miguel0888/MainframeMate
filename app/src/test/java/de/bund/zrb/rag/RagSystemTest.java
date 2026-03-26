@@ -215,7 +215,8 @@ class RagSystemTest {
         assertTrue(result.getContext().contains("RETRIEVED CONTEXT"));
         assertTrue(result.getContext().contains("Test Document"));
         assertTrue(result.getContext().contains("relevant content"));
-        assertTrue(result.getContext().contains("0.85"));
+        assertTrue(result.getContext().contains("0.850") || result.getContext().contains("0,850"),
+                "Context should contain score 0.850 or 0,850, actual:\n" + result.getContext());
     }
 
     @Test

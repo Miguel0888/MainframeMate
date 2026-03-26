@@ -42,16 +42,24 @@ public class RerankerSettingsPanel extends AbstractSettingsPanel {
         FormBuilder fb = new FormBuilder();
 
         // ── Header ──────────────────────────────────────────────────
-        fb.addInfo("<html><b>Cross-Encoder Reranker</b> — verbessert die RAG-Suche dramatisch.<br><br>"
-                + "Ein Reranker bewertet jedes (Query, Passage)-Paar mit einem Cross-Encoder-Modell,<br>"
-                + "das deutlich genauere Relevanz-Scores liefert als die initiale Embedding-Ähnlichkeit.<br><br>"
-                + "<b>Pipeline:</b> Hybrid-Suche (BM25 + Embedding) → <b>Reranker</b> → Top-N Auswahl → LLM-Kontext<br><br>"
+        fb.addInfo("<html><b>Cross-Encoder Reranker</b> — Stufe 3 der RAG-Pipeline<br><br>"
+                + "<b>3-Stufen-Architektur:</b><br>"
+                + "① <b>BM25 (Lucene)</b> — schnelles Keyword-Matching → hunderte Treffer<br>"
+                + "② <b>Vektoren (Embeddings)</b> — semantischer \"Magnet\", zieht in Millisekunden<br>"
+                + "&nbsp;&nbsp;&nbsp;&nbsp;die ~50 vielversprechendsten Kandidaten aus Millionen von Chunks<br>"
+                + "③ <b>Reranker</b> — \"Lupe\": liest den <i>rohen Text</i> (nicht Vektoren!) der ~50<br>"
+                + "&nbsp;&nbsp;&nbsp;&nbsp;Kandidaten zusammen mit der Frage und erkennt, welche 3–5 wirklich relevant sind<br><br>"
+                + "<b>Warum beides?</b><br>"
+                + "• Vektoren = <em>Skalierbarkeit</em> (Geschwindigkeit über Millionen von Chunks)<br>"
+                + "• Reranker = <em>Intelligenz</em> (Präzision bei den finalen wenigen)<br><br>"
                 + "<b>Empfohlene Modelle:</b><br>"
                 + "• <code>BAAI/bge-reranker-v2-m3</code> — multilingual, schnell, exzellente Qualität<br>"
                 + "• <code>BAAI/bge-reranker-v2-gemma</code> — größer, höchste Qualität<br>"
                 + "• <code>cross-encoder/ms-marco-MiniLM-L-6-v2</code> — English-only, sehr schnell<br><br>"
                 + "<b>Server-Optionen:</b><br>"
-                + "• <code>HuggingFace TEI</code>: <code>docker run -p 8082:80 ghcr.io/huggingface/text-embeddings-inference --model-id BAAI/bge-reranker-v2-m3</code><br>"
+                + "• <code>HuggingFace TEI</code>: "
+                + "<code>docker run -p 8082:80 ghcr.io/huggingface/text-embeddings-inference "
+                + "--model-id BAAI/bge-reranker-v2-m3</code><br>"
                 + "• <code>Jina API</code>: <code>https://api.jina.ai/v1/rerank</code> (API-Key erforderlich)<br>"
                 + "• <code>Ollama</code> mit kompatiblem Modell</html>");
 
@@ -92,11 +100,13 @@ public class RerankerSettingsPanel extends AbstractSettingsPanel {
         fb.addRow("Top-N (finale Ergebnisse):", topNSpinner);
 
         // ── Candidate Pool ──────────────────────────────────────────
-        candidatePoolSpinner = new JSpinner(new SpinnerNumberModel(25, 5, 200, 5));
+        candidatePoolSpinner = new JSpinner(new SpinnerNumberModel(50, 5, 200, 5));
         fb.addRow("Kandidaten-Pool:", candidatePoolSpinner);
 
-        fb.addInfo("<html><small>Der Kandidaten-Pool bestimmt, wie viele Ergebnisse aus der Hybrid-Suche<br>"
-                + "an den Reranker gesendet werden. Sollte 3–5× größer als Top-N sein.</small></html>");
+        fb.addInfo("<html><small>Der Kandidaten-Pool bestimmt, wie viele Treffer aus Stufe 1+2 (BM25 + Vektoren)<br>"
+                + "an den Reranker gesendet werden. Der Reranker liest den <b>rohen Text</b> dieser Chunks<br>"
+                + "(nicht die Vektoren!) und bestimmt, welche davon wirklich zur Frage passen.<br>"
+                + "Empfohlen: 3–10× größer als Top-N. Standard: 50.</small></html>");
 
         // ── Score Threshold ─────────────────────────────────────────
         scoreThresholdField = new JTextField("0.0", 8);
