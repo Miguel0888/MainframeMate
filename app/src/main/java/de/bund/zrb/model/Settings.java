@@ -235,6 +235,7 @@ public class Settings {
 
     public HashMap<String, String> aiConfig = new HashMap<>();
     public HashMap<String, String> embeddingConfig = new HashMap<>(); // Separate embedding settings
+    public HashMap<String, String> rerankerConfig = new HashMap<>();  // Cross-encoder reranker settings
     public String defaultWorkflow = "";
     public HashMap<String, List<String>> fileImportVariables = new HashMap<>();
     public long workflowTimeout = 10_000; // 10 Sekunden default

@@ -12,7 +12,9 @@ public final class ScoredChunk implements Comparable<ScoredChunk> {
     public enum ScoreSource {
         LEXICAL,
         SEMANTIC,
-        HYBRID
+        HYBRID,
+        /** Score was produced by a cross-encoder reranker (e.g. BAAI/bge-reranker-v2-m3). */
+        RERANKED
     }
 
     public ScoredChunk(Chunk chunk, float score, ScoreSource source) {

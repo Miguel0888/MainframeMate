@@ -16,7 +16,7 @@ import java.util.List;
  */
 public class SettingsDialog {
 
-    public static final int TAB_INDEX_DEBUG = 20;
+    public static final int TAB_INDEX_DEBUG = 21;
 
     public static void show(Component parent) {
         show(parent, 0);
@@ -41,6 +41,7 @@ public class SettingsDialog {
         categories.add(new MailSettingsPanel());
         categories.add(new AiSettingsPanel());
         categories.add(wrapPanel("rag", "RAG", ragPanel, ragPanel::saveToSettings));
+        categories.add(new RerankerSettingsPanel());
         categories.add(new ProxySettingsPanel(parent));
         categories.add(new SecuritySettingsPanel());
         categories.add(wrapPanel("mcp", "MCP Registry", new McpRegistryPanel(), null));

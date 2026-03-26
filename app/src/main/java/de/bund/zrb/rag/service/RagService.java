@@ -6,10 +6,12 @@ import de.bund.zrb.ingestion.usecase.RenderDocumentUseCase;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.rag.config.EmbeddingSettings;
 import de.bund.zrb.rag.config.RagConfig;
+import de.bund.zrb.rag.config.RerankerSettings;
 import de.bund.zrb.rag.infrastructure.InMemorySemanticIndex;
 import de.bund.zrb.rag.infrastructure.LuceneLexicalIndex;
 import de.bund.zrb.rag.infrastructure.MarkdownChunker;
 import de.bund.zrb.rag.infrastructure.MultiProviderEmbeddingClient;
+import de.bund.zrb.rag.infrastructure.HttpRerankerClient;
 import de.bund.zrb.rag.model.Chunk;
 import de.bund.zrb.rag.model.ScoredChunk;
 import de.bund.zrb.rag.port.Chunker;
@@ -71,10 +73,14 @@ public class RagService {
     private final ExecutorService executor;
 
     public RagService() {
-        this(RagConfig.defaults(), EmbeddingSettings.fromStoredConfig());
+        this(RagConfig.defaults(), EmbeddingSettings.fromStoredConfig(), RerankerSettings.fromStoredConfig());
     }
 
     public RagService(RagConfig config, EmbeddingSettings embeddingSettings) {
+        this(config, embeddingSettings, RerankerSettings.fromStoredConfig());
+    }
+
+    public RagService(RagConfig config, EmbeddingSettings embeddingSettings, RerankerSettings rerankerSettings) {
         this.config = config;
         this.embeddingSettings = embeddingSettings;
 
@@ -85,6 +91,13 @@ public class RagService {
         this.retriever = new HybridRetriever(lexicalIndex, semanticIndex, embeddingClient, config);
         this.contextBuilder = new RagContextBuilder(config);
         this.renderUseCase = new RenderDocumentUseCase(RendererRegistry.createDefault());
+
+        // Wire up optional cross-encoder reranker
+        if (rerankerSettings != null && rerankerSettings.isEnabled()) {
+            HttpRerankerClient rerankerClient = new HttpRerankerClient(rerankerSettings);
+            retriever.setRerankerClient(rerankerClient);
+            LOG.info("Reranker enabled: " + rerankerClient.getDescription());
+        }
 
         this.executor = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "RagIndexer");
@@ -567,6 +580,21 @@ public class RagService {
     public void updateEmbeddingSettings(EmbeddingSettings newSettings) {
         this.embeddingClient = new MultiProviderEmbeddingClient(newSettings);
         LOG.info("Embedding client updated: " + newSettings.getProvider() + " " + newSettings.getModel());
+    }
+
+    /**
+     * Update reranker settings and recreate the client.
+     * Pass settings with {@code enabled=false} to disable reranking.
+     */
+    public void updateRerankerSettings(RerankerSettings newSettings) {
+        if (newSettings != null && newSettings.isEnabled()) {
+            HttpRerankerClient client = new HttpRerankerClient(newSettings);
+            retriever.setRerankerClient(client);
+            LOG.info("Reranker updated: " + client.getDescription());
+        } else {
+            retriever.setRerankerClient(null);
+            LOG.info("Reranker disabled");
+        }
     }
 
     /**

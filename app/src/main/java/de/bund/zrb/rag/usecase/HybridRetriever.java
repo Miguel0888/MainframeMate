@@ -5,6 +5,7 @@ import de.bund.zrb.rag.model.Chunk;
 import de.bund.zrb.rag.model.ScoredChunk;
 import de.bund.zrb.rag.port.EmbeddingClient;
 import de.bund.zrb.rag.port.LexicalIndex;
+import de.bund.zrb.rag.port.RerankerClient;
 import de.bund.zrb.rag.port.SemanticIndex;
 
 import java.util.*;
@@ -22,12 +23,33 @@ public class HybridRetriever {
     private final EmbeddingClient embeddingClient;
     private final RagConfig config;
 
+    /**
+     * Optional cross-encoder reranker. When set and available, the retriever
+     * fetches a larger candidate pool, then reranks to get the final top-K.
+     * This dramatically improves relevance for RAG queries.
+     */
+    private volatile RerankerClient rerankerClient;
+
     public HybridRetriever(LexicalIndex lexicalIndex, SemanticIndex semanticIndex,
                           EmbeddingClient embeddingClient, RagConfig config) {
         this.lexicalIndex = lexicalIndex;
         this.semanticIndex = semanticIndex;
         this.embeddingClient = embeddingClient;
         this.config = config;
+    }
+
+    /**
+     * Set or replace the reranker client. Pass {@code null} to disable reranking.
+     */
+    public void setRerankerClient(RerankerClient rerankerClient) {
+        this.rerankerClient = rerankerClient;
+    }
+
+    /**
+     * Returns the current reranker client, or {@code null} if none is configured.
+     */
+    public RerankerClient getRerankerClient() {
+        return rerankerClient;
     }
 
     /**
@@ -121,9 +143,64 @@ public class HybridRetriever {
             merged = mergeAndScore(lexicalResults, semanticResults);
         }
 
-        // Sort by score and take top-K
+        // Sort by score and take initial candidate set.
+        // When a reranker is active, keep a larger candidate pool so the cross-encoder
+        // can re-score more passages and find the truly best ones.
         Collections.sort(merged);
-        List<ScoredChunk> topResults = merged.size() > topK ? merged.subList(0, topK) : merged;
+        RerankerClient reranker = this.rerankerClient;
+        boolean willRerank = reranker != null && reranker.isAvailable();
+        int candidatePoolSize = willRerank ? Math.max(topK * 3, merged.size()) : topK;
+        // Clamp to actual size
+        candidatePoolSize = Math.min(candidatePoolSize, merged.size());
+        List<ScoredChunk> topResults = merged.size() > candidatePoolSize
+                ? new ArrayList<>(merged.subList(0, candidatePoolSize))
+                : new ArrayList<>(merged);
+
+        // ══════════════════════════════════════════════════════════════════
+        // Cross-encoder reranking (optional)
+        //
+        // If a reranker client is configured and available, we take the
+        // initial candidate pool and re-score every (query, passage) pair
+        // with a cross-encoder model (e.g. BAAI/bge-reranker-v2-m3).
+        // Cross-encoders process query and passage jointly and produce
+        // much more accurate relevance scores than bi-encoder similarity.
+        // ══════════════════════════════════════════════════════════════════
+        if (willRerank && !topResults.isEmpty()) {
+            try {
+                long rerankStart = System.currentTimeMillis();
+
+                // Collect passage texts for the reranker
+                List<String> passages = new ArrayList<>(topResults.size());
+                for (ScoredChunk sc : topResults) {
+                    passages.add(sc.getText());
+                }
+
+                // Call the cross-encoder reranker
+                float[] rerankScores = reranker.rerank(query, passages);
+
+                // Rebuild scored chunks with reranker scores
+                List<ScoredChunk> reranked = new ArrayList<>(topResults.size());
+                for (int i = 0; i < topResults.size(); i++) {
+                    float newScore = (i < rerankScores.length) ? rerankScores[i] : 0f;
+                    reranked.add(new ScoredChunk(
+                            topResults.get(i).getChunk(),
+                            newScore,
+                            ScoredChunk.ScoreSource.RERANKED
+                    ));
+                }
+
+                // Sort by reranker score (highest first) and take final top-K
+                Collections.sort(reranked);
+                topResults = reranked.size() > topK ? new ArrayList<>(reranked.subList(0, topK)) : reranked;
+
+                long rerankDuration = System.currentTimeMillis() - rerankStart;
+                LOG.info(String.format("Reranking: %d candidates → %d results in %dms (model=%s)",
+                        passages.size(), topResults.size(), rerankDuration, reranker.getDescription()));
+            } catch (Exception e) {
+                // Reranking is best-effort — fall back to the original order
+                LOG.warning("Reranking failed, using original scores: " + e.getMessage());
+            }
+        }
 
         long duration = System.currentTimeMillis() - startTime;
         LOG.info(String.format("Hybrid retrieval: %d results in %dms (lexical=%d, semantic=%d)",
