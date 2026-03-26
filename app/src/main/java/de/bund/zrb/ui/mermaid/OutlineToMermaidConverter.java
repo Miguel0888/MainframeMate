@@ -871,9 +871,8 @@ public final class OutlineToMermaidConverter {
     private static String convertJclMindmap(JclOutlineModel model, CallTreeNode callTree) {
         StringBuilder sb = new StringBuilder("mindmap\n");
         List<JclElement> jobs = model.getJobs();
-        List<JclElement> steps = model.getSteps();
 
-        // Root node
+        // Root node = file / job name
         String rootName = "JCL";
         if (!jobs.isEmpty() && jobs.get(0).getName() != null) {
             rootName = jobs.get(0).getName();
@@ -881,26 +880,18 @@ public final class OutlineToMermaidConverter {
         sb.append("  root((").append(escMm(rootName)).append("))\n");
 
         if (callTree != null && !callTree.getChildren().isEmpty()) {
-            // Use call tree for external calls with recursive depth
-            sb.append("    Externe Aufrufe\n");
-            appendCallTreeChildren(sb, callTree, 6);
-        } else if (!steps.isEmpty()) {
-            // Steps
-            for (JclElement step : steps) {
-                String label = step.getName() != null ? step.getName() : "(Step)";
+            // Each external call is a direct branch of root, recursively resolved
+            appendCallTreeChildren(sb, callTree, 4);
+        } else {
+            // Fallback: external targets from steps (PGM/PROC)
+            Set<String> seen = new LinkedHashSet<String>();
+            for (JclElement step : model.getSteps()) {
                 String pgm = step.getParameter("PGM");
                 String proc = step.getParameter("PROC");
-                sb.append("    ").append(escMm(label)).append("\n");
-                if (pgm != null) {
-                    sb.append("      PGM=").append(escMm(pgm)).append("\n");
-                } else if (proc != null) {
-                    sb.append("      PROC=").append(escMm(proc)).append("\n");
+                String target = pgm != null ? pgm : proc;
+                if (target != null && seen.add(target.toUpperCase())) {
+                    sb.append("    ").append(escMm(target)).append("\n");
                 }
-            }
-        } else {
-            // Flat list
-            for (JclElement e : model.getElements()) {
-                sb.append("    ").append(escMm(e.getName() != null ? e.getName() : e.getType().getDisplayName())).append("\n");
             }
         }
 
@@ -911,7 +902,7 @@ public final class OutlineToMermaidConverter {
         StringBuilder sb = new StringBuilder("mindmap\n");
         List<JclElement> all = model.getElements();
 
-        // Root: program ID
+        // Root = program ID
         String progName = "COBOL";
         for (JclElement e : all) {
             if (e.getType() == JclElementType.PROGRAM_ID && e.getName() != null) {
@@ -922,31 +913,16 @@ public final class OutlineToMermaidConverter {
         sb.append("  root((").append(escMm(progName)).append("))\n");
 
         if (callTree != null && !callTree.getChildren().isEmpty()) {
-            // Recursive call tree as main content
-            sb.append("    Externe Aufrufe\n");
-            appendCallTreeChildren(sb, callTree, 6);
+            // Each external call is a direct branch of root, recursively resolved
+            appendCallTreeChildren(sb, callTree, 4);
         } else {
-            // Fallback: show structure overview + flat external calls
-            // Paragraphs
-            List<JclElement> paras = model.getParagraphs();
-            if (!paras.isEmpty()) {
-                sb.append("    Paragraphen\n");
-                for (JclElement p : paras) {
-                    sb.append("      ").append(escMm(p.getName())).append("\n");
-                }
-            }
-
-            // External calls (flat, no recursion)
-            boolean hasCall = false;
+            // Fallback: flat external call targets
+            Set<String> seen = new LinkedHashSet<String>();
             for (JclElement e : all) {
                 if (e.getType() == JclElementType.CALL_STMT) {
-                    if (!hasCall) {
-                        sb.append("    Externe Aufrufe\n");
-                        hasCall = true;
-                    }
                     String target = e.getParameter("TARGET");
-                    if (target != null) {
-                        sb.append("      CALL ").append(escMm(target)).append("\n");
+                    if (target != null && seen.add(target.toUpperCase())) {
+                        sb.append("    ").append(escMm(target)).append("\n");
                     }
                 }
             }
@@ -959,7 +935,7 @@ public final class OutlineToMermaidConverter {
         StringBuilder sb = new StringBuilder("mindmap\n");
         List<JclElement> all = model.getElements();
 
-        // Root: program name
+        // Root = program name
         String progName = model.getSourceName() != null ? model.getSourceName() : "Natural";
         for (JclElement e : all) {
             if (e.getType() == JclElementType.NAT_PROGRAM
@@ -972,35 +948,16 @@ public final class OutlineToMermaidConverter {
         sb.append("  root((").append(escMm(progName)).append("))\n");
 
         if (callTree != null && !callTree.getChildren().isEmpty()) {
-            // Recursive call tree as main content
-            sb.append("    Externe Aufrufe\n");
-            appendCallTreeChildren(sb, callTree, 6);
+            // Each external call is a direct branch of root, recursively resolved
+            appendCallTreeChildren(sb, callTree, 4);
         } else {
-            // Fallback: flat external calls
-            List<JclElement> calls = model.getNaturalCalls();
-            if (!calls.isEmpty()) {
-                sb.append("    Externe Aufrufe\n");
-                for (JclElement call : calls) {
-                    String target = call.getParameter("TARGET");
-                    if (target == null) target = call.getName();
-                    if (target != null) {
-                        sb.append("      ").append(escMm(call.getType().getDisplayName()))
-                                .append(" ").append(escMm(target)).append("\n");
-                    }
-                }
-            }
-        }
-
-        // DB operations (always shown)
-        List<JclElement> dbOps = model.getNaturalDbOps();
-        if (!dbOps.isEmpty()) {
-            sb.append("    DB-Zugriffe\n");
-            for (JclElement db : dbOps) {
-                String file = db.getParameter("FILE");
-                if (file == null) file = db.getName();
-                if (file != null) {
-                    sb.append("      ").append(escMm(db.getType().getDisplayName()))
-                            .append(" ").append(escMm(file)).append("\n");
+            // Fallback: flat external call targets
+            Set<String> seen = new LinkedHashSet<String>();
+            for (JclElement call : model.getNaturalCalls()) {
+                String target = call.getParameter("TARGET");
+                if (target == null) target = call.getName();
+                if (target != null && seen.add(target.toUpperCase())) {
+                    sb.append("    ").append(escMm(target)).append("\n");
                 }
             }
         }
@@ -1014,6 +971,8 @@ public final class OutlineToMermaidConverter {
 
     /**
      * Recursively append call tree children as mindmap indentation levels.
+     * Each child represents an external call to another file; its children
+     * are that file's own external calls — forming a pure call graph.
      *
      * @param sb         output builder
      * @param parent     parent call tree node
@@ -1021,20 +980,18 @@ public final class OutlineToMermaidConverter {
      */
     private static void appendCallTreeChildren(StringBuilder sb, CallTreeNode parent, int baseIndent) {
         // Mermaid mindmap indentation limit — deeper nesting becomes unreadable
-        int maxIndent = 16;
+        int maxIndent = 20;
         String indent = spaces(Math.min(baseIndent, maxIndent));
 
         for (CallTreeNode child : parent.getChildren()) {
+            // Label = target file name only (no call type prefix)
             String label = escMm(child.getName());
-            if (child.getCallType() != null) {
-                label = escMm(child.getCallType()) + " " + label;
-            }
             if (child.isRecursive()) {
-                label = label + " rekursiv";
+                label = label + " \uD83D\uDD04"; // 🔄
             }
             sb.append(indent).append(label).append("\n");
 
-            // Recurse into children (unless recursive to avoid infinite loops)
+            // Recurse: show external calls of that file as sub-branches
             if (!child.isRecursive() && !child.getChildren().isEmpty()) {
                 appendCallTreeChildren(sb, child, baseIndent + 2);
             }
