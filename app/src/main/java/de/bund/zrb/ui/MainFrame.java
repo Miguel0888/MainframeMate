@@ -519,6 +519,10 @@ public class MainFrame extends JFrame implements MainframeContext {
         leftSplitPane.setOneTouchExpandable(true);
 
         Settings settings = SettingsHelper.load();
+
+        // Restore persisted tab selection
+        leftDrawer.restoreApplicationState(settings.applicationState);
+
         String dividerValue = settings.applicationState.get("drawer.bookmark.divider");
 
         int divider = tryParseInt(dividerValue, 220);
@@ -1407,6 +1411,11 @@ public class MainFrame extends JFrame implements MainframeContext {
         // ChatDrawer-interne Settings
         if (rightDrawer != null) {
             rightDrawer.addApplicationState(state);
+        }
+
+        // LeftDrawer-interne Settings (selected tab)
+        if (leftDrawer != null) {
+            leftDrawer.addApplicationState(state);
         }
 
     }

@@ -11,6 +11,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 public class LeftDrawer extends JPanel {
@@ -168,6 +169,34 @@ public class LeftDrawer extends JPanel {
         add(tabbedPane, BorderLayout.CENTER);
 
         refreshBookmarks();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Application State persistence
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Persist the currently selected tab index into the application state map.
+     */
+    public void addApplicationState(Map<String, String> state) {
+        if (state == null) return;
+        state.put("drawer.left.selectedTab", String.valueOf(tabbedPane.getSelectedIndex()));
+    }
+
+    /**
+     * Restore the previously persisted tab selection.
+     */
+    public void restoreApplicationState(Map<String, String> state) {
+        if (state == null) return;
+        String tabIdx = state.get("drawer.left.selectedTab");
+        if (tabIdx != null) {
+            try {
+                int idx = Integer.parseInt(tabIdx);
+                if (idx >= 0 && idx < tabbedPane.getTabCount()) {
+                    tabbedPane.setSelectedIndex(idx);
+                }
+            } catch (NumberFormatException ignored) { /* keep default */ }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
