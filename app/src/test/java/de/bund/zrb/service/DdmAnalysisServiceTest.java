@@ -231,6 +231,38 @@ class DdmAnalysisServiceTest {
         assertTrue(foundPk, "Should find PK field for default sequence AA");
     }
 
+    @Test
+    void buildOutlineLineNumbersMatchActualSourceLines() {
+        JclOutlineModel model = service.buildOutline(EMPLOYEES_DDM, "EMPLOYEES.NSD");
+        String[] lines = EMPLOYEES_DDM.split("\\r?\\n");
+
+        // Verify that each outline element's line number points to a line containing its field name
+        for (JclElement elem : model.getElements()) {
+            if (elem.getType() == JclElementType.DDM_HEADER) continue; // header is always line 1
+
+            String longName = elem.getParameter("LONG_NAME");
+            int lineNum = elem.getLineNumber();
+            assertTrue(lineNum >= 1 && lineNum <= lines.length,
+                    "Line number " + lineNum + " out of range for " + longName);
+
+            String actualLine = lines[lineNum - 1]; // convert to 0-based
+            assertTrue(actualLine.contains(longName),
+                    "Line " + lineNum + " should contain '" + longName + "' but was: " + actualLine);
+
+            // Also check children (nested fields in groups)
+            for (JclElement child : elem.getChildren()) {
+                String childLongName = child.getParameter("LONG_NAME");
+                int childLineNum = child.getLineNumber();
+                assertTrue(childLineNum >= 1 && childLineNum <= lines.length,
+                        "Child line number " + childLineNum + " out of range for " + childLongName);
+                String childActualLine = lines[childLineNum - 1];
+                assertTrue(childActualLine.contains(childLongName),
+                        "Line " + childLineNum + " should contain '" + childLongName
+                                + "' but was: " + childActualLine);
+            }
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  Dependencies (programs using DDM)
     // ═══════════════════════════════════════════════════════════

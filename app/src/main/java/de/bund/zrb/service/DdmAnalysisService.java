@@ -143,11 +143,13 @@ public class DdmAnalysisService {
         // ── Field elements ──
         // Track the current group for nesting
         JclElement currentGroup = null;
-        int fieldLineOffset = findFieldStartLine(lines);
+        int searchFrom = findFieldStartLine(lines); // 0-based index to start searching
 
         for (int i = 0; i < ddm.getFields().size(); i++) {
             DdmField field = ddm.getFields().get(i);
-            int lineNum = fieldLineOffset + i + 1; // approximate line number
+            int lineIndex = findFieldLine(lines, field, searchFrom);
+            int lineNum = lineIndex + 1; // convert to 1-based
+            searchFrom = lineIndex + 1;  // next field must be after this one
 
             JclElementType type;
             if (field.isSuperdescriptor()) {
@@ -204,16 +206,46 @@ public class DdmAnalysisService {
     }
 
     /**
-     * Find the approximate line where field definitions start.
+     * Find the 0-based line index where field definitions start (after the separator line).
      */
     private int findFieldStartLine(String[] lines) {
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i].trim();
             if (line.startsWith("-") && line.contains("-") && line.length() > 5) {
-                return i + 2; // skip separator + header
+                return i + 1; // fields start right after the separator
             }
         }
         return 3; // default: after header
+    }
+
+    /**
+     * Find the 0-based line index where a specific field appears in the source.
+     * Searches forward from startIndex for a line containing the field's long name
+     * (and optionally short name). Falls back to startIndex if not found.
+     */
+    private int findFieldLine(String[] lines, DdmField field, int startIndex) {
+        String longName = field.getLongName();
+        String shortName = field.getShortName();
+
+        // Primary: match long name (unique within a DDM, e.g. "PERSONNEL-ID")
+        if (longName != null && !longName.isEmpty()) {
+            for (int i = startIndex; i < lines.length; i++) {
+                if (lines[i].contains(longName)) {
+                    return i;
+                }
+            }
+        }
+
+        // Fallback: match short name (2-char code like "AA", "AB")
+        if (shortName != null && !shortName.isEmpty()) {
+            for (int i = startIndex; i < lines.length; i++) {
+                if (lines[i].contains(shortName)) {
+                    return i;
+                }
+            }
+        }
+
+        return startIndex; // ultimate fallback
     }
 
     private String buildFieldRawText(DdmField field, String defaultSeq) {
