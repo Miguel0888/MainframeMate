@@ -559,7 +559,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         }
         // 2) Fallback: detect by content
         if (content != null && !content.isEmpty()) {
-            return isJclContent(content) || isCobolContent(content) || isNaturalContent(content);
+            return isJclContent(content) || isCobolContent(content)
+                    || isNaturalContent(content)
+                    || de.bund.zrb.jcl.parser.DdmParser.isDdmContent(content);
         }
         return false;
     }
@@ -1040,6 +1042,13 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         diagramViewActive = !diagramViewActive;
 
         if (diagramViewActive) {
+            // For DDM files, automatically use ER diagram type
+            String ext = getExtension(sourceName);
+            boolean isDdmFile = ext != null && "nsd".equalsIgnoreCase(ext);
+            if (isDdmFile || de.bund.zrb.jcl.parser.DdmParser.isDdmContent(rawContent)) {
+                activeDiagramType = DiagramType.ER_DIAGRAM;
+            }
+
             // Determine Mermaid source: raw content for mermaid files, parsed outline otherwise
             String mermaidCode;
             if (isMermaidCode) {
@@ -1282,12 +1291,31 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     protected String parseMermaidFromOutline(OutlineToMermaidConverter.DiagramType type) {
         if (rawContent == null || rawContent.isEmpty()) return null;
 
-        JclOutlineModel model = null;
-
         // Detect language: extension-based detection takes priority,
         // then fall back to content analysis
         String ext = getExtension(sourceName);
         boolean isNatByExt = isNaturalExtension(ext);
+        boolean isDdmFile = ext != null && "nsd".equalsIgnoreCase(ext);
+
+        // ── DDM file (.NSD): always render as ER diagram ──
+        if (isDdmFile || de.bund.zrb.jcl.parser.DdmParser.isDdmContent(rawContent)) {
+            String ddmName = sourceName;
+            if (ddmName != null && ddmName.contains(".")) {
+                ddmName = ddmName.substring(0, ddmName.lastIndexOf('.'));
+            }
+            if (ddmName != null && ddmName.contains("/")) {
+                ddmName = ddmName.substring(ddmName.lastIndexOf('/') + 1);
+            }
+            de.bund.zrb.jcl.parser.DdmParser ddmParser = new de.bund.zrb.jcl.parser.DdmParser();
+            de.bund.zrb.jcl.parser.DdmParser.DdmDefinition ddmDef =
+                    ddmParser.parse(rawContent, ddmName);
+            if (ddmDef != null) {
+                return OutlineToMermaidConverter.convertDdmToErDiagram(ddmDef);
+            }
+            // If DDM parsing fails, fall through to try normal parsing
+        }
+
+        JclOutlineModel model = null;
 
         if (isNatByExt || isNaturalContent(rawContent)) {
             model = new NaturalParser().parse(rawContent, sourceName);
@@ -1316,7 +1344,81 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             }
         }
 
-        return OutlineToMermaidConverter.convert(model, type, callTree);
+        // For ER_DIAGRAM on Natural programs: resolve DDMs from cache
+        java.util.List<de.bund.zrb.jcl.parser.DdmParser.DdmDefinition> ddmDefs = null;
+        if (type == DiagramType.ER_DIAGRAM
+                && model.getLanguage() == JclOutlineModel.Language.NATURAL) {
+            ddmDefs = resolveDdmDefinitions(model);
+        }
+
+        return OutlineToMermaidConverter.convert(model, type, callTree, ddmDefs);
+    }
+
+    /**
+     * Resolve DDM definitions referenced by VIEW statements in a Natural program.
+     * Looks up DDM source from NDV source cache and parses it.
+     */
+    private java.util.List<de.bund.zrb.jcl.parser.DdmParser.DdmDefinition> resolveDdmDefinitions(
+            JclOutlineModel model) {
+        java.util.List<de.bund.zrb.jcl.parser.DdmParser.DdmDefinition> result =
+                new java.util.ArrayList<de.bund.zrb.jcl.parser.DdmParser.DdmDefinition>();
+
+        // Collect unique DDM names from VIEW OF references
+        java.util.Set<String> ddmNames = new java.util.LinkedHashSet<String>();
+        for (de.bund.zrb.jcl.model.JclElement elem : model.getElements()) {
+            if (elem.getType() == de.bund.zrb.jcl.model.JclElementType.NAT_DATA_VIEW) {
+                String ddmRef = elem.getParameter("OF");
+                if (ddmRef != null && !ddmRef.isEmpty()) {
+                    ddmNames.add(ddmRef.toUpperCase());
+                }
+            }
+        }
+
+        if (ddmNames.isEmpty()) return result;
+
+        // Try to resolve DDM source from NDV cache
+        de.bund.zrb.service.NdvSourceCacheService cache =
+                de.bund.zrb.service.NdvSourceCacheService.getInstance();
+        de.bund.zrb.jcl.parser.DdmParser ddmParser = new de.bund.zrb.jcl.parser.DdmParser();
+
+        // Determine library search order
+        java.util.List<String> libraries = new java.util.ArrayList<String>();
+        // Current file's library
+        if (sourcePath != null && sourcePath.contains("/")) {
+            String currentLib = sourcePath.substring(0, sourcePath.indexOf('/')).toUpperCase();
+            libraries.add(currentLib);
+        }
+        // Add settings search order
+        try {
+            de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+            if (settings.ndvDefaultLibrary != null && !settings.ndvDefaultLibrary.trim().isEmpty()) {
+                String defLib = settings.ndvDefaultLibrary.trim().toUpperCase();
+                if (!libraries.contains(defLib)) libraries.add(defLib);
+            }
+            if (settings.ndvLibrarySearchOrder != null) {
+                for (String lib : settings.ndvLibrarySearchOrder) {
+                    String u = lib.toUpperCase();
+                    if (!libraries.contains(u)) libraries.add(u);
+                }
+            }
+        } catch (Exception ignored) {}
+
+        for (String ddmName : ddmNames) {
+            String ddmSource = null;
+            for (String lib : libraries) {
+                ddmSource = cache.getCachedSource(lib, ddmName);
+                if (ddmSource != null) break;
+            }
+            if (ddmSource != null) {
+                de.bund.zrb.jcl.parser.DdmParser.DdmDefinition def =
+                        ddmParser.parse(ddmSource, ddmName);
+                if (def != null) {
+                    result.add(def);
+                }
+            }
+        }
+
+        return result;
     }
 
     /**

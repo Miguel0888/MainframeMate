@@ -51,7 +51,9 @@ public final class OutlineToMermaidConverter {
         /** Sequence diagram showing execution / call flow. */
         SEQUENCE("\u21C4", "Sequenz"),              // ⇄
         /** Mind-map for quick bird's-eye overview. */
-        MINDMAP("\uD83E\uDDE0", "Mindmap");        // 🧠
+        MINDMAP("\uD83E\uDDE0", "Mindmap"),        // 🧠
+        /** ER diagram for DDM / database schema visualisation. */
+        ER_DIAGRAM("\uD83D\uDDC4", "ER-Diagramm"); // 🗄
 
         private final String icon;
         private final String label;
@@ -93,18 +95,153 @@ public final class OutlineToMermaidConverter {
      * @return Mermaid source code, or {@code null} if the model is empty
      */
     public static String convert(JclOutlineModel model, DiagramType type, CallTreeNode callTree) {
+        return convert(model, type, callTree, null);
+    }
+
+    /**
+     * Convert an outline model to Mermaid code for the given diagram type,
+     * optionally with a recursive call tree for MINDMAP enrichment
+     * and a list of DDM definitions for ER_DIAGRAM generation.
+     *
+     * @param model    the parsed outline
+     * @param type     desired diagram type
+     * @param callTree recursive call tree (from CodeAnalyticsService), or null
+     * @param ddmDefs  list of DDM definitions for ER diagram, or null
+     * @return Mermaid source code, or {@code null} if the model is empty
+     */
+    public static String convert(JclOutlineModel model, DiagramType type,
+                                 CallTreeNode callTree,
+                                 List<de.bund.zrb.jcl.parser.DdmParser.DdmDefinition> ddmDefs) {
         if (model == null || model.isEmpty()) return null;
         if (type == null) type = DiagramType.STRUCTURE;
 
         Set<String> sysFuncs = loadSystemFunctionNames();
 
         switch (type) {
-            case FLOWCHART: return convertFlowchart(model, sysFuncs);
-            case SEQUENCE:  return convertSequence(model, sysFuncs);
-            case MINDMAP:   return convertMindmap(model, callTree, sysFuncs);
+            case FLOWCHART:   return convertFlowchart(model, sysFuncs);
+            case SEQUENCE:    return convertSequence(model, sysFuncs);
+            case MINDMAP:     return convertMindmap(model, callTree, sysFuncs);
+            case ER_DIAGRAM:  return convertErDiagram(model, ddmDefs);
             case STRUCTURE:
-            default:        return convertStructure(model, sysFuncs);
+            default:          return convertStructure(model, sysFuncs);
         }
+    }
+
+    /**
+     * Convert a single DDM definition into a Mermaid ER diagram.
+     * Convenience method for .NSD files opened directly.
+     */
+    public static String convertDdmToErDiagram(
+            de.bund.zrb.jcl.parser.DdmParser.DdmDefinition ddm) {
+        if (ddm == null || ddm.getFields().isEmpty()) return null;
+        return convertDdmDefsToErDiagram(Collections.singletonList(ddm), null);
+    }
+
+    /**
+     * Convert multiple DDM definitions into a Mermaid ER diagram
+     * with relationships derived from a Natural program's VIEW references.
+     */
+    public static String convertDdmDefsToErDiagram(
+            List<de.bund.zrb.jcl.parser.DdmParser.DdmDefinition> ddmDefs,
+            JclOutlineModel programModel) {
+        if (ddmDefs == null || ddmDefs.isEmpty()) return null;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("erDiagram\n");
+
+        // Generate entities
+        for (de.bund.zrb.jcl.parser.DdmParser.DdmDefinition ddm : ddmDefs) {
+            String entityName = sanitizeEntityName(ddm.getName());
+            sb.append("    ").append(entityName).append(" {\n");
+            for (de.bund.zrb.jcl.parser.DdmParser.DdmField field : ddm.getFields()) {
+                // Skip group headers without format (PE/MU groups shown as comments)
+                if (field.isGroup() && !field.isPeriodicGroup() && !field.isMultipleValue()) {
+                    continue;
+                }
+                String attrType = field.getFormatSpec();
+                String attrName = sanitizeAttrName(field.getLongName());
+                String keyLabel = field.getKeyLabel(ddm.getDefaultSequence());
+                sb.append("        ").append(attrType)
+                        .append(" ").append(attrName);
+                if (!keyLabel.isEmpty()) {
+                    sb.append(" ").append(keyLabel);
+                }
+                if (field.isPeriodicGroup()) {
+                    sb.append(" \"PE-Gruppe\"");
+                } else if (field.isMultipleValue()) {
+                    sb.append(" \"MU-Feld\"");
+                } else if (field.isDescriptor() && keyLabel.isEmpty()) {
+                    sb.append(" \"Deskriptor\"");
+                }
+                sb.append("\n");
+            }
+            sb.append("    }\n\n");
+        }
+
+        // Generate relationships from VIEW references in program model
+        if (programModel != null && ddmDefs.size() > 1) {
+            // Derive relationships: DDMs accessed in the same program are related
+            // Use VIEW OF references to create relationships
+            List<String> ddmNames = new ArrayList<String>();
+            for (de.bund.zrb.jcl.parser.DdmParser.DdmDefinition d : ddmDefs) {
+                ddmNames.add(d.getName().toUpperCase());
+            }
+
+            // Find VIEW/DB access references in the program
+            Map<String, List<String>> viewToAccess = new LinkedHashMap<String, List<String>>();
+            for (JclElement elem : programModel.getElements()) {
+                if (elem.getType() == JclElementType.NAT_DATA_VIEW) {
+                    String ddmRef = elem.getParameter("OF");
+                    if (ddmRef != null) {
+                        viewToAccess.put(elem.getName().toUpperCase(),
+                                Collections.singletonList(ddmRef.toUpperCase()));
+                    }
+                }
+            }
+
+            // Create relationships between DDMs that share a program context
+            Set<String> emittedRels = new HashSet<String>();
+            for (int i = 0; i < ddmNames.size(); i++) {
+                for (int j = i + 1; j < ddmNames.size(); j++) {
+                    String a = sanitizeEntityName(ddmNames.get(i));
+                    String b = sanitizeEntityName(ddmNames.get(j));
+                    String relKey = a + "-" + b;
+                    if (!emittedRels.contains(relKey)) {
+                        sb.append("    ").append(a)
+                                .append(" }o--o{ ").append(b)
+                                .append(" : \"gemeinsam genutzt\"\n");
+                        emittedRels.add(relKey);
+                    }
+                }
+            }
+
+            // Also add DB access relationships (READ/FIND on a DDM view)
+            for (JclElement elem : programModel.getElements()) {
+                JclElementType et = elem.getType();
+                if (et == JclElementType.NAT_READ || et == JclElementType.NAT_FIND
+                        || et == JclElementType.NAT_HISTOGRAM || et == JclElementType.NAT_GET
+                        || et == JclElementType.NAT_STORE || et == JclElementType.NAT_UPDATE
+                        || et == JclElementType.NAT_DELETE) {
+                    String file = elem.getParameter("FILE");
+                    if (file != null) {
+                        String upper = file.toUpperCase();
+                        // Match file reference to a VIEW, then to a DDM
+                        for (Map.Entry<String, List<String>> entry : viewToAccess.entrySet()) {
+                            if (entry.getKey().equals(upper)) {
+                                for (String ddmRef : entry.getValue()) {
+                                    if (ddmNames.contains(ddmRef)) {
+                                        // This creates a "reads from" note in comments
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        String result = sb.toString().trim();
+        return result.length() > "erDiagram".length() + 2 ? result : null;
     }
 
     /** Check if a name is a known system function. */
@@ -1152,5 +1289,140 @@ public final class OutlineToMermaidConverter {
             sb.append(items.get(i));
         }
         return sb.toString();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ER DIAGRAM
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Convert an outline model (Natural) to an ER diagram by extracting VIEW references
+     * and rendering available DDM definitions as entities.
+     * If ddmDefs are provided, render them. Otherwise extract VIEW OF references and
+     * produce a simple entity-relationship skeleton.
+     */
+    private static String convertErDiagram(JclOutlineModel model,
+                                            List<de.bund.zrb.jcl.parser.DdmParser.DdmDefinition> ddmDefs) {
+        // If we have resolved DDM definitions, render them
+        if (ddmDefs != null && !ddmDefs.isEmpty()) {
+            return convertDdmDefsToErDiagram(ddmDefs, model);
+        }
+
+        // Fallback: extract VIEW OF references from the Natural program
+        // and generate a skeleton ER diagram with entity names only
+        if (model.getLanguage() != JclOutlineModel.Language.NATURAL) return null;
+
+        List<String> ddmNames = new ArrayList<String>();
+        Map<String, List<String>> viewToDdm = new LinkedHashMap<String, List<String>>();
+
+        for (JclElement elem : model.getElements()) {
+            if (elem.getType() == JclElementType.NAT_DATA_VIEW) {
+                String ddmRef = elem.getParameter("OF");
+                String viewName = elem.getName();
+                if (ddmRef != null && !ddmRef.isEmpty()) {
+                    String upper = ddmRef.toUpperCase();
+                    if (!ddmNames.contains(upper)) {
+                        ddmNames.add(upper);
+                    }
+                    List<String> views = viewToDdm.get(upper);
+                    if (views == null) {
+                        views = new ArrayList<String>();
+                        viewToDdm.put(upper, views);
+                    }
+                    if (viewName != null && !viewName.isEmpty()) {
+                        views.add(viewName.toUpperCase());
+                    }
+                }
+            }
+        }
+
+        if (ddmNames.isEmpty()) return null;
+
+        // Also collect DB access references (READ/FIND with view as FILE parameter)
+        Map<String, Set<String>> ddmOperations = new LinkedHashMap<String, Set<String>>();
+        for (JclElement elem : model.getElements()) {
+            JclElementType et = elem.getType();
+            String opName = null;
+            if (et == JclElementType.NAT_READ) opName = "READ";
+            else if (et == JclElementType.NAT_FIND) opName = "FIND";
+            else if (et == JclElementType.NAT_HISTOGRAM) opName = "HISTOGRAM";
+            else if (et == JclElementType.NAT_GET) opName = "GET";
+            else if (et == JclElementType.NAT_STORE) opName = "STORE";
+            else if (et == JclElementType.NAT_UPDATE) opName = "UPDATE";
+            else if (et == JclElementType.NAT_DELETE) opName = "DELETE";
+            if (opName != null) {
+                String file = elem.getParameter("FILE");
+                if (file != null) {
+                    String upper = file.toUpperCase();
+                    // Resolve view name to DDM name
+                    for (Map.Entry<String, List<String>> entry : viewToDdm.entrySet()) {
+                        if (entry.getValue().contains(upper) || entry.getKey().equals(upper)) {
+                            Set<String> ops = ddmOperations.get(entry.getKey());
+                            if (ops == null) {
+                                ops = new LinkedHashSet<String>();
+                                ddmOperations.put(entry.getKey(), ops);
+                            }
+                            ops.add(opName);
+                        }
+                    }
+                }
+            }
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("erDiagram\n");
+
+        // Render entities as placeholders (no field details — DDM source not available)
+        for (String ddmName : ddmNames) {
+            String entity = sanitizeEntityName(ddmName);
+            sb.append("    ").append(entity).append(" {\n");
+            // Show views that reference this DDM
+            List<String> views = viewToDdm.get(ddmName);
+            if (views != null) {
+                for (String view : views) {
+                    sb.append("        string ").append(sanitizeAttrName(view)).append(" \"VIEW\"\n");
+                }
+            }
+            // Show DB operations performed on this DDM
+            Set<String> ops = ddmOperations.get(ddmName);
+            if (ops != null) {
+                for (String op : ops) {
+                    sb.append("        string ").append(op).append(" \"DB-Op\"\n");
+                }
+            }
+            sb.append("    }\n\n");
+        }
+
+        // Relationships: if multiple DDMs are referenced, show co-usage
+        if (ddmNames.size() > 1) {
+            Set<String> emitted = new HashSet<String>();
+            for (int i = 0; i < ddmNames.size(); i++) {
+                for (int j = i + 1; j < ddmNames.size(); j++) {
+                    String a = sanitizeEntityName(ddmNames.get(i));
+                    String b = sanitizeEntityName(ddmNames.get(j));
+                    String key = a + "|" + b;
+                    if (!emitted.contains(key)) {
+                        sb.append("    ").append(a).append(" }o--o{ ").append(b)
+                                .append(" : \"").append(esc(model.getSourceName())).append("\"\n");
+                        emitted.add(key);
+                    }
+                }
+            }
+        }
+
+        return sb.toString().trim();
+    }
+
+    /** Make a Mermaid ER entity name safe (no dashes, no spaces). */
+    private static String sanitizeEntityName(String name) {
+        if (name == null) return "UNKNOWN";
+        // Mermaid ER allows underscores but not dashes in entity names
+        return name.replaceAll("[^a-zA-Z0-9]", "_").replaceAll("_+", "_");
+    }
+
+    /** Make a Mermaid ER attribute name safe. */
+    private static String sanitizeAttrName(String name) {
+        if (name == null) return "unknown";
+        return name.replaceAll("[^a-zA-Z0-9_]", "_").replaceAll("_+", "_");
     }
 }
