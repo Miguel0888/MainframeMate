@@ -156,18 +156,21 @@ public class JclOutlinePanel extends JPanel {
         if (lang.contains("DDM") || lang.contains("NSD")) {
             currentModel = de.bund.zrb.service.DdmAnalysisService.getInstance()
                     .buildOutline(content, sourceName);
-        } else if (lang.contains("NATURAL")) {
+        } else if (lang.contains("NATURAL") || lang.contains("COPYCODE")
+                || lang.contains("SUBPROGRAM") || lang.contains("SUBROUTINE")
+                || lang.contains("HELPROUTINE")) {
             currentModel = naturalParser.parse(content, sourceName);
         } else if (lang.contains("COBOL")) {
             currentModel = cobolParser.parse(content, sourceName);
         } else if (lang.contains("JCL")) {
             currentModel = jclParser.parse(content, sourceName);
         } else {
-            // Fallback: auto-detect from content (legacy behaviour)
+            // Fallback: auto-detect from content/path (legacy behaviour)
             if (de.bund.zrb.jcl.parser.DdmParser.isDdmContent(content)) {
                 currentModel = de.bund.zrb.service.DdmAnalysisService.getInstance()
                         .buildOutline(content, sourceName);
-            } else if (isNaturalContent(content)) {
+            } else if (isNaturalContent(content)
+                    || de.bund.zrb.service.NaturalAnalysisService.getInstance().isNaturalFile(sourceName)) {
                 currentModel = naturalParser.parse(content, sourceName);
             } else if (isCobolContent(content)) {
                 currentModel = cobolParser.parse(content, sourceName);

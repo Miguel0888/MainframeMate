@@ -373,12 +373,52 @@ public class NaturalAnalysisService {
     // ═══════════════════════════════════════════════════════════
 
     /**
-     * Detect whether source content is Natural (by sentence type hint or heuristic).
+     * Natural source file extensions (uppercase, without dot). NSD excluded (DDM).
+     */
+    private static final Set<String> NATURAL_EXTENSIONS = new HashSet<String>(Arrays.asList(
+            "NSP", "NSN", "NSS", "NSH", "NSC", "NSL", "NSA", "NSG", "NSM",
+            "NS3", "NS4", "NS5", "NS6", "NS7", "NS8", "NAT"
+    ));
+
+    /**
+     * Detect whether a file path is a Natural source by extension.
+     *
+     * @param path file path (e.g. "MYLIB/PROG.NSC")
+     * @return true if the extension is a known Natural source extension
+     */
+    public boolean isNaturalFile(String path) {
+        if (path == null) return false;
+        int dot = path.lastIndexOf('.');
+        if (dot < 0 || dot == path.length() - 1) return false;
+        String ext = path.substring(dot + 1).toUpperCase();
+        return NATURAL_EXTENSIONS.contains(ext);
+    }
+
+    /**
+     * Detect whether source content is Natural (by sentence type hint, file path, or content heuristic).
      */
     public boolean isNaturalSource(String content, String sentenceType) {
-        if (sentenceType != null && sentenceType.toUpperCase().contains("NATURAL")) {
-            return true;
+        return isNaturalSource(content, sentenceType, null);
+    }
+
+    /**
+     * Detect whether source content is Natural (by sentence type hint, file path, or content heuristic).
+     *
+     * @param content      source text (nullable)
+     * @param sentenceType sentence type hint from dropdown (nullable)
+     * @param path         file path for extension-based detection (nullable)
+     * @return true if the source is Natural
+     */
+    public boolean isNaturalSource(String content, String sentenceType, String path) {
+        if (sentenceType != null) {
+            String upper = sentenceType.toUpperCase();
+            if (upper.contains("NATURAL") || upper.contains("COPYCODE")
+                    || upper.contains("SUBPROGRAM") || upper.contains("SUBROUTINE")
+                    || upper.contains("HELPROUTINE")) {
+                return true;
+            }
         }
+        if (isNaturalFile(path)) return true;
         if (content == null) return false;
         String[] lines = content.split("\\r?\\n", 40);
         int hits = 0;
@@ -387,10 +427,14 @@ public class NaturalAnalysisService {
             if (t.startsWith("DEFINE DATA") || t.startsWith("END-DEFINE")
                     || t.startsWith("CALLNAT ") || t.startsWith("LOCAL USING")
                     || t.startsWith("PARAMETER USING") || t.startsWith("DECIDE ON")
-                    || t.startsWith("FETCH RETURN") || t.startsWith("INPUT USING MAP")) {
+                    || t.startsWith("FETCH RETURN") || t.startsWith("INPUT USING MAP")
+                    || t.startsWith("DEFINE SUBROUTINE") || t.startsWith("END-SUBROUTINE")) {
                 hits++;
             }
         }
+        // For copycodes that may just have variable definitions (1 #VAR (A10) format),
+        // relax the threshold if the path suggests Natural
+        if (hits >= 1 && path != null && isNaturalFile(path)) return true;
         return hits >= 2;
     }
 

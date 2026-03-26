@@ -908,13 +908,18 @@ public class TabbedPaneManager {
         if (sentenceType != null && !sentenceType.isEmpty()) {
             String upper = sentenceType.toUpperCase();
             isDdm = upper.contains("DDM") || upper.contains("NSD");
-            showOutline = isDdm || upper.contains("JCL") || upper.contains("COBOL") || upper.contains("NATURAL");
+            showOutline = isDdm || upper.contains("JCL") || upper.contains("COBOL")
+                    || upper.contains("NATURAL") || upper.contains("COPYCODE")
+                    || upper.contains("SUBPROGRAM") || upper.contains("SUBROUTINE")
+                    || upper.contains("HELPROUTINE");
         }
         if (!showOutline) {
             // Fallback: auto-detect from content/path if no sentence type is set
             isDdm = (sourceName != null && de.bund.zrb.service.DdmAnalysisService.getInstance().isDdmFile(sourceName))
                     || de.bund.zrb.jcl.parser.DdmParser.isDdmContent(content);
-            showOutline = isDdm || isJclContent(content) || isCobolContent(content) || isNaturalContent(content);
+            showOutline = isDdm || isJclContent(content) || isCobolContent(content)
+                    || isNaturalContent(content)
+                    || de.bund.zrb.service.NaturalAnalysisService.getInstance().isNaturalFile(sourceName);
         }
 
         if (showOutline) {
@@ -1454,7 +1459,7 @@ public class TabbedPaneManager {
         }
 
         // For Natural sources, show real dependencies (active + passive XRefs) + call hierarchy
-        if (content != null && analysisService.isNaturalSource(content, sentenceType)) {
+        if (content != null && analysisService.isNaturalSource(content, sentenceType, sourceName)) {
             leftDrawer.showRelationsLoading();
             leftDrawer.showCallHierarchyLoading();
             final String src = content;

@@ -263,6 +263,10 @@ class NaturalAnalysisServiceTest {
     void isNaturalSourceBySentenceType() {
         assertTrue(service.isNaturalSource("anything", "Natural"));
         assertTrue(service.isNaturalSource("anything", "NATURAL_PROGRAM"));
+        assertTrue(service.isNaturalSource("anything", "Copycode"));
+        assertTrue(service.isNaturalSource("anything", "Subprogram"));
+        assertTrue(service.isNaturalSource("anything", "Subroutine"));
+        assertTrue(service.isNaturalSource("anything", "Helproutine"));
     }
 
     @Test
@@ -278,6 +282,43 @@ class NaturalAnalysisServiceTest {
     @Test
     void isNaturalSourceFalseForNull() {
         assertFalse(service.isNaturalSource(null, null));
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  File extension detection (.NSC copycodes, etc.)
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    void isNaturalFileByExtension() {
+        assertTrue(service.isNaturalFile("MYLIB/COPYDATA.NSC"));
+        assertTrue(service.isNaturalFile("PROG.NSP"));
+        assertTrue(service.isNaturalFile("SUB.NSN"));
+        assertTrue(service.isNaturalFile("ROUTINE.NSS"));
+        assertTrue(service.isNaturalFile("HELP.NSH"));
+        assertTrue(service.isNaturalFile("MAP.NSM"));
+        assertTrue(service.isNaturalFile("GDA.NSG"));
+        assertTrue(service.isNaturalFile("LDA.NSL"));
+        assertTrue(service.isNaturalFile("PDA.NSA"));
+        assertTrue(service.isNaturalFile("CLASS.NS4"));
+        assertTrue(service.isNaturalFile("FUNC.NS7"));
+        assertFalse(service.isNaturalFile("DDM.NSD"), "NSD is DDM, not Natural");
+        assertFalse(service.isNaturalFile("DATA.TXT"));
+        assertFalse(service.isNaturalFile(null));
+    }
+
+    @Test
+    void isNaturalSourceByPathEvenWithMinimalContent() {
+        // Copycode with just variable definitions — too few Natural keywords for heuristic alone
+        String copycode = "* L-COMMON - common local data\n"
+                + "1 #EMPLOYEE-NAME   (A20)\n"
+                + "1 #EMPLOYEE-ID     (A8)\n"
+                + "1 #DEPARTMENT      (A10)\n";
+
+        // Without path: fails heuristic (no Natural keywords at all)
+        assertFalse(service.isNaturalSource(copycode, null, null));
+
+        // With .NSC path: detected as Natural
+        assertTrue(service.isNaturalSource(copycode, null, "MYLIB/L-COMMON.NSC"));
     }
 
     // ═══════════════════════════════════════════════════════════
