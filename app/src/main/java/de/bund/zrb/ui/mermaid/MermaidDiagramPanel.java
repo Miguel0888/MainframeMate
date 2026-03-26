@@ -20,17 +20,17 @@ import java.util.List;
  * Features:
  * <ul>
  *   <li>Mouse-wheel zoom (centered on cursor) + floating overlay buttons</li>
- *   <li>Right-click drag to pan; fit-to-panel on first layout</li>
+ *   <li>Left-click to select, left-drag to pan; fit-to-panel on first layout</li>
  *   <li>Click-to-select nodes and edges (yellow highlight overlay)</li>
  *   <li>Detail display of the selected element (exposed for external sidebar)</li>
  *   <li>If editable: rename nodes, change labels — changes are applied to source and re-rendered</li>
- *   <li>Drag node→node to create a new edge (blue line)</li>
- *   <li>Drag edge endpoint→node to reconnect (orange line)</li>
+ *   <li>Right-drag node→node to create a new edge (blue line)</li>
+ *   <li>Right-drag edge endpoint→node to reconnect (orange line)</li>
  * </ul>
  */
 public class MermaidDiagramPanel extends JPanel {
 
-    private final boolean editable;
+    private boolean editable;
 
     // State
     private String mermaidSource;
@@ -59,6 +59,10 @@ public class MermaidDiagramPanel extends JPanel {
     private Point panDragStart;
     private boolean fitDone = false;
     private int baseW, baseH;
+    /** Where left-button was pressed (for detecting click vs. drag). */
+    private Point leftPressPoint;
+    /** true once the left-button drag exceeded the motion threshold. */
+    private boolean leftDragged;
 
     // ── Auto-refresh after zoom ──
     private double lastRefreshZoom = 1.0;
@@ -143,6 +147,7 @@ public class MermaidDiagramPanel extends JPanel {
         // ── Zoom label ──
         zoomLabel = new JLabel("100 %");
         zoomLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+        zoomLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
         // ── Build overlay: JLayeredPane with image + floating zoom buttons ──
         final JLayeredPane layeredPane = new JLayeredPane();
@@ -384,8 +389,8 @@ public class MermaidDiagramPanel extends JPanel {
                     int nodes = diagram != null ? diagram.getNodes().size() : 0;
                     int edges = diagram != null ? diagram.getEdges().size() : 0;
                     statusLabel.setText(nodes + " Knoten, " + edges + " Kanten"
-                            + (editable ? " \u2014 Klicken zum Bearbeiten" : "")
-                            + " \u2014 Mausrad: Zoom, Rechtsklick ziehen: Pan");
+                            + (editable ? " \u2014 Rechtsklick: Verbindung ziehen" : "")
+                            + " \u2014 Mausrad: Zoom, Linksklick: Pan");
                 }
             }
         };
@@ -576,26 +581,27 @@ public class MermaidDiagramPanel extends JPanel {
         imagePanel.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                // ── Right-click (or Ctrl+click) → start panning ──
-                if (SwingUtilities.isRightMouseButton(e)
-                        || (e.getModifiers() & InputEvent.CTRL_MASK) != 0) {
+                // ── Left-click → prepare for pan (drag) or click-to-select (release) ──
+                if (SwingUtilities.isLeftMouseButton(e)) {
                     panDragStart = new Point(e.getX(), e.getY());
-                    imagePanel.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                    leftPressPoint = new Point(e.getX(), e.getY());
+                    leftDragged = false;
                     return;
                 }
 
-                if (image == null || diagram == null) return;
-                double[] svgCoords = screenToSvg(e.getX(), e.getY());
-                if (svgCoords == null) return;
-                double svgX = svgCoords[0], svgY = svgCoords[1];
+                // ── Right-click → edge creation / reconnection (editable only) ──
+                if (SwingUtilities.isRightMouseButton(e)) {
+                    if (!editable || image == null || diagram == null) return;
 
-                // Use viewBox dimensions for thresholds (SVG coordinate space)
-                double vbW = diagram.getViewBoxWidth();
-                double vbH = diagram.getViewBoxHeight();
+                    double[] svgCoords = screenToSvg(e.getX(), e.getY());
+                    if (svgCoords == null) return;
+                    double svgX = svgCoords[0], svgY = svgCoords[1];
 
-                // ── Check edge endpoints for reconnection (editable only) ──
-                dragEdge = null;
-                if (editable) {
+                    double vbW = diagram.getViewBoxWidth();
+                    double vbH = diagram.getViewBoxHeight();
+
+                    // Check edge endpoints for reconnection
+                    dragEdge = null;
                     double edgeThreshold = Math.max(vbW, vbH) * 0.035;
                     double bestDist = edgeThreshold;
                     for (DiagramEdge cand : diagram.getEdges()) {
@@ -625,142 +631,185 @@ public class MermaidDiagramPanel extends JPanel {
                         updateDetailArea();
                         return;
                     }
-                }
 
-                // ── Check nodes (smallest non-fragment first, then smallest fragment) ──
-                DiagramNode foundNode = null;
-                DiagramNode foundFragment = null;
-                double bestNodeArea = Double.MAX_VALUE;
-                double bestFragArea = Double.MAX_VALUE;
-                for (DiagramNode n : diagram.getNodes()) {
-                    if (n.contains(svgX, svgY)) {
-                        double area = n.getWidth() * n.getHeight();
-                        if (n instanceof SequenceFragment) {
-                            if (area < bestFragArea) {
-                                bestFragArea = area;
-                                foundFragment = n;
-                            }
-                        } else {
-                            if (area < bestNodeArea) {
-                                bestNodeArea = area;
-                                foundNode = n;
-                            }
-                        }
-                    }
-                }
-                if (foundNode == null) foundNode = foundFragment;
-                if (foundNode != null) {
-                    selectedNode = foundNode;
-                    selectedEdge = null;
-                    highlightRect = toImageRect(foundNode.getX(), foundNode.getY(),
-                            foundNode.getWidth(), foundNode.getHeight());
-                    if (editable) {
+                    // Check nodes for new edge creation
+                    DiagramNode foundNode = findSmallestNodeAt(svgX, svgY);
+                    if (foundNode != null) {
+                        selectedNode = foundNode;
+                        selectedEdge = null;
+                        highlightRect = toImageRect(foundNode.getX(), foundNode.getY(),
+                                foundNode.getWidth(), foundNode.getHeight());
                         dragSourceNode = foundNode;
                         dragStart = new Point(e.getX(), e.getY());
                         dragging = false;
-                    }
-                    updateDetailArea();
-                    updateEditPanel();
-                    imagePanel.repaint();
-                    return;
-                }
-
-                // ── Check edges (prefer smallest bounding box) ──
-                DiagramEdge foundEdge = null;
-                double bestEdgeArea = Double.MAX_VALUE;
-                for (DiagramEdge edge : diagram.getEdges()) {
-                    if (edge.containsApprox(svgX, svgY)) {
-                        double area = edge.getWidth() * edge.getHeight();
-                        if (area < bestEdgeArea) {
-                            bestEdgeArea = area;
-                            foundEdge = edge;
-                        }
+                        updateDetailArea();
+                        updateEditPanel();
+                        imagePanel.repaint();
                     }
                 }
-                if (foundEdge != null) {
-                    selectedEdge = foundEdge;
-                    selectedNode = null;
-                    highlightRect = toImageRect(foundEdge.getX(), foundEdge.getY(),
-                            foundEdge.getWidth(), foundEdge.getHeight());
-                    updateDetailArea();
-                    updateEditPanel();
-                    imagePanel.repaint();
-                    return;
-                }
-
-                // Deselect
-                selectedNode = null;
-                selectedEdge = null;
-                highlightRect = null;
-                updateDetailArea();
-                updateEditPanel();
-                imagePanel.repaint();
             }
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                // ── End panning ──
-                if (panDragStart != null) {
+                // ── Left-click release ──
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    if (!leftDragged) {
+                        // Click without significant drag → select element
+                        doSelection(e.getX(), e.getY());
+                    }
                     panDragStart = null;
+                    leftPressPoint = null;
                     imagePanel.setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
                     return;
                 }
 
-                if (!editable || image == null || diagram == null) return;
-
-                if (dragging) {
-                    double[] svgCoords = screenToSvg(e.getX(), e.getY());
-                    if (svgCoords != null) {
-                        DiagramNode targetNode = diagram.findNodeAt(svgCoords[0], svgCoords[1]);
-                        if (targetNode != null) {
-                            if (dragEdge != null) {
-                                // Reconnect edge
-                                handleReconnect(targetNode);
-                            } else if (dragSourceNode != null
-                                    && !dragSourceNode.getId().equals(targetNode.getId())) {
-                                // Create new edge
-                                handleNewEdge(targetNode);
+                // ── Right-click release → complete edge creation / reconnection ──
+                if (SwingUtilities.isRightMouseButton(e)) {
+                    if (editable && dragging && image != null && diagram != null) {
+                        double[] svgCoords = screenToSvg(e.getX(), e.getY());
+                        if (svgCoords != null) {
+                            DiagramNode targetNode = diagram.findNodeAt(svgCoords[0], svgCoords[1]);
+                            if (targetNode != null) {
+                                if (dragEdge != null) {
+                                    handleReconnect(targetNode);
+                                } else if (dragSourceNode != null
+                                        && !dragSourceNode.getId().equals(targetNode.getId())) {
+                                    handleNewEdge(targetNode);
+                                }
                             }
                         }
                     }
+                    dragging = false;
+                    dragSourceNode = null;
+                    dragEdge = null;
+                    dragStart = null;
+                    dragCurrent = null;
+                    imagePanel.repaint();
                 }
-
-                dragging = false;
-                dragSourceNode = null;
-                dragEdge = null;
-                dragStart = null;
-                dragCurrent = null;
-                imagePanel.repaint();
             }
         });
 
         imagePanel.addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseDragged(MouseEvent e) {
-                // ── Pan with right-button / Ctrl ──
-                if (panDragStart != null) {
-                    panOffsetX += e.getX() - panDragStart.x;
-                    panOffsetY += e.getY() - panDragStart.y;
-                    panDragStart = new Point(e.getX(), e.getY());
-                    imagePanel.repaint();
+                // ── Pan with left-button ──
+                if (SwingUtilities.isLeftMouseButton(e) && panDragStart != null) {
+                    if (leftPressPoint != null) {
+                        int dx = e.getX() - leftPressPoint.x;
+                        int dy = e.getY() - leftPressPoint.y;
+                        if (!leftDragged && (dx * dx + dy * dy) > 9) {
+                            leftDragged = true;
+                            imagePanel.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                        }
+                    }
+                    if (leftDragged) {
+                        panOffsetX += e.getX() - panDragStart.x;
+                        panOffsetY += e.getY() - panDragStart.y;
+                        panDragStart = new Point(e.getX(), e.getY());
+                        imagePanel.repaint();
+                    }
                     return;
                 }
 
-                // ── Edge drag (editable only) ──
-                if (!editable) return;
-                if (dragStart != null && (dragSourceNode != null || dragEdge != null)) {
-                    int dx = e.getX() - dragStart.x;
-                    int dy = e.getY() - dragStart.y;
-                    if (!dragging && (dx * dx + dy * dy) > 25) {
-                        dragging = true;
-                    }
-                    if (dragging) {
-                        dragCurrent = new Point(e.getX(), e.getY());
-                        imagePanel.repaint();
+                // ── Edge drag with right-button (editable only) ──
+                if (SwingUtilities.isRightMouseButton(e) && editable) {
+                    if (dragStart != null && (dragSourceNode != null || dragEdge != null)) {
+                        int dx = e.getX() - dragStart.x;
+                        int dy = e.getY() - dragStart.y;
+                        if (!dragging && (dx * dx + dy * dy) > 25) {
+                            dragging = true;
+                        }
+                        if (dragging) {
+                            dragCurrent = new Point(e.getX(), e.getY());
+                            imagePanel.repaint();
+                        }
                     }
                 }
             }
         });
+    }
+
+    /**
+     * Perform element selection at the given screen coordinates.
+     * Called on left-click release when no drag occurred.
+     */
+    private void doSelection(int screenX, int screenY) {
+        if (image == null || diagram == null) return;
+
+        double[] svgCoords = screenToSvg(screenX, screenY);
+        if (svgCoords == null) return;
+        double svgX = svgCoords[0], svgY = svgCoords[1];
+
+        // Check nodes
+        DiagramNode foundNode = findSmallestNodeAt(svgX, svgY);
+        if (foundNode != null) {
+            selectedNode = foundNode;
+            selectedEdge = null;
+            highlightRect = toImageRect(foundNode.getX(), foundNode.getY(),
+                    foundNode.getWidth(), foundNode.getHeight());
+            updateDetailArea();
+            updateEditPanel();
+            imagePanel.repaint();
+            return;
+        }
+
+        // Check edges (prefer smallest bounding box)
+        DiagramEdge foundEdge = null;
+        double bestEdgeArea = Double.MAX_VALUE;
+        for (DiagramEdge edge : diagram.getEdges()) {
+            if (edge.containsApprox(svgX, svgY)) {
+                double area = edge.getWidth() * edge.getHeight();
+                if (area < bestEdgeArea) {
+                    bestEdgeArea = area;
+                    foundEdge = edge;
+                }
+            }
+        }
+        if (foundEdge != null) {
+            selectedEdge = foundEdge;
+            selectedNode = null;
+            highlightRect = toImageRect(foundEdge.getX(), foundEdge.getY(),
+                    foundEdge.getWidth(), foundEdge.getHeight());
+            updateDetailArea();
+            updateEditPanel();
+            imagePanel.repaint();
+            return;
+        }
+
+        // Deselect
+        selectedNode = null;
+        selectedEdge = null;
+        highlightRect = null;
+        updateDetailArea();
+        updateEditPanel();
+        imagePanel.repaint();
+    }
+
+    /**
+     * Find the smallest (non-fragment first, then fragment) node containing the given SVG point.
+     */
+    private DiagramNode findSmallestNodeAt(double svgX, double svgY) {
+        DiagramNode foundNode = null;
+        DiagramNode foundFragment = null;
+        double bestNodeArea = Double.MAX_VALUE;
+        double bestFragArea = Double.MAX_VALUE;
+        for (DiagramNode n : diagram.getNodes()) {
+            if (n.contains(svgX, svgY)) {
+                double area = n.getWidth() * n.getHeight();
+                if (n instanceof SequenceFragment) {
+                    if (area < bestFragArea) {
+                        bestFragArea = area;
+                        foundFragment = n;
+                    }
+                } else {
+                    if (area < bestNodeArea) {
+                        bestNodeArea = area;
+                        foundNode = n;
+                    }
+                }
+            }
+        }
+        return foundNode != null ? foundNode : foundFragment;
     }
 
     private double[] screenToSvg(int sx, int sy) {
@@ -1143,5 +1192,13 @@ public class MermaidDiagramPanel extends JPanel {
     /** Returns true if the diagram view has loaded content (image + diagram metadata). */
     public boolean hasDiagram() {
         return image != null && diagram != null;
+    }
+
+    public boolean isEditable() {
+        return editable;
+    }
+
+    public void setEditable(boolean editable) {
+        this.editable = editable;
     }
 }

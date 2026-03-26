@@ -51,6 +51,7 @@ public class IndexStatusSidebar extends JPanel {
     private final CardLayout cardLayout;
     private final JPanel defaultPane;               // the original file-details content
     private final LinkedHashMap<String, JPanel> overridePages = new LinkedHashMap<String, JPanel>(); // id → panel
+    private final java.util.Set<String> rawPages = new java.util.HashSet<String>(); // ids that manage their own scrolling
     private final JPanel dotBar;                    // dot indicator bar (bottom)
     private String activePage = DEFAULT_PAGE;
 
@@ -183,12 +184,32 @@ public class IndexStatusSidebar extends JPanel {
         // Remove existing override with same id
         if (overridePages.containsKey(id)) {
             overridePages.remove(id);
+            rawPages.remove(id);
         }
         overridePages.put(id, content);
         JScrollPane scroll = new JScrollPane(content);
         scroll.setBorder(null);
         scroll.getVerticalScrollBar().setUnitIncrement(12);
         // Rebuild to ensure correct CardLayout state
+        rebuildCardLayout();
+        activePage = id;
+        cardLayout.show(contentCards, id);
+        rebuildDots();
+    }
+
+    /**
+     * Push an override pane that manages its own scrolling.
+     * Unlike {@link #pushOverride}, the content is added directly without wrapping
+     * in a JScrollPane. Use this when the panel has a fixed header + scrollable body.
+     */
+    public void pushOverrideRaw(String id, JPanel content) {
+        if (id == null || id.equals(DEFAULT_PAGE)) throw new IllegalArgumentException("reserved id");
+        if (overridePages.containsKey(id)) {
+            overridePages.remove(id);
+            rawPages.remove(id);
+        }
+        overridePages.put(id, content);
+        rawPages.add(id);
         rebuildCardLayout();
         activePage = id;
         cardLayout.show(contentCards, id);
@@ -202,6 +223,7 @@ public class IndexStatusSidebar extends JPanel {
     public void removeOverride(String id) {
         if (id == null || !overridePages.containsKey(id)) return;
         overridePages.remove(id);
+        rawPages.remove(id);
         rebuildCardLayout();
         if (id.equals(activePage)) {
             activePage = DEFAULT_PAGE;
@@ -215,6 +237,7 @@ public class IndexStatusSidebar extends JPanel {
      */
     public void clearOverrides() {
         overridePages.clear();
+        rawPages.clear();
         rebuildCardLayout();
         activePage = DEFAULT_PAGE;
         cardLayout.show(contentCards, DEFAULT_PAGE);
@@ -246,10 +269,15 @@ public class IndexStatusSidebar extends JPanel {
         defaultScroll.getVerticalScrollBar().setUnitIncrement(12);
         contentCards.add(defaultScroll, DEFAULT_PAGE);
         for (Map.Entry<String, JPanel> entry : overridePages.entrySet()) {
-            JScrollPane scroll = new JScrollPane(entry.getValue());
-            scroll.setBorder(null);
-            scroll.getVerticalScrollBar().setUnitIncrement(12);
-            contentCards.add(scroll, entry.getKey());
+            if (rawPages.contains(entry.getKey())) {
+                // Raw page manages its own scrolling
+                contentCards.add(entry.getValue(), entry.getKey());
+            } else {
+                JScrollPane scroll = new JScrollPane(entry.getValue());
+                scroll.setBorder(null);
+                scroll.getVerticalScrollBar().setUnitIncrement(12);
+                contentCards.add(scroll, entry.getKey());
+            }
         }
         cardLayout.show(contentCards, activePage);
         contentCards.revalidate();

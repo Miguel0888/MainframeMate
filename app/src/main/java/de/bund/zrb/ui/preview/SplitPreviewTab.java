@@ -217,6 +217,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /** Cached: whether the current content is mainframe code (JCL/COBOL/Natural). */
     protected boolean isMainframeCode = false;
 
+    /** Cached: whether the current content is raw Mermaid diagram source code. */
+    protected boolean isMermaidCode = false;
+
 
     /** Currently selected diagram type (restored from ApplicationState or default STRUCTURE). */
     protected OutlineToMermaidConverter.DiagramType activeDiagramType = restoreDiagramTypePreference();
@@ -247,6 +250,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         this.isMainframeCode = isJclContent(this.rawContent)
                 || isCobolContent(this.rawContent)
                 || isNaturalContent(this.rawContent);
+        this.isMermaidCode = isMermaidContent(this.rawContent);
 
         // Editing action buttons — only shown for editable text files
         this.compareButton = createIconToggleButton("\uD83D\uDD00", "Vergleichen");  // 🔀
@@ -489,6 +493,26 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             }
         }
         return naturalHits >= 2;
+    }
+
+    /**
+     * Detect if content is raw Mermaid diagram source code.
+     * Checks whether the first non-empty line starts with a known Mermaid diagram keyword.
+     */
+    protected boolean isMermaidContent(String content) {
+        if (content == null || content.trim().isEmpty()) return false;
+        String firstWord = content.trim().split("[\\s({]+")[0].toLowerCase();
+        return firstWord.startsWith("flowchart") || firstWord.startsWith("graph")
+                || firstWord.startsWith("sequencediagram") || firstWord.startsWith("classdiagram")
+                || firstWord.startsWith("erdiagram") || firstWord.startsWith("statediagram")
+                || firstWord.startsWith("pie") || firstWord.startsWith("gantt")
+                || firstWord.startsWith("gitgraph") || firstWord.startsWith("mindmap")
+                || firstWord.startsWith("timeline") || firstWord.startsWith("sankey")
+                || firstWord.startsWith("xychart") || firstWord.startsWith("block")
+                || firstWord.startsWith("c4context") || firstWord.startsWith("c4container")
+                || firstWord.startsWith("c4component") || firstWord.startsWith("c4deployment")
+                || firstWord.startsWith("journey") || firstWord.startsWith("quadrantchart")
+                || firstWord.startsWith("requirementdiagram") || firstWord.startsWith("packet");
     }
 
     /**
@@ -749,11 +773,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         copyButton.addActionListener(this::copyRaw);
         toolbar.add(copyButton);
 
-        toolbar.addSeparator(new Dimension(8, 0));
-
-        // ── Mermaid diagram toggle (JCL / COBOL / Natural only) ──
-        if (isMainframeCode) {
-            toolbar.addSeparator(new Dimension(8, 0));
+        // ── Mermaid diagram toggle (centered in toolbar) ──
+        toolbar.add(Box.createHorizontalGlue());
+        if (isMainframeCode || isMermaidCode) {
             diagramToggleButton = new JButton("\uD83D\uDC41 Visuell"); // 👁 Visuell
             diagramToggleButton.setToolTipText("Interaktive Diagramm-Ansicht");
             diagramToggleButton.addActionListener(e -> toggleDiagramView());
@@ -910,16 +932,20 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
     /**
      * Toggle between normal code view and interactive Mermaid diagram view.
-     * The diagram is generated from the parsed JCL/COBOL/Natural outline model.
-     * When activating, a sidebar override pane with diagram details and type
-     * selector is pushed. When deactivating, the override is removed.
+     * For mainframe code, the diagram is generated from the parsed outline model.
+     * For pure Mermaid source code, the raw content is used directly.
      */
     protected void toggleDiagramView() {
         diagramViewActive = !diagramViewActive;
 
         if (diagramViewActive) {
-            // Parse outline and generate Mermaid code
-            String mermaidCode = parseMermaidFromOutline();
+            // Determine Mermaid source: raw content for mermaid files, parsed outline otherwise
+            String mermaidCode;
+            if (isMermaidCode) {
+                mermaidCode = rawContent != null ? rawContent.trim() : null;
+            } else {
+                mermaidCode = parseMermaidFromOutline();
+            }
             if (mermaidCode == null || mermaidCode.trim().isEmpty()) {
                 JOptionPane.showMessageDialog(this,
                         "Kein Diagramm erzeugbar \u2014 die Datei enth\u00E4lt keine erkennbare Struktur.",
@@ -928,18 +954,20 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                 return;
             }
 
-            // Lazy-init MermaidDiagramPanel
+            // Lazy-init MermaidDiagramPanel (always read-only initially; edit toggle in sidebar)
             if (mermaidDiagramPanel == null) {
-                mermaidDiagramPanel = new MermaidDiagramPanel(isEditable);
+                mermaidDiagramPanel = new MermaidDiagramPanel(false);
                 mermaidDiagramPanel.setAutoRefreshThresholdPercent(restoreAutoRefreshThreshold());
-                if (isEditable) {
-                    mermaidDiagramPanel.setSourceChangeListener(new MermaidDiagramPanel.SourceChangeListener() {
-                        @Override
-                        public void onSourceChanged(String newMermaidSource) {
-                            System.out.println("[SplitPreviewTab] Diagram source changed (Mermaid)");
+                mermaidDiagramPanel.setSourceChangeListener(new MermaidDiagramPanel.SourceChangeListener() {
+                    @Override
+                    public void onSourceChanged(String newMermaidSource) {
+                        if (isMermaidCode) {
+                            rawContent = newMermaidSource;
+                            rawPane.setText(rawContent);
+                            hasUnsavedChanges = true;
                         }
-                    });
-                }
+                    }
+                });
             }
 
             mermaidDiagramPanel.setMermaidSource(mermaidCode);
@@ -970,6 +998,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             // Clear diagram search state
             if (mermaidDiagramPanel != null) {
                 mermaidDiagramPanel.clearSearch();
+                mermaidDiagramPanel.setEditable(false);
             }
 
             // Restore normal code view
@@ -979,79 +1008,111 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
     /**
      * Build and push the diagram detail override pane to the sidebar.
-     * Contains diagram type selector (top-right) and detail/edit panels from MermaidDiagramPanel.
+     * <p>
+     * Structure: fixed header (edit toggle + type buttons) + scrollable body (detail/edit/status).
+     * The header is outside the scroll area so the type buttons are always accessible.
+     * The "Visuell" label is replaced by an edit toggle button (pencil icon).
      */
     private void pushDiagramOverride() {
-        JPanel pane = new JPanel();
-        pane.setLayout(new BoxLayout(pane, BoxLayout.Y_AXIS));
-        pane.setBorder(new EmptyBorder(12, 12, 12, 12));
-        pane.setBackground(new Color(248, 249, 250));
+        // ── Outer container with fixed header + scrollable body ──
+        JPanel outerPane = new JPanel(new BorderLayout());
+        outerPane.setBackground(new Color(248, 249, 250));
 
-        // ── Section header with diagram type buttons (top-right) ──
+        // ── Fixed header panel (NOT scrollable) ──
+        JPanel headerPanel = new JPanel();
+        headerPanel.setLayout(new BoxLayout(headerPanel, BoxLayout.Y_AXIS));
+        headerPanel.setOpaque(false);
+        headerPanel.setBorder(new EmptyBorder(8, 12, 4, 12));
+
         JPanel headerRow = new JPanel(new BorderLayout(4, 0));
         headerRow.setOpaque(false);
         headerRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         headerRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
 
-        JLabel title = new JLabel("\uD83D\uDC41 Visuell"); // 👁
-        title.setFont(title.getFont().deriveFont(Font.BOLD, 13f));
-        headerRow.add(title, BorderLayout.WEST);
-
-        JPanel typePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
-        typePanel.setOpaque(false);
-        ButtonGroup typeGroup = new ButtonGroup();
-        for (final OutlineToMermaidConverter.DiagramType dt : OutlineToMermaidConverter.DiagramType.values()) {
-            final JToggleButton tb = new JToggleButton(dt.getIcon());
-            tb.setToolTipText(dt.getLabel());
-            tb.setFont(tb.getFont().deriveFont(Font.PLAIN, 14f));
-            tb.setMargin(new Insets(2, 4, 2, 4));
-            Dimension sq = new Dimension(28, 28);
-            tb.setPreferredSize(sq);
-            tb.setMinimumSize(sq);
-            tb.setMaximumSize(sq);
-            tb.setFocusable(false);
-            if (dt == activeDiagramType) {
-                tb.setSelected(true);
+        // Edit toggle button (replaces "Visuell" label)
+        final JToggleButton editToggle = new JToggleButton("\u270F\uFE0F"); // ✏️
+        editToggle.setToolTipText("Bearbeiten aktivieren");
+        editToggle.setFont(editToggle.getFont().deriveFont(Font.PLAIN, 14f));
+        editToggle.setMargin(new Insets(2, 6, 2, 6));
+        editToggle.setFocusable(false);
+        // Only enabled for pure mermaid code; greyed out for outline-based diagrams
+        editToggle.setEnabled(isMermaidCode && isEditable);
+        editToggle.setSelected(false);
+        editToggle.addActionListener(e -> {
+            boolean edit = editToggle.isSelected();
+            if (mermaidDiagramPanel != null) {
+                mermaidDiagramPanel.setEditable(edit);
             }
-            tb.addActionListener(e -> {
-                activeDiagramType = dt;
-                persistDiagramTypePreference(dt);
-                if (diagramViewActive) {
-                    switchDiagramType(dt);
+        });
+        headerRow.add(editToggle, BorderLayout.WEST);
+
+        // Diagram type buttons (only visible for outline-based diagrams, not mermaid code)
+        if (!isMermaidCode) {
+            JPanel typePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+            typePanel.setOpaque(false);
+            ButtonGroup typeGroup = new ButtonGroup();
+            for (final OutlineToMermaidConverter.DiagramType dt : OutlineToMermaidConverter.DiagramType.values()) {
+                final JToggleButton tb = new JToggleButton(dt.getIcon());
+                tb.setToolTipText(dt.getLabel());
+                tb.setFont(tb.getFont().deriveFont(Font.PLAIN, 14f));
+                tb.setMargin(new Insets(2, 4, 2, 4));
+                Dimension sq = new Dimension(28, 28);
+                tb.setPreferredSize(sq);
+                tb.setMinimumSize(sq);
+                tb.setMaximumSize(sq);
+                tb.setFocusable(false);
+                if (dt == activeDiagramType) {
+                    tb.setSelected(true);
                 }
-            });
-            typeGroup.add(tb);
-            typePanel.add(tb);
+                tb.addActionListener(ev -> {
+                    activeDiagramType = dt;
+                    persistDiagramTypePreference(dt);
+                    if (diagramViewActive) {
+                        switchDiagramType(dt);
+                    }
+                });
+                typeGroup.add(tb);
+                typePanel.add(tb);
+            }
+            headerRow.add(typePanel, BorderLayout.EAST);
         }
-        headerRow.add(typePanel, BorderLayout.EAST);
-        pane.add(headerRow);
 
-        pane.add(Box.createVerticalStrut(8));
+        headerPanel.add(headerRow);
+        outerPane.add(headerPanel, BorderLayout.NORTH);
 
-        // ── Detail area from MermaidDiagramPanel ──
+        // ── Scrollable body (detail area, edit panel, status) ──
+        JPanel bodyPane = new JPanel();
+        bodyPane.setLayout(new BoxLayout(bodyPane, BoxLayout.Y_AXIS));
+        bodyPane.setBorder(new EmptyBorder(4, 12, 12, 12));
+        bodyPane.setBackground(new Color(248, 249, 250));
+
+        // Detail area from MermaidDiagramPanel
         JScrollPane detailScroll = new JScrollPane(mermaidDiagramPanel.getDetailArea());
         detailScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
         detailScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
-        pane.add(detailScroll);
+        bodyPane.add(detailScroll);
 
-        // ── Edit panel from MermaidDiagramPanel ──
-        if (isEditable) {
-            pane.add(Box.createVerticalStrut(6));
-            JPanel editPanel = mermaidDiagramPanel.getEditPanel();
-            editPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            editPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-            pane.add(editPanel);
-        }
+        // Edit panel from MermaidDiagramPanel (always present; content depends on editable state)
+        bodyPane.add(Box.createVerticalStrut(6));
+        JPanel editPanel = mermaidDiagramPanel.getEditPanel();
+        editPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        editPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        bodyPane.add(editPanel);
 
-        pane.add(Box.createVerticalGlue());
-        pane.add(Box.createVerticalStrut(4));
+        bodyPane.add(Box.createVerticalGlue());
+        bodyPane.add(Box.createVerticalStrut(4));
 
-        // ── Status label from MermaidDiagramPanel ──
+        // Status label from MermaidDiagramPanel
         JLabel statusLbl = mermaidDiagramPanel.getStatusLabel();
         statusLbl.setAlignmentX(Component.LEFT_ALIGNMENT);
-        pane.add(statusLbl);
+        bodyPane.add(statusLbl);
 
-        sidebar.pushOverride(DIAGRAM_OVERRIDE_ID, pane);
+        JScrollPane bodyScroll = new JScrollPane(bodyPane);
+        bodyScroll.setBorder(null);
+        bodyScroll.getVerticalScrollBar().setUnitIncrement(12);
+        outerPane.add(bodyScroll, BorderLayout.CENTER);
+
+        sidebar.pushOverrideRaw(DIAGRAM_OVERRIDE_ID, outerPane);
     }
 
     /**
