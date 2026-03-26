@@ -1,5 +1,7 @@
 package de.bund.zrb.ui.filetab;
 
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.model.Settings;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 
 import javax.swing.*;
@@ -16,6 +18,7 @@ import java.awt.*;
  *   <li><b>DEFINE DATA … END-DEFINE</b> — pale blue</li>
  *   <li><b>ON ERROR … END-ERROR</b> — pale yellow/amber</li>
  * </ul>
+ * Colors are configurable via NDV Settings (Natural-Block-Farben).
  * <p>
  * Usage:
  * <pre>
@@ -24,16 +27,41 @@ import java.awt.*;
  */
 public final class NaturalSubroutineHighlighter {
 
-    /** Pale red-pink background for subroutine blocks. */
-    private static final Color SUBROUTINE_BG = new Color(255, 230, 230);
+    /** Default: pale red-pink background for subroutine blocks. */
+    private static final Color DEFAULT_SUBROUTINE_BG = new Color(255, 230, 230);
 
-    /** Pale blue background for DEFINE DATA blocks. */
-    private static final Color DEFINE_DATA_BG = new Color(230, 240, 255);
+    /** Default: pale blue background for DEFINE DATA blocks. */
+    private static final Color DEFAULT_DEFINE_DATA_BG = new Color(230, 240, 255);
 
-    /** Pale yellow/amber background for ON ERROR blocks. */
-    private static final Color ON_ERROR_BG = new Color(255, 248, 220);
+    /** Default: pale yellow/amber background for ON ERROR blocks. */
+    private static final Color DEFAULT_ON_ERROR_BG = new Color(255, 248, 220);
 
     private NaturalSubroutineHighlighter() {}
+
+    /**
+     * Load block colors from settings, with fallback to defaults.
+     */
+    private static Color[] loadColors() {
+        try {
+            Settings s = SettingsHelper.load();
+            return new Color[]{
+                    hexToColor(s.naturalColorSubroutine, DEFAULT_SUBROUTINE_BG),
+                    hexToColor(s.naturalColorDefineData, DEFAULT_DEFINE_DATA_BG),
+                    hexToColor(s.naturalColorOnError, DEFAULT_ON_ERROR_BG)
+            };
+        } catch (Exception e) {
+            return new Color[]{ DEFAULT_SUBROUTINE_BG, DEFAULT_DEFINE_DATA_BG, DEFAULT_ON_ERROR_BG };
+        }
+    }
+
+    private static Color hexToColor(String hex, Color fallback) {
+        if (hex == null || hex.isEmpty()) return fallback;
+        try {
+            return Color.decode(hex);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
 
     /**
      * Scan the text area for structural Natural blocks and apply full-width
@@ -46,6 +74,11 @@ public final class NaturalSubroutineHighlighter {
 
         String text = area.getText();
         if (text == null || text.isEmpty()) return;
+
+        Color[] colors = loadColors();
+        Color subroutineBg = colors[0];
+        Color defineDataBg = colors[1];
+        Color onErrorBg    = colors[2];
 
         String[] lines = text.split("\n", -1);
 
@@ -68,7 +101,7 @@ public final class NaturalSubroutineHighlighter {
                 subStart = i;
             }
             if (inSubroutine && trimmed.startsWith("END-SUBROUTINE")) {
-                highlightRange(area, subStart, i, SUBROUTINE_BG);
+                highlightRange(area, subStart, i, subroutineBg);
                 inSubroutine = false;
                 subStart = -1;
             }
@@ -79,7 +112,7 @@ public final class NaturalSubroutineHighlighter {
                 dataStart = i;
             }
             if (inDefineData && trimmed.startsWith("END-DEFINE")) {
-                highlightRange(area, dataStart, i, DEFINE_DATA_BG);
+                highlightRange(area, dataStart, i, defineDataBg);
                 inDefineData = false;
                 dataStart = -1;
             }
@@ -90,7 +123,7 @@ public final class NaturalSubroutineHighlighter {
                 errorStart = i;
             }
             if (inOnError && trimmed.startsWith("END-ERROR")) {
-                highlightRange(area, errorStart, i, ON_ERROR_BG);
+                highlightRange(area, errorStart, i, onErrorBg);
                 inOnError = false;
                 errorStart = -1;
             }
@@ -98,13 +131,13 @@ public final class NaturalSubroutineHighlighter {
 
         // Unclosed blocks — highlight to end of file
         if (inSubroutine) {
-            highlightRange(area, subStart, lines.length - 1, SUBROUTINE_BG);
+            highlightRange(area, subStart, lines.length - 1, subroutineBg);
         }
         if (inDefineData) {
-            highlightRange(area, dataStart, lines.length - 1, DEFINE_DATA_BG);
+            highlightRange(area, dataStart, lines.length - 1, defineDataBg);
         }
         if (inOnError) {
-            highlightRange(area, errorStart, lines.length - 1, ON_ERROR_BG);
+            highlightRange(area, errorStart, lines.length - 1, onErrorBg);
         }
     }
 

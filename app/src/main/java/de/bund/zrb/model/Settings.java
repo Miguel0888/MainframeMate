@@ -126,6 +126,14 @@ public class Settings {
      *  The first library where the object is found wins. Empty = use ndvDefaultLibrary only. */
     public List<String> ndvLibrarySearchOrder = new ArrayList<String>();
 
+    // Natural block highlight colors (hex, e.g. "#FFE6E6")
+    /** Background color for DEFINE SUBROUTINE … END-SUBROUTINE blocks. */
+    public String naturalColorSubroutine = "#FFE6E6";
+    /** Background color for DEFINE DATA … END-DEFINE blocks. */
+    public String naturalColorDefineData = "#E6F0FF";
+    /** Background color for ON ERROR … END-ERROR blocks. */
+    public String naturalColorOnError    = "#FFF8DC";
+
     // BetaView Settings
     public String betaviewUrl = "";                 // BetaView Base URL (z.B. https://betaview.example.com/betaview/)
     public boolean betaviewUseSharedCredentials = true;  // true = use host/user from Server Settings (FTP/NDV)

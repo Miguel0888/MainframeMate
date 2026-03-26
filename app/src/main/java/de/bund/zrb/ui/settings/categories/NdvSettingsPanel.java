@@ -17,6 +17,14 @@ public class NdvSettingsPanel extends AbstractSettingsPanel {
     private final DefaultTableModel mappingTableModel;
     private final DefaultListModel<String> searchOrderListModel;
 
+    // Natural block highlight color buttons
+    private final JButton colorSubroutineBtn;
+    private final JButton colorDefineDataBtn;
+    private final JButton colorOnErrorBtn;
+    private Color colorSubroutine;
+    private Color colorDefineData;
+    private Color colorOnError;
+
     public NdvSettingsPanel() {
         super("ndv", "NDV-Verbindung");
         FormBuilder fb = new FormBuilder();
@@ -157,6 +165,35 @@ public class NdvSettingsPanel extends AbstractSettingsPanel {
         fb.addWideGrow(tableScroll);
         fb.addWide(btnPanel);
 
+        // ── Natural Block Highlight Colors ──
+        fb.addSection("Natural-Block-Farben");
+        fb.addInfo("Hintergrundfarben für strukturelle Blöcke im Natural-Editor.<br>"
+                + "Klicken Sie auf die Farbfläche, um eine neue Farbe zu wählen.");
+
+        colorSubroutine = hexToColor(settings.naturalColorSubroutine, new Color(255, 230, 230));
+        colorSubroutineBtn = createColorButton(colorSubroutine);
+        colorSubroutineBtn.addActionListener(e -> {
+            Color c = JColorChooser.showDialog(this, "Farbe: DEFINE SUBROUTINE", colorSubroutine);
+            if (c != null) { colorSubroutine = c; applyColorToButton(colorSubroutineBtn, c); }
+        });
+        fb.addRow("DEFINE SUBROUTINE:", colorSubroutineBtn);
+
+        colorDefineData = hexToColor(settings.naturalColorDefineData, new Color(230, 240, 255));
+        colorDefineDataBtn = createColorButton(colorDefineData);
+        colorDefineDataBtn.addActionListener(e -> {
+            Color c = JColorChooser.showDialog(this, "Farbe: DEFINE DATA", colorDefineData);
+            if (c != null) { colorDefineData = c; applyColorToButton(colorDefineDataBtn, c); }
+        });
+        fb.addRow("DEFINE DATA:", colorDefineDataBtn);
+
+        colorOnError = hexToColor(settings.naturalColorOnError, new Color(255, 248, 220));
+        colorOnErrorBtn = createColorButton(colorOnError);
+        colorOnErrorBtn.addActionListener(e -> {
+            Color c = JColorChooser.showDialog(this, "Farbe: ON ERROR", colorOnError);
+            if (c != null) { colorOnError = c; applyColorToButton(colorOnErrorBtn, c); }
+        });
+        fb.addRow("ON ERROR:", colorOnErrorBtn);
+
         installPanel(fb);
     }
 
@@ -181,6 +218,46 @@ public class NdvSettingsPanel extends AbstractSettingsPanel {
                 s.naturalLibraryMappings.put(stepLib, ndvLib);
             }
         }
+
+        // Save Natural block colors
+        s.naturalColorSubroutine = colorToHex(colorSubroutine);
+        s.naturalColorDefineData = colorToHex(colorDefineData);
+        s.naturalColorOnError    = colorToHex(colorOnError);
+    }
+
+    // ── Color helper methods ──
+
+    private static JButton createColorButton(Color color) {
+        JButton btn = new JButton();
+        btn.setPreferredSize(new Dimension(80, 24));
+        applyColorToButton(btn, color);
+        return btn;
+    }
+
+    private static void applyColorToButton(JButton btn, Color color) {
+        btn.setBackground(color);
+        btn.setOpaque(true);
+        btn.setBorderPainted(true);
+        // Show hex code as text for clarity
+        btn.setText(colorToHex(color));
+        btn.setForeground(brightness(color) < 128 ? Color.WHITE : Color.BLACK);
+    }
+
+    private static String colorToHex(Color c) {
+        return String.format("#%02X%02X%02X", c.getRed(), c.getGreen(), c.getBlue());
+    }
+
+    static Color hexToColor(String hex, Color fallback) {
+        if (hex == null || hex.isEmpty()) return fallback;
+        try {
+            return Color.decode(hex);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static int brightness(Color c) {
+        return (c.getRed() * 299 + c.getGreen() * 587 + c.getBlue() * 114) / 1000;
     }
 }
 
