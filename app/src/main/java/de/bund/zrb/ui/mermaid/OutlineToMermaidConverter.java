@@ -950,7 +950,8 @@ public final class OutlineToMermaidConverter {
                 String proc = step.getParameter("PROC");
                 String target = pgm != null ? pgm : proc;
                 if (target != null && seen.add(target.toUpperCase())) {
-                    sb.append("    ").append(escMm(target)).append("\n");
+                    String lbl = isSysFunc(target, sysFuncs) ? "\uD83C\uDFE2 " + escMm(target) : escMm(target);
+                    sb.append("    ").append(lbl).append("\n");
                 }
             }
         }
@@ -958,7 +959,7 @@ public final class OutlineToMermaidConverter {
         return sb.toString();
     }
 
-    private static String convertCobolMindmap(JclOutlineModel model, CallTreeNode callTree) {
+    private static String convertCobolMindmap(JclOutlineModel model, CallTreeNode callTree, Set<String> sysFuncs) {
         StringBuilder sb = new StringBuilder("mindmap\n");
         List<JclElement> all = model.getElements();
 
@@ -973,8 +974,7 @@ public final class OutlineToMermaidConverter {
         sb.append("  root((").append(escMm(progName)).append("))\n");
 
         if (callTree != null && !callTree.getChildren().isEmpty()) {
-            // Each external call is a direct branch of root, recursively resolved
-            appendCallTreeChildren(sb, callTree, 4);
+            appendCallTreeChildren(sb, callTree, 4, sysFuncs);
         } else {
             // Fallback: flat external call targets
             Set<String> seen = new LinkedHashSet<String>();
@@ -982,7 +982,8 @@ public final class OutlineToMermaidConverter {
                 if (e.getType() == JclElementType.CALL_STMT) {
                     String target = e.getParameter("TARGET");
                     if (target != null && seen.add(target.toUpperCase())) {
-                        sb.append("    ").append(escMm(target)).append("\n");
+                        String lbl = isSysFunc(target, sysFuncs) ? "\uD83C\uDFE2 " + escMm(target) : escMm(target);
+                        sb.append("    ").append(lbl).append("\n");
                     }
                 }
             }
@@ -991,7 +992,7 @@ public final class OutlineToMermaidConverter {
         return sb.toString();
     }
 
-    private static String convertNaturalMindmap(JclOutlineModel model, CallTreeNode callTree) {
+    private static String convertNaturalMindmap(JclOutlineModel model, CallTreeNode callTree, Set<String> sysFuncs) {
         StringBuilder sb = new StringBuilder("mindmap\n");
         List<JclElement> all = model.getElements();
 
@@ -1008,8 +1009,7 @@ public final class OutlineToMermaidConverter {
         sb.append("  root((").append(escMm(progName)).append("))\n");
 
         if (callTree != null && !callTree.getChildren().isEmpty()) {
-            // Each external call is a direct branch of root, recursively resolved
-            appendCallTreeChildren(sb, callTree, 4);
+            appendCallTreeChildren(sb, callTree, 4, sysFuncs);
         } else {
             // Fallback: flat external call targets
             Set<String> seen = new LinkedHashSet<String>();
@@ -1017,7 +1017,8 @@ public final class OutlineToMermaidConverter {
                 String target = call.getParameter("TARGET");
                 if (target == null) target = call.getName();
                 if (target != null && seen.add(target.toUpperCase())) {
-                    sb.append("    ").append(escMm(target)).append("\n");
+                    String lbl = isSysFunc(target, sysFuncs) ? "\uD83C\uDFE2 " + escMm(target) : escMm(target);
+                    sb.append("    ").append(lbl).append("\n");
                 }
             }
         }
@@ -1033,19 +1034,25 @@ public final class OutlineToMermaidConverter {
      * Recursively append call tree children as mindmap indentation levels.
      * Each child represents an external call to another file; its children
      * are that file's own external calls — forming a pure call graph.
+     * System functions are prefixed with 🏢.
      *
      * @param sb         output builder
      * @param parent     parent call tree node
      * @param baseIndent starting indentation (number of spaces)
+     * @param sysFuncs   set of known system function names (uppercase)
      */
-    private static void appendCallTreeChildren(StringBuilder sb, CallTreeNode parent, int baseIndent) {
-        // Mermaid mindmap indentation limit — deeper nesting becomes unreadable
+    private static void appendCallTreeChildren(StringBuilder sb, CallTreeNode parent,
+                                                int baseIndent, Set<String> sysFuncs) {
         int maxIndent = 20;
         String indent = spaces(Math.min(baseIndent, maxIndent));
 
         for (CallTreeNode child : parent.getChildren()) {
-            // Label = target file name only (no call type prefix)
-            String label = escMm(child.getName());
+            String name = child.getName();
+            String label = escMm(name);
+            // Prefix system functions with 🏢
+            if (isSysFunc(name, sysFuncs)) {
+                label = "\uD83C\uDFE2 " + label;
+            }
             if (child.isRecursive()) {
                 label = label + " \uD83D\uDD04"; // 🔄
             }
@@ -1053,7 +1060,7 @@ public final class OutlineToMermaidConverter {
 
             // Recurse: show external calls of that file as sub-branches
             if (!child.isRecursive() && !child.getChildren().isEmpty()) {
-                appendCallTreeChildren(sb, child, baseIndent + 2);
+                appendCallTreeChildren(sb, child, baseIndent + 2, sysFuncs);
             }
         }
     }
