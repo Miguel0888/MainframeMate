@@ -17,14 +17,19 @@ import de.zrb.bund.newApi.ui.FindBarPanel;
 import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.event.TreeExpansionEvent;
+import javax.swing.event.TreeExpansionListener;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
@@ -89,6 +94,10 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
     private boolean showDetails = false;
     private boolean linkWithEditor = false;
     private boolean hideBlacklisted = false;
+    /** Tracks which type groups are expanded in the grouped tree (by typeId). null = all expanded (default). */
+    private Set<Integer> expandedTypeIds = null;
+    /** True while tree is being rebuilt programmatically (suppress expansion listener saves). */
+    private boolean treeRebuilding = false;
 
     // Grouped tree view
     private JTree objectTree;
@@ -97,6 +106,10 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
     private CardLayout viewCardLayout;
     private JPanel viewContainer;
     private JToggleButton groupToggle;
+
+    // Navigator toolbar buttons (fields for flash animation)
+    private JButton filterButton;
+    private JToggleButton hideBlacklistedToggle;
 
     // Navigation state
     private enum BrowseLevel { LIBRARIES, OBJECTS }
@@ -160,6 +173,11 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
         initUI();
         if (autoLoadLibraries) {
             loadLibraries();
+        }
+
+        // Flash filter/blacklist buttons if they have active settings (reminder for user)
+        if (!hiddenTypes.isEmpty() || hideBlacklisted) {
+            flashActiveFilterButtons();
         }
     }
 
@@ -274,6 +292,42 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
             }
         });
         JScrollPane treeScrollPane = new JScrollPane(objectTree);
+
+        // Track tree expansion/collapse to persist state
+        objectTree.addTreeExpansionListener(new TreeExpansionListener() {
+            @Override
+            public void treeExpanded(TreeExpansionEvent event) {
+                if (treeRebuilding) return;
+                TreePath path = event.getPath();
+                DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+                if (node.getUserObject() instanceof TypeGroupNode) {
+                    int typeId = ((TypeGroupNode) node.getUserObject()).typeId;
+                    if (expandedTypeIds != null) {
+                        expandedTypeIds.add(typeId);
+                    }
+                    saveNavigatorState();
+                }
+            }
+
+            @Override
+            public void treeCollapsed(TreeExpansionEvent event) {
+                if (treeRebuilding) return;
+                TreePath path = event.getPath();
+                DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+                if (node.getUserObject() instanceof TypeGroupNode) {
+                    int typeId = ((TypeGroupNode) node.getUserObject()).typeId;
+                    if (expandedTypeIds == null) {
+                        // First collapse: initialize with all type IDs as expanded, then remove this one
+                        expandedTypeIds = new HashSet<Integer>();
+                        for (int tid : TYPE_GROUP_ORDER) {
+                            expandedTypeIds.add(tid);
+                        }
+                    }
+                    expandedTypeIds.remove(typeId);
+                    saveNavigatorState();
+                }
+            }
+        });
 
         // Card layout to switch between flat list and grouped tree
         viewCardLayout = new CardLayout();
@@ -1021,7 +1075,7 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
         toolbar.add(sortButton);
 
         // Type filter dropdown
-        JButton filterButton = new JButton("\uD83D\uDD3D");
+        filterButton = new JButton("\uD83D\uDD3D");
         filterButton.setToolTipText("Typfilter \u2014 Objekttypen ein-/ausblenden");
         filterButton.setMargin(new Insets(1, 4, 1, 4));
         filterButton.setFocusable(false);
@@ -1183,6 +1237,18 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
                 sb.append(typeId);
             }
             state.put(STATE_PREFIX + "hiddenTypes", sb.toString());
+        }
+
+        // Store expanded type group IDs (null = all expanded, i.e. no entry stored)
+        if (expandedTypeIds == null) {
+            state.remove(STATE_PREFIX + "expandedTypeIds");
+        } else {
+            StringBuilder sb = new StringBuilder();
+            for (Integer typeId : expandedTypeIds) {
+                if (sb.length() > 0) sb.append(",");
+                sb.append(typeId);
+            }
+            state.put(STATE_PREFIX + "expandedTypeIds", sb.toString());
         }
 
         SettingsHelper.save(settings);
@@ -1603,8 +1669,34 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
 
         treeModel.reload();
 
-        // Expand all groups by default for quick overview
-        expandAllTreeNodes();
+        // Restore expansion state (or expand all if no state saved)
+        restoreTreeExpansionState();
+    }
+
+    /**
+     * Restore tree expansion state from the saved expandedTypeIds set.
+     * If no state was saved (expandedTypeIds == null), all groups are expanded.
+     * Suppresses the expansion listener during programmatic changes.
+     */
+    private void restoreTreeExpansionState() {
+        treeRebuilding = true;
+        try {
+            for (int i = 0; i < treeRoot.getChildCount(); i++) {
+                DefaultMutableTreeNode groupNode = (DefaultMutableTreeNode) treeRoot.getChildAt(i);
+                Object userObj = groupNode.getUserObject();
+                if (userObj instanceof TypeGroupNode) {
+                    int typeId = ((TypeGroupNode) userObj).typeId;
+                    TreePath path = new TreePath(new Object[]{treeRoot, groupNode});
+                    if (expandedTypeIds == null || expandedTypeIds.contains(typeId)) {
+                        objectTree.expandPath(path);
+                    } else {
+                        objectTree.collapsePath(path);
+                    }
+                }
+            }
+        } finally {
+            treeRebuilding = false;
+        }
     }
 
     /**
@@ -1953,6 +2045,63 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
             }
             return this;
         }
+    }
+
+    // ==================== Filter Indicator Flash ====================
+
+    /**
+     * Flash a red border around the given component to draw attention.
+     * Blinks 3 times over ~1.5 seconds, then restores the original border.
+     */
+    private void flashButtonBorder(final JComponent button) {
+        final Border originalBorder = button.getBorder();
+        final Border flashBorder = BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Color.RED, 2),
+                originalBorder != null ? originalBorder : BorderFactory.createEmptyBorder()
+        );
+        final int[] count = {0};
+        final int maxBlinks = 6; // 3 on + 3 off = 3 blinks
+        final javax.swing.Timer timer = new javax.swing.Timer(250, null);
+        timer.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (count[0] >= maxBlinks) {
+                    button.setBorder(originalBorder);
+                    timer.stop();
+                    return;
+                }
+                if (count[0] % 2 == 0) {
+                    button.setBorder(flashBorder);
+                } else {
+                    button.setBorder(originalBorder);
+                }
+                count[0]++;
+            }
+        });
+        timer.setRepeats(true);
+        timer.start();
+    }
+
+    /**
+     * Flash the filter and/or blacklist buttons if they have active settings,
+     * to remind the user that some items are hidden.
+     * Called after the connection tab becomes visible / data is loaded.
+     */
+    private void flashActiveFilterButtons() {
+        // Delay slightly so the UI is fully visible before flashing
+        javax.swing.Timer delayTimer = new javax.swing.Timer(500, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (!hiddenTypes.isEmpty() && filterButton != null) {
+                    flashButtonBorder(filterButton);
+                }
+                if (hideBlacklisted && hideBlacklistedToggle != null) {
+                    flashButtonBorder(hideBlacklistedToggle);
+                }
+            }
+        });
+        delayTimer.setRepeats(false);
+        delayTimer.start();
     }
 
     // ==================== ConnectionTab interface ====================
