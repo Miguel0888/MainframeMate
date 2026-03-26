@@ -60,7 +60,10 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             "kotlin", "kt", "lua", "perl", "pl", "json", "xml", "yml", "yaml",
             "properties", "ini", "csv", "css",
             // Mainframe languages
-            "jcl", "proc", "prc", "cbl", "cob", "cobol"
+            "jcl", "proc", "prc", "cbl", "cob", "cobol",
+            // Natural (Software AG) extensions
+            "nat", "nsp", "nsn", "nss", "nsh", "nsc", "nsl", "nsa", "nsg", "nsm",
+            "ns4", "ns7", "nsd", "ns3", "ns5", "ns6", "ns8"
     ));
 
     // Document extensions that need HTML rendering (Markdown, etc.)
@@ -79,7 +82,10 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             "xml", "csv", "log", "java", "py", "js", "ts", "html", "css", "sql",
             "sh", "bat", "ps1", "rb", "php", "c", "cpp", "h", "hpp", "go",
             // Mainframe languages
-            "jcl", "proc", "prc", "cbl", "cob", "cobol"
+            "jcl", "proc", "prc", "cbl", "cob", "cobol",
+            // Natural (Software AG) extensions
+            "nat", "nsp", "nsn", "nss", "nsh", "nsc", "nsl", "nsa", "nsg", "nsm",
+            "ns4", "ns7", "nsd", "ns3", "ns5", "ns6", "ns8"
     ));
 
     // Extension to RSyntaxTextArea syntax style mapping
@@ -129,6 +135,22 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         SYNTAX_STYLES.put("jcl", SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE); // JCL - use properties as approximation
         SYNTAX_STYLES.put("proc", SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE); // JCL PROC
         SYNTAX_STYLES.put("prc", SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE);  // JCL PROC variant
+        // Natural (Software AG) extensions → custom syntax highlighting
+        String natStyle = de.bund.zrb.ui.syntax.MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL;
+        for (String ne : new String[]{"nat","nsp","nsn","nss","nsh","nsc","nsl","nsa","nsg","nsm","ns4","ns7","nsd","ns3","ns5","ns6","ns8"}) {
+            SYNTAX_STYLES.put(ne, natStyle);
+        }
+    }
+
+    /** All known Natural file extensions (lowercase). */
+    private static final Set<String> NATURAL_EXTENSIONS = new HashSet<>(Arrays.asList(
+            "nat", "nsp", "nsn", "nss", "nsh", "nsc", "nsl", "nsa", "nsg", "nsm",
+            "ns4", "ns7", "nsd", "ns3", "ns5", "ns6", "ns8"
+    ));
+
+    /** Check if extension is a Natural file extension. */
+    protected static boolean isNaturalExtension(String ext) {
+        return ext != null && NATURAL_EXTENSIONS.contains(ext.toLowerCase());
     }
 
     // JCL detection patterns - JCL typically starts with // in columns 1-2
@@ -276,9 +298,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         this.needsHtmlRendering = needsHtmlRendering(sourceName, metadata);
         this.markdownFormatter = ChatMarkdownFormatter.getInstance();
         this.isEditable = isTextFile && !"BETAVIEW".equals(this.backendType);
-        this.isMainframeCode = isJclContent(this.rawContent)
-                || isCobolContent(this.rawContent)
-                || isNaturalContent(this.rawContent);
+        this.isMainframeCode = isMainframeCodeFile(sourceName, this.rawContent);
         this.isMermaidCode = isMermaidContent(this.rawContent);
 
         // Editing action buttons — only shown for editable text files
@@ -522,6 +542,26 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             }
         }
         return naturalHits >= 2;
+    }
+
+    /**
+     * Check if a file is mainframe code by extension or content analysis.
+     * Used to decide whether to show the Visuell (diagram) button.
+     */
+    protected boolean isMainframeCodeFile(String name, String content) {
+        // 1) Check by file extension
+        String ext = getExtension(name);
+        if (ext != null) {
+            String lower = ext.toLowerCase();
+            if (isNaturalExtension(lower)) return true;
+            if ("jcl".equals(lower) || "proc".equals(lower) || "prc".equals(lower)) return true;
+            if ("cbl".equals(lower) || "cob".equals(lower) || "cobol".equals(lower)) return true;
+        }
+        // 2) Fallback: detect by content
+        if (content != null && !content.isEmpty()) {
+            return isJclContent(content) || isCobolContent(content) || isNaturalContent(content);
+        }
+        return false;
     }
 
     /**
@@ -962,6 +1002,36 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     // ═══════════════════════════════════════════════════════════
 
     /**
+     * Ensure the "Visuell" diagram toggle button is present in the toolbar.
+     * Called when a mainframe file type is explicitly selected via dropdown,
+     * even if the button was not created during initial toolbar construction.
+     */
+    protected void ensureDiagramToggleVisible() {
+        if (diagramToggleButton != null) {
+            diagramToggleButton.setVisible(true);
+            return;
+        }
+        // Create the button and insert it between the two glue components
+        diagramToggleButton = new JButton("\uD83D\uDC41 Visuell"); // 👁 Visuell
+        diagramToggleButton.setToolTipText("Interaktive Diagramm-Ansicht");
+        diagramToggleButton.addActionListener(e -> toggleDiagramView());
+        // Find the first glue in the toolbar and insert after it
+        for (int i = 0; i < toolbar.getComponentCount(); i++) {
+            Component c = toolbar.getComponentAtIndex(i);
+            if (c instanceof Box.Filler) {
+                toolbar.add(diagramToggleButton, i + 1);
+                toolbar.revalidate();
+                toolbar.repaint();
+                return;
+            }
+        }
+        // Fallback: add before last glue
+        toolbar.add(diagramToggleButton);
+        toolbar.revalidate();
+        toolbar.repaint();
+    }
+
+    /**
      * Toggle between normal code view and interactive Mermaid diagram view.
      * For mainframe code, the diagram is generated from the parsed outline model.
      * For pure Mermaid source code, the raw content is used directly.
@@ -1214,7 +1284,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
         JclOutlineModel model = null;
 
-        if (isNaturalContent(rawContent)) {
+        // Detect language: extension-based detection takes priority,
+        // then fall back to content analysis
+        String ext = getExtension(sourceName);
+        boolean isNatByExt = isNaturalExtension(ext);
+
+        if (isNatByExt || isNaturalContent(rawContent)) {
             model = new NaturalParser().parse(rawContent, sourceName);
         } else if (isCobolContent(rawContent)) {
             model = new CobolParser().parse(rawContent, sourceName);
@@ -1906,9 +1981,11 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             case "JCL":
                 // JCL → source code with properties-file syntax
                 this.isSourceCode = true;
+                this.isMainframeCode = true;
                 this.needsHtmlRendering = false;
                 rawPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE);
                 rawPane.setCodeFoldingEnabled(true);
+                ensureDiagramToggleVisible();
                 applyViewMode(currentMode);
                 updateSaveDownloadButton(false);
                 break;
@@ -1916,9 +1993,11 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             case "COBOL":
                 // COBOL → source code (no native highlighting)
                 this.isSourceCode = true;
+                this.isMainframeCode = true;
                 this.needsHtmlRendering = false;
                 rawPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
                 rawPane.setCodeFoldingEnabled(true);
+                ensureDiagramToggleVisible();
                 applyViewMode(currentMode);
                 updateSaveDownloadButton(false);
                 break;
@@ -1926,10 +2005,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             case "NATURAL":
                 // Natural → source code with custom syntax
                 this.isSourceCode = true;
+                this.isMainframeCode = true;
                 this.needsHtmlRendering = false;
                 rawPane.setSyntaxEditingStyle(
                         de.bund.zrb.ui.syntax.MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL);
                 rawPane.setCodeFoldingEnabled(true);
+                ensureDiagramToggleVisible();
                 applyViewMode(currentMode);
                 updateSaveDownloadButton(false);
                 break;

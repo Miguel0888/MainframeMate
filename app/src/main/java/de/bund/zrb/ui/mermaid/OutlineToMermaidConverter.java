@@ -23,6 +23,23 @@ public final class OutlineToMermaidConverter {
 
     private OutlineToMermaidConverter() {}
 
+    // IBM Blue styling for system function nodes in Mermaid diagrams
+    private static final String SYSFUNC_STYLE = "fill:#0530AD,color:#fff,stroke:#002D9C,stroke-width:2px";
+
+    /**
+     * Lazily-loaded set of known system function names (uppercase).
+     * Loaded from the user-configurable system_functions.json.
+     */
+    private static Set<String> loadSystemFunctionNames() {
+        try {
+            java.util.Map<String, ?> lookup =
+                    de.bund.zrb.helper.SystemFunctionSettingsHelper.buildLookup();
+            return lookup.keySet(); // already uppercase
+        } catch (Exception e) {
+            return Collections.emptySet();
+        }
+    }
+
     /**
      * Diagram types that can be generated from an outline model.
      */
@@ -79,25 +96,37 @@ public final class OutlineToMermaidConverter {
         if (model == null || model.isEmpty()) return null;
         if (type == null) type = DiagramType.STRUCTURE;
 
+        Set<String> sysFuncs = loadSystemFunctionNames();
+
         switch (type) {
-            case FLOWCHART: return convertFlowchart(model);
-            case SEQUENCE:  return convertSequence(model);
-            case MINDMAP:   return convertMindmap(model, callTree);
+            case FLOWCHART: return convertFlowchart(model, sysFuncs);
+            case SEQUENCE:  return convertSequence(model, sysFuncs);
+            case MINDMAP:   return convertMindmap(model, callTree, sysFuncs);
             case STRUCTURE:
-            default:        return convertStructure(model);
+            default:        return convertStructure(model, sysFuncs);
         }
+    }
+
+    /** Check if a name is a known system function. */
+    private static boolean isSysFunc(String name, Set<String> sysFuncs) {
+        return name != null && sysFuncs.contains(name.toUpperCase());
+    }
+
+    /** Append a Mermaid style directive for system function nodes (IBM Blue). */
+    private static void styleSysFunc(StringBuilder sb, String nodeId) {
+        sb.append("    style ").append(nodeId).append(" ").append(SYSFUNC_STYLE).append("\n");
     }
 
     // ═══════════════════════════════════════════════════════════
     //  STRUCTURE (existing flowchart)
     // ═══════════════════════════════════════════════════════════
 
-    private static String convertStructure(JclOutlineModel model) {
+    private static String convertStructure(JclOutlineModel model, Set<String> sysFuncs) {
         switch (model.getLanguage()) {
-            case JCL:     return convertJcl(model);
-            case COBOL:   return convertCobol(model);
-            case NATURAL: return convertNatural(model);
-            default:      return convertJcl(model);
+            case JCL:     return convertJcl(model, sysFuncs);
+            case COBOL:   return convertCobol(model, sysFuncs);
+            case NATURAL: return convertNatural(model, sysFuncs);
+            default:      return convertJcl(model, sysFuncs);
         }
     }
 
@@ -105,7 +134,7 @@ public final class OutlineToMermaidConverter {
     //  JCL
     // ══════════════════════════════════════════════════════════
 
-    private static String convertJcl(JclOutlineModel model) {
+    private static String convertJcl(JclOutlineModel model, Set<String> sysFuncs) {
         StringBuilder sb = new StringBuilder("flowchart TD\n");
         Set<String> usedIds = new HashSet<String>();
 
@@ -141,6 +170,11 @@ public final class OutlineToMermaidConverter {
             }
             sb.append("\"]\n");
 
+            // Style system function steps with IBM Blue
+            if (isSysFunc(pgm, sysFuncs)) {
+                styleSysFunc(sb, stepId);
+            }
+
             if (prevStepId != null) {
                 sb.append("    ").append(prevStepId).append(" --> ").append(stepId).append("\n");
             }
@@ -171,7 +205,7 @@ public final class OutlineToMermaidConverter {
     //  COBOL
     // ══════════════════════════════════════════════════════════
 
-    private static String convertCobol(JclOutlineModel model) {
+    private static String convertCobol(JclOutlineModel model, Set<String> sysFuncs) {
         StringBuilder sb = new StringBuilder("flowchart TD\n");
         Set<String> usedIds = new HashSet<String>();
 
@@ -227,6 +261,9 @@ public final class OutlineToMermaidConverter {
             } else if (e.getType() == JclElementType.CALL_STMT) {
                 String callId = safeId("CALL_" + target, usedIds);
                 sb.append("    ").append(callId).append(">\"").append(esc(target)).append("\"]\n");
+                if (isSysFunc(target, sysFuncs)) {
+                    styleSysFunc(sb, callId);
+                }
                 String fromId = sourceParent != null ? findIdForName("PARA_" + sourceParent, usedIds) : rootId;
                 if (fromId != null) {
                     sb.append("    ").append(fromId).append(" ==>|CALL| ").append(callId).append("\n");
@@ -241,7 +278,7 @@ public final class OutlineToMermaidConverter {
     //  Natural
     // ══════════════════════════════════════════════════════════
 
-    private static String convertNatural(JclOutlineModel model) {
+    private static String convertNatural(JclOutlineModel model, Set<String> sysFuncs) {
         StringBuilder sb = new StringBuilder("flowchart TD\n");
         Set<String> usedIds = new HashSet<String>();
         List<JclElement> all = model.getElements();
@@ -306,6 +343,9 @@ public final class OutlineToMermaidConverter {
             // Only create node if not already created
             if (!usedIds.contains(normalizeId("EXT_" + target))) {
                 sb.append("    ").append(callId).append(">\"").append(esc(target)).append("\"]\n");
+                if (isSysFunc(target, sysFuncs)) {
+                    styleSysFunc(sb, callId);
+                }
             }
             sb.append("    ").append(rootId).append(" -.->|").append(edgeLabel).append("| ")
                     .append(callId).append("\n");
@@ -355,16 +395,16 @@ public final class OutlineToMermaidConverter {
     //  FLOWCHART (control flow: branches, loops, external calls)
     // ═══════════════════════════════════════════════════════════
 
-    private static String convertFlowchart(JclOutlineModel model) {
+    private static String convertFlowchart(JclOutlineModel model, Set<String> sysFuncs) {
         switch (model.getLanguage()) {
-            case JCL:     return convertJclFlowchart(model);
-            case COBOL:   return convertCobolFlowchart(model);
-            case NATURAL: return convertNaturalFlowchart(model);
-            default:      return convertJclFlowchart(model);
+            case JCL:     return convertJclFlowchart(model, sysFuncs);
+            case COBOL:   return convertCobolFlowchart(model, sysFuncs);
+            case NATURAL: return convertNaturalFlowchart(model, sysFuncs);
+            default:      return convertJclFlowchart(model, sysFuncs);
         }
     }
 
-    private static String convertJclFlowchart(JclOutlineModel model) {
+    private static String convertJclFlowchart(JclOutlineModel model, Set<String> sysFuncs) {
         StringBuilder sb = new StringBuilder("flowchart TD\n");
         Set<String> usedIds = new HashSet<String>();
         List<JclElement> all = model.getElements();
@@ -397,6 +437,11 @@ public final class OutlineToMermaidConverter {
                 if (pgm != null) sb.append("\\nPGM=").append(esc(pgm));
                 else if (proc != null) sb.append("\\nPROC=").append(esc(proc));
                 sb.append("\"]\n");
+
+                // Style system function steps with IBM Blue
+                if (isSysFunc(pgm, sysFuncs)) {
+                    styleSysFunc(sb, stepId);
+                }
 
                 sb.append("    ").append(prevId).append(" --> ").append(stepId).append("\n");
 
@@ -508,7 +553,7 @@ public final class OutlineToMermaidConverter {
         return prevId;
     }
 
-    private static String convertCobolFlowchart(JclOutlineModel model) {
+    private static String convertCobolFlowchart(JclOutlineModel model, Set<String> sysFuncs) {
         StringBuilder sb = new StringBuilder("flowchart TD\n");
         Set<String> usedIds = new HashSet<String>();
         List<JclElement> all = model.getElements();
@@ -558,7 +603,12 @@ public final class OutlineToMermaidConverter {
                 String extId = safeId("EXT_" + target, usedIds);
                 sb.append("    ").append(extId).append(">\"").append(esc(target))
                         .append("\\n(externes Programm)\"]\n");
-                sb.append("    style ").append(extId).append(" fill:#ffe0b2,stroke:#e65100,stroke-width:2px\n");
+                // System functions → IBM Blue; others → orange highlight
+                if (isSysFunc(target, sysFuncs)) {
+                    styleSysFunc(sb, extId);
+                } else {
+                    sb.append("    style ").append(extId).append(" fill:#ffe0b2,stroke:#e65100,stroke-width:2px\n");
+                }
                 if (fromId != null) {
                     sb.append("    ").append(fromId).append(" ==>|CALL| ").append(extId).append("\n");
                 }
@@ -573,7 +623,7 @@ public final class OutlineToMermaidConverter {
         return sb.toString();
     }
 
-    private static String convertNaturalFlowchart(JclOutlineModel model) {
+    private static String convertNaturalFlowchart(JclOutlineModel model, Set<String> sysFuncs) {
         StringBuilder sb = new StringBuilder("flowchart TD\n");
         Set<String> usedIds = new HashSet<String>();
         List<JclElement> all = model.getElements();
@@ -637,7 +687,12 @@ public final class OutlineToMermaidConverter {
                         .append("\\n(").append(esc(t.getDisplayName())).append(")\"]\n");
                 sb.append("    ").append(prevId).append(" ==>|").append(t.getDisplayName())
                         .append("| ").append(extId).append("\n");
-                sb.append("    style ").append(extId).append(" fill:#ffe0b2,stroke:#e65100,stroke-width:2px\n");
+                // System functions → IBM Blue; others → orange highlight
+                if (isSysFunc(target, sysFuncs)) {
+                    styleSysFunc(sb, extId);
+                } else {
+                    sb.append("    style ").append(extId).append(" fill:#ffe0b2,stroke:#e65100,stroke-width:2px\n");
+                }
                 // Don't change prevId — external call returns and flow continues
             }
             // ── Inline PERFORM (internal subroutine calls) ──
@@ -681,16 +736,16 @@ public final class OutlineToMermaidConverter {
     //  SEQUENCE diagram
     // ═══════════════════════════════════════════════════════════
 
-    private static String convertSequence(JclOutlineModel model) {
+    private static String convertSequence(JclOutlineModel model, Set<String> sysFuncs) {
         switch (model.getLanguage()) {
-            case JCL:     return convertJclSequence(model);
-            case COBOL:   return convertCobolSequence(model);
-            case NATURAL: return convertNaturalSequence(model);
-            default:      return convertJclSequence(model);
+            case JCL:     return convertJclSequence(model, sysFuncs);
+            case COBOL:   return convertCobolSequence(model, sysFuncs);
+            case NATURAL: return convertNaturalSequence(model, sysFuncs);
+            default:      return convertJclSequence(model, sysFuncs);
         }
     }
 
-    private static String convertJclSequence(JclOutlineModel model) {
+    private static String convertJclSequence(JclOutlineModel model, Set<String> sysFuncs) {
         StringBuilder sb = new StringBuilder("sequenceDiagram\n");
         List<JclElement> jobs = model.getJobs();
         List<JclElement> steps = model.getSteps();
@@ -727,6 +782,11 @@ public final class OutlineToMermaidConverter {
             String detail = pgm != null ? "EXEC PGM=" + pgm : (proc != null ? "EXEC PROC=" + proc : "EXEC");
             sb.append("    ").append(prev).append("->>").append(safe).append(": ").append(detail).append("\n");
 
+            // System function note
+            if (isSysFunc(pgm, sysFuncs)) {
+                sb.append("    Note right of ").append(safe).append(": \uD83D\uDCD6 Systemfunktion\n");
+            }
+
             // DD statements as notes
             List<String> dds = new ArrayList<String>();
             for (JclElement child : step.getChildren()) {
@@ -744,7 +804,7 @@ public final class OutlineToMermaidConverter {
         return sb.toString();
     }
 
-    private static String convertCobolSequence(JclOutlineModel model) {
+    private static String convertCobolSequence(JclOutlineModel model, Set<String> sysFuncs) {
         StringBuilder sb = new StringBuilder("sequenceDiagram\n");
         List<JclElement> all = model.getElements();
 
@@ -798,7 +858,7 @@ public final class OutlineToMermaidConverter {
         return sb.toString();
     }
 
-    private static String convertNaturalSequence(JclOutlineModel model) {
+    private static String convertNaturalSequence(JclOutlineModel model, Set<String> sysFuncs) {
         StringBuilder sb = new StringBuilder("sequenceDiagram\n");
         List<JclElement> all = model.getElements();
 
@@ -859,16 +919,16 @@ public final class OutlineToMermaidConverter {
     //  MINDMAP
     // ═══════════════════════════════════════════════════════════
 
-    private static String convertMindmap(JclOutlineModel model, CallTreeNode callTree) {
+    private static String convertMindmap(JclOutlineModel model, CallTreeNode callTree, Set<String> sysFuncs) {
         switch (model.getLanguage()) {
-            case JCL:     return convertJclMindmap(model, callTree);
-            case COBOL:   return convertCobolMindmap(model, callTree);
-            case NATURAL: return convertNaturalMindmap(model, callTree);
-            default:      return convertJclMindmap(model, callTree);
+            case JCL:     return convertJclMindmap(model, callTree, sysFuncs);
+            case COBOL:   return convertCobolMindmap(model, callTree, sysFuncs);
+            case NATURAL: return convertNaturalMindmap(model, callTree, sysFuncs);
+            default:      return convertJclMindmap(model, callTree, sysFuncs);
         }
     }
 
-    private static String convertJclMindmap(JclOutlineModel model, CallTreeNode callTree) {
+    private static String convertJclMindmap(JclOutlineModel model, CallTreeNode callTree, Set<String> sysFuncs) {
         StringBuilder sb = new StringBuilder("mindmap\n");
         List<JclElement> jobs = model.getJobs();
 
@@ -881,7 +941,7 @@ public final class OutlineToMermaidConverter {
 
         if (callTree != null && !callTree.getChildren().isEmpty()) {
             // Each external call is a direct branch of root, recursively resolved
-            appendCallTreeChildren(sb, callTree, 4);
+            appendCallTreeChildren(sb, callTree, 4, sysFuncs);
         } else {
             // Fallback: external targets from steps (PGM/PROC)
             Set<String> seen = new LinkedHashSet<String>();

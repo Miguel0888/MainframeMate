@@ -2217,6 +2217,9 @@ public class TabbedPaneManager {
      * Uses the NDV library search order from settings to resolve unqualified symbol names.
      */
     private void wireExternalNavigation(final SplitPreviewTab previewTab) {
+        // Wire source resolver for recursive mindmap call tree resolution
+        previewTab.setSourceResolver(buildNdvSourceResolver(previewTab));
+
         previewTab.setExternalNavigationCallback(new SplitPreviewTab.ExternalNavigationCallback() {
             @Override
             public void openExternalTarget(String targetName) {
@@ -2263,5 +2266,59 @@ public class TabbedPaneManager {
                 }
             }
         });
+    }
+
+    /**
+     * Build a {@link de.bund.zrb.service.codeanalytics.SourceResolver} that resolves
+     * target names to source code using the NDV source cache across all configured libraries.
+     * This enables recursive call-tree resolution for the Mindmap diagram.
+     */
+    private de.bund.zrb.service.codeanalytics.SourceResolver buildNdvSourceResolver(
+            final SplitPreviewTab previewTab) {
+        return new de.bund.zrb.service.codeanalytics.SourceResolver() {
+            @Override
+            public String resolve(String targetName) {
+                if (targetName == null || targetName.isEmpty()) return null;
+
+                de.bund.zrb.service.NdvSourceCacheService cache =
+                        de.bund.zrb.service.NdvSourceCacheService.getInstance();
+                String upper = targetName.toUpperCase();
+
+                // 1) Try current tab's library
+                String currentLib = null;
+                if (previewTab instanceof FileTabImpl) {
+                    String path = ((FileTabImpl) previewTab).getPath();
+                    if (path != null && path.contains("/")) {
+                        currentLib = path.substring(0, path.indexOf('/')).toUpperCase();
+                    }
+                }
+                if (currentLib != null) {
+                    String src = cache.getCachedSource(currentLib, upper);
+                    if (src != null) return src;
+                }
+
+                // 2) Try settings search order
+                de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+                java.util.List<String> searchOrder = new java.util.ArrayList<String>();
+                if (settings.ndvDefaultLibrary != null && !settings.ndvDefaultLibrary.trim().isEmpty()) {
+                    String defLib = settings.ndvDefaultLibrary.trim().toUpperCase();
+                    if (!defLib.equals(currentLib)) searchOrder.add(defLib);
+                }
+                if (settings.ndvLibrarySearchOrder != null) {
+                    for (String lib : settings.ndvLibrarySearchOrder) {
+                        String u = lib.toUpperCase();
+                        if (!u.equals(currentLib) && !searchOrder.contains(u)) {
+                            searchOrder.add(u);
+                        }
+                    }
+                }
+                for (String lib : searchOrder) {
+                    String src = cache.getCachedSource(lib, upper);
+                    if (src != null) return src;
+                }
+
+                return null; // not resolvable from cache
+            }
+        };
     }
 }
