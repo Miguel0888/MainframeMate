@@ -122,6 +122,9 @@ public class Settings {
 
     /** JCL-Steplib → NDV library mapping for Natural programs (e.g. "ABAK-M" → "ABAK-T"). */
     public Map<String, String> naturalLibraryMappings = new LinkedHashMap<>();
+    /** Ordered list of NDV libraries to search when resolving an unqualified symbol name.
+     *  The first library where the object is found wins. Empty = use ndvDefaultLibrary only. */
+    public List<String> ndvLibrarySearchOrder = new ArrayList<String>();
 
     // BetaView Settings
     public String betaviewUrl = "";                 // BetaView Base URL (z.B. https://betaview.example.com/betaview/)

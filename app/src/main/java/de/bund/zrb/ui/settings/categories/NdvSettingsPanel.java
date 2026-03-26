@@ -15,6 +15,7 @@ public class NdvSettingsPanel extends AbstractSettingsPanel {
     private final JTextField ndvDefaultLibraryField;
     private final JTextField ndvLibPathField;
     private final DefaultTableModel mappingTableModel;
+    private final DefaultListModel<String> searchOrderListModel;
 
     public NdvSettingsPanel() {
         super("ndv", "NDV-Verbindung");
@@ -49,6 +50,64 @@ public class NdvSettingsPanel extends AbstractSettingsPanel {
         fb.addWide(statusLabel);
 
         fb.addInfo("Benötigte JARs: ndvserveraccess_*.jar, auxiliary_*.jar (NaturalONE)");
+
+        // ── Library Search Order (for unqualified symbol resolution) ──
+        fb.addSection("Bibliotheks-Suchreihenfolge");
+        fb.addInfo("Beim Öffnen eines Symbols ohne explizite Bibliothek wird in dieser<br>"
+                + "Reihenfolge gesucht. Die Default-Bibliothek wird immer zuerst geprüft.");
+
+        searchOrderListModel = new DefaultListModel<String>();
+        if (settings.ndvLibrarySearchOrder != null) {
+            for (String lib : settings.ndvLibrarySearchOrder) {
+                searchOrderListModel.addElement(lib);
+            }
+        }
+        final JList<String> searchOrderList = new JList<String>(searchOrderListModel);
+        searchOrderList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        searchOrderList.setVisibleRowCount(5);
+        JScrollPane searchOrderScroll = new JScrollPane(searchOrderList);
+        searchOrderScroll.setPreferredSize(new Dimension(0, 100));
+
+        JButton soAddBtn = new JButton("➕");
+        soAddBtn.addActionListener(e -> {
+            String lib = JOptionPane.showInputDialog(this, "NDV-Bibliotheksname:", "Bibliothek hinzufügen",
+                    JOptionPane.PLAIN_MESSAGE);
+            if (lib != null && !lib.trim().isEmpty()) {
+                searchOrderListModel.addElement(lib.trim().toUpperCase());
+            }
+        });
+        JButton soRemoveBtn = new JButton("➖");
+        soRemoveBtn.addActionListener(e -> {
+            int sel = searchOrderList.getSelectedIndex();
+            if (sel >= 0) searchOrderListModel.remove(sel);
+        });
+        JButton soUpBtn = new JButton("▲");
+        soUpBtn.addActionListener(e -> {
+            int sel = searchOrderList.getSelectedIndex();
+            if (sel > 0) {
+                String val = searchOrderListModel.remove(sel);
+                searchOrderListModel.add(sel - 1, val);
+                searchOrderList.setSelectedIndex(sel - 1);
+            }
+        });
+        JButton soDownBtn = new JButton("▼");
+        soDownBtn.addActionListener(e -> {
+            int sel = searchOrderList.getSelectedIndex();
+            if (sel >= 0 && sel < searchOrderListModel.size() - 1) {
+                String val = searchOrderListModel.remove(sel);
+                searchOrderListModel.add(sel + 1, val);
+                searchOrderList.setSelectedIndex(sel + 1);
+            }
+        });
+
+        JPanel soBtnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        soBtnPanel.add(soAddBtn);
+        soBtnPanel.add(soRemoveBtn);
+        soBtnPanel.add(soUpBtn);
+        soBtnPanel.add(soDownBtn);
+
+        fb.addWideGrow(searchOrderScroll);
+        fb.addWide(soBtnPanel);
 
         // ── Natural Library Mappings (STEPLIB → NDV) ──
         fb.addSection("Natural-Bibliothekszuordnung (STEPLIB → NDV)");
@@ -106,6 +165,12 @@ public class NdvSettingsPanel extends AbstractSettingsPanel {
         s.ndvPort = ((Number) ndvPortSpinner.getValue()).intValue();
         s.ndvDefaultLibrary = ndvDefaultLibraryField.getText().trim();
         s.ndvLibPath = ndvLibPathField.getText().trim();
+
+        // Save library search order
+        s.ndvLibrarySearchOrder = new java.util.ArrayList<String>();
+        for (int i = 0; i < searchOrderListModel.size(); i++) {
+            s.ndvLibrarySearchOrder.add(searchOrderListModel.getElementAt(i));
+        }
 
         // Save Natural library mappings from table
         s.naturalLibraryMappings = new LinkedHashMap<>();

@@ -1588,7 +1588,7 @@ public class MainFrame extends JFrame implements MainframeContext {
             stepLib = entry.getType().substring("JCL_NAT_".length());
         }
 
-        if (stepLib == null || program == null) {
+        if (program == null) {
             javax.swing.JOptionPane.showMessageDialog(this,
                     "Konnte Natural-Programm nicht identifizieren.",
                     "Fehler", javax.swing.JOptionPane.ERROR_MESSAGE);
@@ -1597,11 +1597,16 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         // Look up mapping: STEPLIB → NDV library
         Settings settings = SettingsHelper.load();
-        String ndvLibrary = settings.naturalLibraryMappings.get(stepLib.toUpperCase());
+        String ndvLibrary = stepLib != null ? settings.naturalLibraryMappings.get(stepLib.toUpperCase()) : null;
+
+        if (ndvLibrary == null || ndvLibrary.isEmpty()) {
+            // Try library search order from settings
+            ndvLibrary = resolveNdvLibraryForSymbol(program, settings);
+        }
 
         if (ndvLibrary == null || ndvLibrary.isEmpty()) {
             // Suggest a default: replace trailing letter with T (e.g. ABAK-M → ABAK-T)
-            String suggested = stepLib;
+            String suggested = stepLib != null ? stepLib : "";
             if (suggested.length() > 2 && suggested.charAt(suggested.length() - 2) == '-') {
                 suggested = suggested.substring(0, suggested.length() - 1) + "T";
             }
@@ -1609,9 +1614,9 @@ public class MainFrame extends JFrame implements MainframeContext {
             // Prompt the user for the mapping
             ndvLibrary = (String) javax.swing.JOptionPane.showInputDialog(
                     this,
-                    "In der JCL wird die STEPLIB \"" + stepLib + "\" verwendet.\n"
+                    "In der JCL wird die STEPLIB \"" + (stepLib != null ? stepLib : "?") + "\" verwendet.\n"
                             + "Welche NDV-Bibliothek entspricht dieser STEPLIB?\n\n"
-                            + "Beispiel: " + stepLib + " → " + suggested + "\n\n"
+                            + "Beispiel: " + (stepLib != null ? stepLib : "?") + " → " + suggested + "\n\n"
                             + "Das Mapping wird für zukünftige Zugriffe gespeichert.",
                     "Natural-Bibliothek Mapping",
                     javax.swing.JOptionPane.QUESTION_MESSAGE,
@@ -1624,14 +1629,51 @@ public class MainFrame extends JFrame implements MainframeContext {
             ndvLibrary = ndvLibrary.trim().toUpperCase();
 
             // Save mapping for future use
-            settings.naturalLibraryMappings.put(stepLib.toUpperCase(), ndvLibrary);
-            SettingsHelper.save(settings);
+            if (stepLib != null) {
+                settings.naturalLibraryMappings.put(stepLib.toUpperCase(), ndvLibrary);
+                SettingsHelper.save(settings);
+            }
         }
 
-        // Open via NDV
+        // Open directly as FileTab (no ConnectionTab switch)
         if (tabManager != null) {
             tabManager.openNdvDependencyTarget(ndvLibrary, program);
         }
+    }
+
+    /**
+     * Try to find the NDV library for an unqualified symbol name using the
+     * configured library search order. Checks the default library first,
+     * then each library in {@code ndvLibrarySearchOrder}.
+     *
+     * @return the library name where the object was found, or null if not found
+     */
+    private String resolveNdvLibraryForSymbol(String objectName, Settings settings) {
+        java.util.List<String> searchOrder = new java.util.ArrayList<String>();
+        // Default library first
+        if (settings.ndvDefaultLibrary != null && !settings.ndvDefaultLibrary.trim().isEmpty()) {
+            searchOrder.add(settings.ndvDefaultLibrary.trim().toUpperCase());
+        }
+        // Then configured search order
+        if (settings.ndvLibrarySearchOrder != null) {
+            for (String lib : settings.ndvLibrarySearchOrder) {
+                if (!searchOrder.contains(lib.toUpperCase())) {
+                    searchOrder.add(lib.toUpperCase());
+                }
+            }
+        }
+        if (searchOrder.isEmpty()) return null;
+
+        // Try cache first (fast, no network)
+        de.bund.zrb.service.NdvSourceCacheService cache = de.bund.zrb.service.NdvSourceCacheService.getInstance();
+        for (String lib : searchOrder) {
+            String cached = cache.getCachedSource(lib, objectName);
+            if (cached != null) return lib;
+        }
+
+        // No cache hit → return the first library in the search order as best guess
+        // (actual resolution will happen when the file is opened)
+        return searchOrder.get(0);
     }
 
     public de.bund.zrb.service.McpChatEventBridge getChatEventBridge() {

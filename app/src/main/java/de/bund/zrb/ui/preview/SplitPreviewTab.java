@@ -236,6 +236,17 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /** Optional source resolver for resolving external call targets to source code. */
     protected de.bund.zrb.service.codeanalytics.SourceResolver sourceResolver;
 
+    /** Callback for navigating to an external file (from diagram double-click or sidebar link). */
+    public interface ExternalNavigationCallback {
+        /** Open the given target name as a file (e.g. NDV object, JCL member). */
+        void openExternalTarget(String targetName);
+    }
+    private ExternalNavigationCallback externalNavigationCallback;
+
+    public void setExternalNavigationCallback(ExternalNavigationCallback callback) {
+        this.externalNavigationCallback = callback;
+    }
+
     /** @return true if the interactive diagram view is currently active. */
     public boolean isDiagramViewActive() { return diagramViewActive; }
 
@@ -986,6 +997,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                             rawPane.setText(rawContent);
                             hasUnsavedChanges = true;
                         }
+                    }
+                });
+                // Double-click on a diagram node → open external target file
+                mermaidDiagramPanel.setNodeDoubleClickListener(label -> {
+                    if (externalNavigationCallback != null && label != null && !label.isEmpty()) {
+                        externalNavigationCallback.openExternalTarget(label.trim());
                     }
                 });
             }

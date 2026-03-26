@@ -98,6 +98,13 @@ public class MermaidDiagramPanel extends JPanel {
     }
     private NodeSelectionListener nodeSelectionListener;
 
+    /** Optional listener notified when the user double-clicks a node (for external file navigation).
+     *  Receives the node label (display text) as a String. */
+    public interface NodeDoubleClickListener {
+        void onNodeDoubleClicked(String nodeLabel);
+    }
+    private NodeDoubleClickListener nodeDoubleClickListener;
+
     public MermaidDiagramPanel(boolean editable) {
         this.editable = editable;
         setLayout(new BorderLayout());
@@ -307,6 +314,10 @@ public class MermaidDiagramPanel extends JPanel {
 
     public void setNodeSelectionListener(NodeSelectionListener listener) {
         this.nodeSelectionListener = listener;
+    }
+
+    public void setNodeDoubleClickListener(NodeDoubleClickListener listener) {
+        this.nodeDoubleClickListener = listener;
     }
 
     public void setSourceChangeListener(SourceChangeListener listener) {
@@ -714,6 +725,14 @@ public class MermaidDiagramPanel extends JPanel {
                     if (!leftDragged) {
                         // Click without significant drag → select element
                         doSelection(e.getX(), e.getY());
+                        // Double-click → open external target (e.g. file in another module)
+                        if (e.getClickCount() == 2 && selectedNode != null
+                                && nodeDoubleClickListener != null) {
+                            String label = selectedNode.getLabel();
+                            if (label != null && !label.isEmpty()) {
+                                nodeDoubleClickListener.onNodeDoubleClicked(label);
+                            }
+                        }
                     }
                     panDragStart = null;
                     leftPressPoint = null;

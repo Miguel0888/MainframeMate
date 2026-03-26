@@ -882,6 +882,7 @@ public class TabbedPaneManager {
             content = fileTab.getContent();
             sourceName = fileTab.getPath();
             sentenceType = fileTab.getModel().getSentenceType();
+            wireExternalNavigation(fileTab);
         } else if (tab instanceof JobDetailTab) {
             JobDetailTab jesTab = (JobDetailTab) tab;
             content = jesTab.getContent();
@@ -893,6 +894,7 @@ public class TabbedPaneManager {
             SplitPreviewTab previewTab = (SplitPreviewTab) tab;
             content = previewTab.getContent();
             sourceName = previewTab.getPath();
+            wireExternalNavigation(previewTab);
         }
 
         if (content == null || content.isEmpty()) {
@@ -920,8 +922,12 @@ public class TabbedPaneManager {
                 navigateOutlineToDiagram(tab, rightDrawer);
             });
 
-            // Single-click tree selection → navigate in diagram if active
+            // Single-click tree selection → navigate to line in editor + diagram if active
             rightDrawer.getOutlinePanel().addTreeSelectionListener(e -> {
+                de.bund.zrb.jcl.model.JclElement selectedElement = rightDrawer.getOutlinePanel().getSelectedElement();
+                if (selectedElement != null && selectedElement.getLineNumber() > 0) {
+                    navigateToLine(tab, selectedElement.getLineNumber());
+                }
                 navigateOutlineToDiagram(tab, rightDrawer);
             });
 
@@ -2032,23 +2038,166 @@ public class TabbedPaneManager {
     }
 
     /**
-     * Open an NDV dependency target by finding an open NdvConnectionTab
-     * and navigating to the specified library/object.
+     * Open an NDV dependency target directly as a FileTab.
+     * Connects to NDV, reads the source, and opens it in a new FileTab
+     * without switching to the NdvConnectionTab.
      *
      * @param library    target library name
-     * @param objectName target object name (nullable, if null just navigate to library)
+     * @param objectName target object name (nullable, if null just navigate to library via ConnectionTab)
      */
     public void openNdvDependencyTarget(String library, String objectName) {
-        // Find an open NdvConnectionTab
+        if (objectName == null || objectName.isEmpty()) {
+            // No object → fall back to ConnectionTab navigation
+            openNdvDependencyViaConnectionTab(library, null);
+            return;
+        }
+
+        // Check if we already have a FileTab open for this object
+        String fullPath = library + "/" + objectName;
+        for (java.util.Map.Entry<Component, AppTab> entry : tabMap.entrySet()) {
+            if (entry.getValue() instanceof FileTab) {
+                FileTab ft = (FileTab) entry.getValue();
+                String path = ft.getPath();
+                if (path != null && path.toUpperCase().contains(fullPath.toUpperCase())) {
+                    int idx = tabbedPane.indexOfComponent(entry.getKey());
+                    if (idx >= 0) {
+                        tabbedPane.setSelectedIndex(idx);
+                    }
+                    return;
+                }
+            }
+        }
+
+        // Try to open directly: get NDV credentials and connect
+        de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+        String host = settings.host;
+        String user = settings.user;
+        int port = settings.ndvPort;
+
+        if (host == null || host.isEmpty() || user == null || user.isEmpty()) {
+            // Fall back to ConnectionTab
+            openNdvDependencyViaConnectionTab(library, objectName);
+            return;
+        }
+
+        String password = de.bund.zrb.login.LoginManager.getInstance().getPassword(host, user);
+        if (password == null || password.isEmpty()) {
+            openNdvDependencyViaConnectionTab(library, objectName);
+            return;
+        }
+
+        final String fHost = host;
+        final String fUser = user;
+        final String fLibrary = library;
+        final String fObjectName = objectName;
+        final String fPassword = password;
+        final int fPort = port;
+
+        tabbedPane.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
+
+        new javax.swing.SwingWorker<String, Void>() {
+            de.bund.zrb.ndv.NdvService service;
+            de.bund.zrb.ndv.NdvService.ResolvedNdvPath resolved;
+
+            @Override
+            protected String doInBackground() throws Exception {
+                service = new de.bund.zrb.ndv.NdvService();
+                service.connect(fHost, fPort, fUser, fPassword);
+                de.bund.zrb.login.LoginManager.getInstance().onLoginSuccess(fHost, fUser);
+                resolved = service.resolvePath(fLibrary + "/" + fObjectName);
+                if (!resolved.isFile()) return null;
+                return service.readSource(fLibrary, resolved.getObjectInfo());
+            }
+
+            @Override
+            protected void done() {
+                tabbedPane.setCursor(java.awt.Cursor.getDefaultCursor());
+                try {
+                    String source = get();
+                    if (source == null) {
+                        // Could not resolve as file → fall back
+                        openNdvDependencyViaConnectionTab(fLibrary, fObjectName);
+                        return;
+                    }
+                    de.bund.zrb.ndv.NdvObjectInfo objInfo = resolved.getObjectInfo();
+
+                    // Cache source
+                    de.bund.zrb.service.NdvSourceCacheService.getInstance()
+                            .cacheSource(fLibrary, objInfo.getName(),
+                                    objInfo.getTypeExtension(), source,
+                                    objInfo.getSourceSize(), objInfo.getSourceDate());
+
+                    NdvResourceState ndvState = new NdvResourceState(service, fLibrary, objInfo);
+                    String fp = fLibrary + "/" + objInfo.getName()
+                            + (objInfo.getTypeExtension().isEmpty() ? "" : "." + objInfo.getTypeExtension());
+                    VirtualResource resource = new VirtualResource(
+                            de.bund.zrb.files.path.VirtualResourceRef.of(fp),
+                            VirtualResourceKind.FILE,
+                            fp,
+                            VirtualBackendType.NDV,
+                            null, ndvState
+                    );
+
+                    FileTabImpl fileTab = new FileTabImpl(
+                            TabbedPaneManager.this, resource, source, null, null, false
+                    );
+                    addTab(fileTab);
+                } catch (Exception e) {
+                    String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+                    if (msg != null && (msg.contains("Login") || msg.contains("login")
+                            || msg.contains("NAT0873") || msg.contains("NAT7734"))) {
+                        de.bund.zrb.login.LoginManager.getInstance().invalidatePassword(fHost, fUser);
+                    }
+                    // Fall back to ConnectionTab
+                    openNdvDependencyViaConnectionTab(fLibrary, fObjectName);
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * Open an NDV dependency target directly as a FileTab, with line number navigation.
+     *
+     * @param library    target library name
+     * @param objectName target object name
+     * @param lineNumber line to navigate to after opening (0 = no navigation)
+     */
+    public void openNdvDependencyTarget(String library, String objectName, int lineNumber) {
+        // Reuse the direct opening, then navigate to line after tab is created
+        // For now, open and navigate in a follow-up
+        openNdvDependencyTarget(library, objectName);
+        // The SwingWorker will add the tab asynchronously; line navigation needs to wait.
+        // Schedule a delayed check:
+        if (lineNumber > 0) {
+            final String fullPath = (library + "/" + objectName).toUpperCase();
+            javax.swing.Timer timer = new javax.swing.Timer(500, e -> {
+                for (java.util.Map.Entry<Component, AppTab> entry : tabMap.entrySet()) {
+                    if (entry.getValue() instanceof FileTab) {
+                        FileTab ft = (FileTab) entry.getValue();
+                        String path = ft.getPath();
+                        if (path != null && path.toUpperCase().contains(fullPath)) {
+                            navigateToLine(entry.getValue(), lineNumber);
+                            return;
+                        }
+                    }
+                }
+            });
+            timer.setRepeats(false);
+            timer.start();
+        }
+    }
+
+    /**
+     * Legacy fallback: switch to an open NdvConnectionTab and navigate there.
+     */
+    private void openNdvDependencyViaConnectionTab(String library, String objectName) {
         for (java.util.Map.Entry<Component, AppTab> entry : tabMap.entrySet()) {
             if (entry.getValue() instanceof NdvConnectionTab) {
                 NdvConnectionTab ndvTab = (NdvConnectionTab) entry.getValue();
-                // Switch to this tab
                 int idx = tabbedPane.indexOfComponent(entry.getKey());
                 if (idx >= 0) {
                     tabbedPane.setSelectedIndex(idx);
                 }
-                // Navigate to the library and optionally open the object
                 if (objectName != null && !objectName.isEmpty()) {
                     ndvTab.navigateToLibraryAndOpen(library, objectName);
                 } else {
@@ -2057,9 +2206,62 @@ public class TabbedPaneManager {
                 return;
             }
         }
-        // No NdvConnectionTab found
         javax.swing.JOptionPane.showMessageDialog(tabbedPane,
                 "Bitte öffnen Sie zuerst eine NDV-Verbindung unter Verbindung → NDV.",
                 "Keine NDV-Verbindung", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /**
+     * Wire the external navigation callback on a SplitPreviewTab so that
+     * diagram double-clicks and sidebar interactions open the target file directly.
+     * Uses the NDV library search order from settings to resolve unqualified symbol names.
+     */
+    private void wireExternalNavigation(final SplitPreviewTab previewTab) {
+        previewTab.setExternalNavigationCallback(new SplitPreviewTab.ExternalNavigationCallback() {
+            @Override
+            public void openExternalTarget(String targetName) {
+                if (targetName == null || targetName.isEmpty()) return;
+
+                // Determine the library from the current tab's backend or settings
+                String library = null;
+
+                // If the current tab is an NDV file, use its library as context
+                if (previewTab instanceof FileTabImpl) {
+                    FileTabImpl ft = (FileTabImpl) previewTab;
+                    String path = ft.getPath();
+                    if (path != null && path.contains("/")) {
+                        library = path.substring(0, path.indexOf('/'));
+                    }
+                }
+
+                // Fall back to settings search order
+                if (library == null || library.isEmpty()) {
+                    de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+                    // Try default library first
+                    if (settings.ndvDefaultLibrary != null && !settings.ndvDefaultLibrary.trim().isEmpty()) {
+                        library = settings.ndvDefaultLibrary.trim().toUpperCase();
+                    }
+                    // Try cache to find in search order
+                    if (settings.ndvLibrarySearchOrder != null) {
+                        de.bund.zrb.service.NdvSourceCacheService cache =
+                                de.bund.zrb.service.NdvSourceCacheService.getInstance();
+                        for (String lib : settings.ndvLibrarySearchOrder) {
+                            String cached = cache.getCachedSource(lib.toUpperCase(), targetName.toUpperCase());
+                            if (cached != null) {
+                                library = lib.toUpperCase();
+                                break;
+                            }
+                        }
+                        if (library == null && !settings.ndvLibrarySearchOrder.isEmpty()) {
+                            library = settings.ndvLibrarySearchOrder.get(0).toUpperCase();
+                        }
+                    }
+                }
+
+                if (library != null && !library.isEmpty()) {
+                    openNdvDependencyTarget(library, targetName.toUpperCase());
+                }
+            }
+        });
     }
 }
