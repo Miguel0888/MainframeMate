@@ -242,6 +242,19 @@ public class JclElement {
                     sb.append(" → ").append(mapName);
                 }
                 break;
+            // DDM types (display name already contains formatted info from DdmAnalysisService)
+            case DDM_HEADER:
+            case DDM_FIELD:
+            case DDM_GROUP:
+            case DDM_DESCRIPTOR:
+            case DDM_SUPERDESCRIPTOR: {
+                String keyType = parameters.get("KEY_TYPE");
+                if (keyType != null && !keyType.isEmpty()) {
+                    sb.append("  [").append(keyType).append("]");
+                }
+                break;
+            }
+
             default:
                 break;
         }

@@ -77,7 +77,14 @@ public enum JclElementType {
     NAT_PRINT("🖨", "PRINT"),
     NAT_ON_ERROR("⚠", "ON ERROR"),
     NAT_INCLUDE("📎", "INCLUDE"),
-    NAT_END("🔚", "END");
+    NAT_END("🔚", "END"),
+
+    // ── DDM (Data Definition Module) ────────────────────────────────
+    DDM_HEADER("🗃", "DDM Header"),
+    DDM_FIELD("🔹", "Feld"),
+    DDM_GROUP("📂", "Gruppe"),
+    DDM_DESCRIPTOR("🔑", "Deskriptor"),
+    DDM_SUPERDESCRIPTOR("🔗", "Superdeskriptor");
 
     private final String icon;
     private final String displayName;
@@ -100,7 +107,11 @@ public enum JclElementType {
     }
 
     public boolean isNatural() {
-        return ordinal() >= NAT_DEFINE_DATA.ordinal();
+        return ordinal() >= NAT_DEFINE_DATA.ordinal() && ordinal() <= NAT_END.ordinal();
+    }
+
+    public boolean isDdm() {
+        return ordinal() >= DDM_HEADER.ordinal();
     }
 
     public boolean isJcl() {

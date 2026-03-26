@@ -904,16 +904,23 @@ public class TabbedPaneManager {
 
         // Determine whether to show outline based on the sentence type from dropdown
         boolean showOutline = false;
+        boolean isDdm = false;
         if (sentenceType != null && !sentenceType.isEmpty()) {
             String upper = sentenceType.toUpperCase();
-            showOutline = upper.contains("JCL") || upper.contains("COBOL") || upper.contains("NATURAL");
-        } else {
-            // Fallback: auto-detect from content if no sentence type is set in the dropdown
-            showOutline = isJclContent(content) || isCobolContent(content) || isNaturalContent(content);
+            isDdm = upper.contains("DDM") || upper.contains("NSD");
+            showOutline = isDdm || upper.contains("JCL") || upper.contains("COBOL") || upper.contains("NATURAL");
+        }
+        if (!showOutline) {
+            // Fallback: auto-detect from content/path if no sentence type is set
+            isDdm = (sourceName != null && de.bund.zrb.service.DdmAnalysisService.getInstance().isDdmFile(sourceName))
+                    || de.bund.zrb.jcl.parser.DdmParser.isDdmContent(content);
+            showOutline = isDdm || isJclContent(content) || isCobolContent(content) || isNaturalContent(content);
         }
 
         if (showOutline) {
-            rightDrawer.updateJclOutline(content, sourceName, sentenceType);
+            // For DDM files, pass "DDM" as language hint so the outline panel uses DdmAnalysisService
+            String outlineHint = isDdm ? "DDM" : sentenceType;
+            rightDrawer.updateJclOutline(content, sourceName, outlineHint);
 
             // Set up line navigator to jump to line in editor (double-click)
             // When diagram view is active, also navigate to the element in the diagram
@@ -1396,10 +1403,56 @@ public class TabbedPaneManager {
             content = jesTab.getContent();
             sourceName = jesTab.getPath();
             sentenceType = jesTab.getEffectiveLanguageHint();
+        } else if (tab instanceof SplitPreviewTab) {
+            SplitPreviewTab previewTab = (SplitPreviewTab) tab;
+            content = previewTab.getContent();
+            sourceName = previewTab.getPath();
         }
 
         final de.bund.zrb.service.NaturalAnalysisService analysisService =
                 de.bund.zrb.service.NaturalAnalysisService.getInstance();
+
+        // ── DDM sources: show programs using this DDM + DDM hierarchy ──
+        final de.bund.zrb.service.DdmAnalysisService ddmService =
+                de.bund.zrb.service.DdmAnalysisService.getInstance();
+        if (content != null && (ddmService.isDdmSource(content, sentenceType)
+                || (sourceName != null && ddmService.isDdmFile(sourceName)))) {
+            leftDrawer.showRelationsLoading();
+            leftDrawer.showCallHierarchyLoading();
+            final String ddmContent = content;
+            final String ddmSourceName = sourceName;
+            final String lib = extractLibrary(tab);
+            new javax.swing.SwingWorker<Object[], Void>() {
+                @Override
+                protected Object[] doInBackground() {
+                    String ddmName = ddmService.extractDdmName(ddmSourceName);
+                    de.bund.zrb.service.DdmAnalysisService.DdmDependencyResult deps =
+                            lib != null ? ddmService.findDdmUsers(ddmName, lib)
+                                    : ddmService.findDdmUsersAllLibraries(ddmName);
+                    de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode hierarchy =
+                            ddmService.buildDdmHierarchy(ddmName, lib, 3);
+                    return new Object[]{deps, hierarchy, ddmName};
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        Object[] results = get();
+                        de.bund.zrb.service.DdmAnalysisService.DdmDependencyResult deps =
+                                (de.bund.zrb.service.DdmAnalysisService.DdmDependencyResult) results[0];
+                        de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode hierarchy =
+                                (de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode) results[1];
+                        String ddmName = (String) results[2];
+                        showDdmDependenciesInLeftDrawer(leftDrawer, deps, lib);
+                        showDdmHierarchyInLeftDrawer(leftDrawer, hierarchy, ddmName, lib);
+                    } catch (Exception ex) {
+                        leftDrawer.showRelationsPlaceholder("Fehler bei DDM-Analyse: " + ex.getMessage());
+                        leftDrawer.clearCallHierarchy();
+                    }
+                }
+            }.execute();
+            return;
+        }
 
         // For Natural sources, show real dependencies (active + passive XRefs) + call hierarchy
         if (content != null && analysisService.isNaturalSource(content, sentenceType)) {
@@ -1833,6 +1886,105 @@ public class TabbedPaneManager {
      */
     private boolean isNaturalSource(String content, String sentenceType) {
         return de.bund.zrb.service.NaturalAnalysisService.getInstance().isNaturalSource(content, sentenceType);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  DDM Dependencies + Hierarchy in LeftDrawer
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Show DDM dependencies (programs using this DDM) in the LeftDrawer.
+     */
+    private void showDdmDependenciesInLeftDrawer(LeftDrawer leftDrawer,
+                                                  de.bund.zrb.service.DdmAnalysisService.DdmDependencyResult result,
+                                                  String library) {
+        if (result.isEmpty()) {
+            if (library == null) {
+                leftDrawer.showRelationsPlaceholder(
+                        "Bibliothek unbekannt — öffnen Sie den NDV-Browser für DDM-Abhängigkeiten.");
+            } else {
+                leftDrawer.showRelationsPlaceholder(
+                        "Keine Programme gefunden, die dieses DDM referenzieren.\n" +
+                        "Stellen Sie sicher, dass die Bibliothek gecacht ist.");
+            }
+            return;
+        }
+
+        java.util.Map<String, java.util.List<LeftDrawer.RelationEntry>> sections =
+                new java.util.LinkedHashMap<String, java.util.List<LeftDrawer.RelationEntry>>();
+        int totalCount = 0;
+
+        for (java.util.Map.Entry<String, java.util.List<de.bund.zrb.service.DdmAnalysisService.DdmUser>> group
+                : result.getUsersByKind().entrySet()) {
+
+            java.util.List<LeftDrawer.RelationEntry> entries = new java.util.ArrayList<LeftDrawer.RelationEntry>();
+            for (de.bund.zrb.service.DdmAnalysisService.DdmUser user : group.getValue()) {
+                String targetPath = (library != null && !library.isEmpty())
+                        ? "ndv://" + library + "/" + user.getProgramName()
+                        : null;
+                entries.add(new LeftDrawer.RelationEntry(
+                        user.getDisplayText(), targetPath, "DDM_USER_" + user.getReferenceKind()));
+            }
+
+            sections.put("⬅ " + group.getKey(), entries);
+            totalCount += entries.size();
+        }
+
+        leftDrawer.updateRelationsGrouped("DDM-Abhängigkeiten", sections, totalCount);
+    }
+
+    /**
+     * Show DDM hierarchy (DDM → programs → related DDMs) in the LeftDrawer call hierarchy panel.
+     */
+    private void showDdmHierarchyInLeftDrawer(LeftDrawer leftDrawer,
+                                               de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode hierarchy,
+                                               String ddmName, String library) {
+        if (hierarchy == null || hierarchy.getChildren().isEmpty()) {
+            if (library == null) {
+                leftDrawer.showCallHierarchyPlaceholder(
+                        "Bibliothek unbekannt — kein DDM-Nutzungsgraph.");
+            } else {
+                leftDrawer.showCallHierarchyPlaceholder(
+                        "Keine Nutzungskette für DDM " + ddmName + " gefunden.");
+            }
+            return;
+        }
+
+        // Convert DdmHierarchyNode → CallHierarchyData
+        LeftDrawer.CallHierarchyData calleesData = convertDdmHierarchyNode(hierarchy, library);
+        // DDM doesn't have a "callers" hierarchy — only usage chain
+        leftDrawer.updateCallHierarchy(calleesData, null, ddmName);
+    }
+
+    /**
+     * Convert DdmHierarchyNode to LeftDrawer.CallHierarchyData.
+     */
+    private LeftDrawer.CallHierarchyData convertDdmHierarchyNode(
+            de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode node, String library) {
+
+        java.util.List<LeftDrawer.CallHierarchyData> children =
+                new java.util.ArrayList<LeftDrawer.CallHierarchyData>();
+        for (de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode child : node.getChildren()) {
+            children.add(convertDdmHierarchyNode(child, library));
+        }
+
+        String targetPath = null;
+        if (library != null && !library.isEmpty()) {
+            if ("DDM".equals(node.getNodeType())) {
+                // DDM nodes: no direct navigation (DDMs are in FDDM, not FUSER/FNAT)
+                targetPath = null;
+            } else {
+                // Program nodes: navigate to source
+                targetPath = "ndv://" + library + "/" + node.getName();
+            }
+        }
+
+        return new LeftDrawer.CallHierarchyData(
+                node.getDisplayText(),
+                targetPath,
+                node.isRecursive(),
+                children
+        );
     }
 
     /**

@@ -153,7 +153,10 @@ public class JclOutlinePanel extends JPanel {
         // Determine language – dropdown hint takes priority
         String lang = languageHint != null ? languageHint.toUpperCase().trim() : "";
 
-        if (lang.contains("NATURAL")) {
+        if (lang.contains("DDM") || lang.contains("NSD")) {
+            currentModel = de.bund.zrb.service.DdmAnalysisService.getInstance()
+                    .buildOutline(content, sourceName);
+        } else if (lang.contains("NATURAL")) {
             currentModel = naturalParser.parse(content, sourceName);
         } else if (lang.contains("COBOL")) {
             currentModel = cobolParser.parse(content, sourceName);
@@ -161,7 +164,10 @@ public class JclOutlinePanel extends JPanel {
             currentModel = jclParser.parse(content, sourceName);
         } else {
             // Fallback: auto-detect from content (legacy behaviour)
-            if (isNaturalContent(content)) {
+            if (de.bund.zrb.jcl.parser.DdmParser.isDdmContent(content)) {
+                currentModel = de.bund.zrb.service.DdmAnalysisService.getInstance()
+                        .buildOutline(content, sourceName);
+            } else if (isNaturalContent(content)) {
                 currentModel = naturalParser.parse(content, sourceName);
             } else if (isCobolContent(content)) {
                 currentModel = cobolParser.parse(content, sourceName);
@@ -296,6 +302,7 @@ public class JclOutlinePanel extends JPanel {
         switch (currentModel.getLanguage()) {
             case NATURAL: titleLabel.setText("📑 Natural Outline"); break;
             case COBOL:   titleLabel.setText("📑 COBOL Outline"); break;
+            case DDM:     titleLabel.setText("🗃 DDM Outline"); break;
             default:      titleLabel.setText("📑 JCL Outline"); break;
         }
     }

@@ -8,7 +8,7 @@ import java.util.List;
  */
 public class JclOutlineModel {
 
-    public enum Language { JCL, COBOL, NATURAL, UNKNOWN }
+    public enum Language { JCL, COBOL, NATURAL, DDM, UNKNOWN }
 
     private final List<JclElement> elements = new ArrayList<>();
     private String sourceName;
