@@ -1049,21 +1049,6 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                 activeDiagramType = DiagramType.ER_DIAGRAM;
             }
 
-            // Determine Mermaid source: raw content for mermaid files, parsed outline otherwise
-            String mermaidCode;
-            if (isMermaidCode) {
-                mermaidCode = rawContent != null ? rawContent.trim() : null;
-            } else {
-                mermaidCode = parseMermaidFromOutline();
-            }
-            if (mermaidCode == null || mermaidCode.trim().isEmpty()) {
-                JOptionPane.showMessageDialog(this,
-                        "Kein Diagramm erzeugbar \u2014 die Datei enth\u00E4lt keine erkennbare Struktur.",
-                        "Visuell", JOptionPane.INFORMATION_MESSAGE);
-                diagramViewActive = false;
-                return;
-            }
-
             // Lazy-init MermaidDiagramPanel (always read-only initially; edit toggle in sidebar)
             if (mermaidDiagramPanel == null) {
                 mermaidDiagramPanel = new MermaidDiagramPanel(false);
@@ -1086,9 +1071,10 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                 });
             }
 
-            mermaidDiagramPanel.setMermaidSource(mermaidCode);
+            // Show loading state immediately so the user sees feedback right away
+            mermaidDiagramPanel.setLoading();
 
-            // Replace content panel with diagram
+            // Replace content panel with diagram (still in loading state)
             contentPanel.removeAll();
             contentPanel.add(mermaidDiagramPanel, BorderLayout.CENTER);
             contentPanel.revalidate();
@@ -1097,6 +1083,39 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             // Push diagram details override onto the sidebar
             pushDiagramOverride();
 
+            // Generate Mermaid source in background, then render
+            final boolean mermaid = isMermaidCode;
+            SwingWorker<String, Void> genWorker = new SwingWorker<String, Void>() {
+                @Override
+                protected String doInBackground() {
+                    if (mermaid) {
+                        return rawContent != null ? rawContent.trim() : null;
+                    }
+                    return parseMermaidFromOutline();
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        String mermaidCode = get();
+                        if (mermaidCode == null || mermaidCode.trim().isEmpty()) {
+                            JOptionPane.showMessageDialog(SplitPreviewTab.this,
+                                    "Kein Diagramm erzeugbar \u2014 die Datei enth\u00E4lt keine erkennbare Struktur.",
+                                    "Visuell", JOptionPane.INFORMATION_MESSAGE);
+                            diagramViewActive = false;
+                            sidebar.removeOverride(DIAGRAM_OVERRIDE_ID);
+                            restoreCodeView();
+                            return;
+                        }
+                        mermaidDiagramPanel.setMermaidSource(mermaidCode);
+                    } catch (Exception ex) {
+                        diagramViewActive = false;
+                        sidebar.removeOverride(DIAGRAM_OVERRIDE_ID);
+                        restoreCodeView();
+                    }
+                }
+            };
+            genWorker.execute();
 
             // If editing is not available, switch save button to export mode
             updateSaveButtonForDiagramView();
@@ -1134,6 +1153,19 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             saveButton.setVisible(true);
         }
         // If editing IS possible, the save button keeps its normal function
+    }
+
+    /**
+     * Restore the normal code view — used when diagram generation fails or is aborted.
+     */
+    private void restoreCodeView() {
+        findBar.resetToEnterButton();
+        if (mermaidDiagramPanel != null) {
+            mermaidDiagramPanel.clearSearch();
+            mermaidDiagramPanel.setEditable(false);
+        }
+        updateSaveDownloadButton(activeFileType != null && needsHtmlRendering);
+        applyViewMode(currentMode);
     }
 
     /**

@@ -38,6 +38,7 @@ public class MermaidDiagramPanel extends JPanel {
     private RenderedDiagram diagram;
     private String svg;
     private boolean renderError;
+    private boolean loading;
 
     // Selection (highlight is computed dynamically from these in paintDiagram)
     private DiagramNode selectedNode;
@@ -334,6 +335,20 @@ public class MermaidDiagramPanel extends JPanel {
     }
 
     /**
+     * Switch to the loading state — clears the current image and shows
+     * a centred "Diagramm wird geladen…" placeholder.
+     * Call this <em>before</em> starting any long-running generation work
+     * so the user gets immediate visual feedback.
+     */
+    public void setLoading() {
+        this.loading = true;
+        this.image = null;
+        this.renderError = false;
+        imagePanel.repaint();
+        statusLabel.setText("Wird geladen\u2026");
+    }
+
+    /**
      * Render (or re-render) the given Mermaid source code.
      */
     public void setMermaidSource(String source) {
@@ -347,11 +362,15 @@ public class MermaidDiagramPanel extends JPanel {
             this.image = null;
             this.diagram = null;
             this.svg = null;
+            this.loading = false;
             imagePanel.repaint();
             statusLabel.setText("Kein Diagramm-Quelltext.");
             return;
         }
 
+        this.loading = true;
+        this.image = null;
+        imagePanel.repaint();
         statusLabel.setText("Rendering\u2026");
 
         SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
@@ -383,6 +402,7 @@ public class MermaidDiagramPanel extends JPanel {
 
             @Override
             protected void done() {
+                loading = false;
                 renderError = error;
                 image = renderedImage;
                 diagram = renderedDiagram;
@@ -554,10 +574,24 @@ public class MermaidDiagramPanel extends JPanel {
 
     private void paintDiagram(Graphics2D g) {
         if (image == null) {
-            g.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 14));
-            g.setColor(Color.GRAY);
-            String msg = renderError ? "\u26A0 Rendering fehlgeschlagen" : "Kein Diagramm geladen";
-            g.drawString(msg, 20, 30);
+            String msg;
+            if (renderError) {
+                msg = "\u26A0 Rendering fehlgeschlagen";
+            } else if (loading) {
+                msg = "\u23F3 Diagramm wird geladen\u2026";
+            } else {
+                msg = "";
+            }
+            if (!msg.isEmpty()) {
+                g.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 14));
+                g.setColor(Color.GRAY);
+                FontMetrics fm = g.getFontMetrics();
+                int textW = fm.stringWidth(msg);
+                int textH = fm.getHeight();
+                int x = Math.max(0, (imagePanel.getWidth() - textW) / 2);
+                int y = Math.max(textH, (imagePanel.getHeight() + fm.getAscent()) / 2);
+                g.drawString(msg, x, y);
+            }
             return;
         }
 
