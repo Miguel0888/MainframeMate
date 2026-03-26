@@ -1001,13 +1001,6 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             // Push diagram details override onto the sidebar
             pushDiagramOverride();
 
-            // Ensure sidebar is visible
-            if (!sidebarVisible) {
-                sidebarVisible = true;
-                sidebar.setVisible(true);
-                mainPanel.revalidate();
-                mainPanel.repaint();
-            }
 
             // If editing is not available, switch save button to export mode
             updateSaveButtonForDiagramView();
