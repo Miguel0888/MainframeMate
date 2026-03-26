@@ -1634,7 +1634,7 @@ public class TabbedPaneManager {
                     String targetPath = buildDependencyTargetPath(dep, library);
                     String depType = "DEPENDENCY_" + kind.getCode();
                     entries.add(new LeftDrawer.RelationEntry(
-                            dep.getDisplayText(), targetPath, depType));
+                            dep.getDisplayText(), targetPath, depType, dep.getLineNumber()));
                 }
 
                 sections.put("➡ " + kind.getDisplayLabel(), entries);
@@ -1663,7 +1663,7 @@ public class TabbedPaneManager {
                                     ? "ndv://" + library + "/" + caller.getCallerName()
                                     : null;
                             entries.add(new LeftDrawer.RelationEntry(
-                                    caller.getDisplayText(), targetPath, "CALLER_" + kind.getCode()));
+                                    caller.getDisplayText(), targetPath, "CALLER_" + kind.getCode(), caller.getLineNumber()));
                         }
 
                         sections.put("⬅ Aufgerufen von (" + kind.getCode() + ")", entries);
@@ -1881,6 +1881,7 @@ public class TabbedPaneManager {
                 node.getDisplayText(),
                 targetPath,
                 node.isRecursive(),
+                node.getLineNumber(),
                 children
         );
     }
@@ -2368,7 +2369,8 @@ public class TabbedPaneManager {
     }
 
     /**
-     * Legacy fallback: switch to an open NdvConnectionTab and navigate there.
+     * Fallback: switch to an open NdvConnectionTab and navigate there.
+     * If no NdvConnectionTab is open, automatically creates a new connection.
      */
     private void openNdvDependencyViaConnectionTab(String library, String objectName) {
         for (java.util.Map.Entry<Component, AppTab> entry : tabMap.entrySet()) {
@@ -2386,9 +2388,80 @@ public class TabbedPaneManager {
                 return;
             }
         }
-        javax.swing.JOptionPane.showMessageDialog(tabbedPane,
-                "Bitte öffnen Sie zuerst eine NDV-Verbindung unter Verbindung → NDV.",
-                "Keine NDV-Verbindung", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+
+        // No open NdvConnectionTab → automatically create one and navigate
+        autoConnectNdvAndNavigate(library, objectName);
+    }
+
+    /**
+     * Automatically open a new NDV connection tab and navigate to the given library/object.
+     * Prompts for credentials if needed via LoginManager.
+     */
+    private void autoConnectNdvAndNavigate(final String library, final String objectName) {
+        de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+        final String host = settings.host;
+        final String user = settings.user;
+        final int port = settings.ndvPort;
+
+        if (host == null || host.trim().isEmpty() || user == null || user.trim().isEmpty()) {
+            javax.swing.JOptionPane.showMessageDialog(tabbedPane,
+                    "Kein Server konfiguriert.\nBitte unter Einstellungen → Server den Host und Benutzer angeben.",
+                    "Keine NDV-Verbindung", javax.swing.JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Get password interactively via LoginManager (prompts if not cached)
+        final String password = de.bund.zrb.login.LoginManager.getInstance().getPassword(host.trim(), user.trim());
+        if (password == null || password.isEmpty()) {
+            return; // User cancelled
+        }
+
+        tabbedPane.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
+
+        new javax.swing.SwingWorker<NdvConnectionTab, Void>() {
+            @Override
+            protected NdvConnectionTab doInBackground() throws Exception {
+                de.bund.zrb.ndv.NdvService service = new de.bund.zrb.ndv.NdvService();
+                service.connect(host.trim(), port, user.trim(), password);
+                de.bund.zrb.login.LoginManager.getInstance().onLoginSuccess(host.trim(), user.trim());
+
+                // Logon to the target library if provided
+                if (library != null && !library.isEmpty()) {
+                    try {
+                        service.logon(library.toUpperCase());
+                    } catch (de.bund.zrb.ndv.NdvException e) {
+                        System.err.println("[autoConnectNdv] Library logon warning: " + e.getMessage());
+                    }
+                }
+
+                return new NdvConnectionTab(TabbedPaneManager.this, service);
+            }
+
+            @Override
+            protected void done() {
+                tabbedPane.setCursor(java.awt.Cursor.getDefaultCursor());
+                try {
+                    NdvConnectionTab ndvTab = get();
+                    addTab(ndvTab);
+
+                    // Navigate to the target object
+                    if (objectName != null && !objectName.isEmpty()) {
+                        ndvTab.navigateToLibraryAndOpen(library, objectName);
+                    } else if (library != null && !library.isEmpty()) {
+                        ndvTab.navigateToLibrary(library);
+                    }
+                } catch (Exception e) {
+                    String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+                    if (msg != null && (msg.contains("Login") || msg.contains("login")
+                            || msg.contains("NAT0873") || msg.contains("NAT7734"))) {
+                        de.bund.zrb.login.LoginManager.getInstance().invalidatePassword(host.trim(), user.trim());
+                    }
+                    javax.swing.JOptionPane.showMessageDialog(tabbedPane,
+                            "NDV-Verbindung fehlgeschlagen:\n" + msg,
+                            "Verbindungsfehler", javax.swing.JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     /**

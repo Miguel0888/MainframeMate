@@ -419,7 +419,8 @@ public class LeftDrawer extends JPanel {
             RelationEntry entry = new RelationEntry(
                     child.getDisplayText(),
                     child.getTargetPath(),
-                    child.isRecursive() ? "CALL_RECURSIVE" : "CALL_HIERARCHY"
+                    child.isRecursive() ? "CALL_RECURSIVE" : "CALL_HIERARCHY",
+                    child.getLineNumber()
             );
             DefaultMutableTreeNode node = new DefaultMutableTreeNode(entry);
             if (!child.getChildren().isEmpty()) {
@@ -484,19 +485,28 @@ public class LeftDrawer extends JPanel {
         private final String displayText;
         private final String targetPath;   // e.g. "ndv://LIB/OBJECT"
         private final boolean recursive;
+        private final int lineNumber;      // source line number for in-editor navigation (0 = unknown)
         private final List<CallHierarchyData> children;
 
+        /** Backward-compatible constructor (lineNumber defaults to 0). */
         public CallHierarchyData(String displayText, String targetPath, boolean recursive,
                                  List<CallHierarchyData> children) {
+            this(displayText, targetPath, recursive, 0, children);
+        }
+
+        public CallHierarchyData(String displayText, String targetPath, boolean recursive,
+                                 int lineNumber, List<CallHierarchyData> children) {
             this.displayText = displayText;
             this.targetPath = targetPath;
             this.recursive = recursive;
+            this.lineNumber = lineNumber;
             this.children = children != null ? children : java.util.Collections.<CallHierarchyData>emptyList();
         }
 
         public String getDisplayText() { return displayText; }
         public String getTargetPath() { return targetPath; }
         public boolean isRecursive() { return recursive; }
+        public int getLineNumber() { return lineNumber; }
         public List<CallHierarchyData> getChildren() { return children; }
     }
 
