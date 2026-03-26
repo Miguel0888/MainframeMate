@@ -1323,11 +1323,13 @@ public class JobDetailTab implements AppTab {
 
     private void toggleDiagramView() {
         diagramViewActive = !diagramViewActive;
+        updateDiagramToggleLabel();
 
         if (diagramViewActive) {
             String content = contentArea.getText();
             if (content == null || content.trim().isEmpty()) {
                 diagramViewActive = false;
+                updateDiagramToggleLabel();
                 diagramToggleButton.setSelected(false);
                 return;
             }
@@ -1362,6 +1364,7 @@ public class JobDetailTab implements AppTab {
                                     "Kein Diagramm erzeugbar \u2014 die Datei enth\u00E4lt keine erkennbare Struktur.",
                                     "Diagramm", JOptionPane.INFORMATION_MESSAGE);
                             diagramViewActive = false;
+                            updateDiagramToggleLabel();
                             diagramToggleButton.setSelected(false);
                             contentPanelRef.removeAll();
                             contentPanelRef.add(contentScrollRef, BorderLayout.CENTER);
@@ -1372,6 +1375,7 @@ public class JobDetailTab implements AppTab {
                         mermaidDiagramPanel.setMermaidSource(mermaidCode);
                     } catch (Exception ex) {
                         diagramViewActive = false;
+                        updateDiagramToggleLabel();
                         diagramToggleButton.setSelected(false);
                         contentPanelRef.removeAll();
                         contentPanelRef.add(contentScrollRef, BorderLayout.CENTER);
@@ -1391,6 +1395,21 @@ public class JobDetailTab implements AppTab {
             contentPanelRef.add(contentScrollRef, BorderLayout.CENTER);
             contentPanelRef.revalidate();
             contentPanelRef.repaint();
+        }
+    }
+
+    /**
+     * Update the diagram toggle button label to reflect the current state.
+     * Shows "📝 Text" when a diagram is active, "📈 Diagramm" when text is shown.
+     */
+    private void updateDiagramToggleLabel() {
+        if (diagramToggleButton == null) return;
+        if (diagramViewActive) {
+            diagramToggleButton.setText("\uD83D\uDCDD Text"); // 📝 Text
+            diagramToggleButton.setToolTipText("Zurück zur Text-Ansicht");
+        } else {
+            diagramToggleButton.setText("\uD83D\uDCC8 Diagramm");
+            diagramToggleButton.setToolTipText("Interaktives Mermaid-Diagramm anzeigen (Read-Only)");
         }
     }
 

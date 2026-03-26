@@ -1040,6 +1040,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
      */
     protected void toggleDiagramView() {
         diagramViewActive = !diagramViewActive;
+        updateDiagramToggleLabel();
 
         if (diagramViewActive) {
             // For DDM files, automatically use ER diagram type
@@ -1103,6 +1104,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                                     "Kein Diagramm erzeugbar \u2014 die Datei enth\u00E4lt keine erkennbare Struktur.",
                                     "Visuell", JOptionPane.INFORMATION_MESSAGE);
                             diagramViewActive = false;
+                            updateDiagramToggleLabel();
                             sidebar.removeOverride(DIAGRAM_OVERRIDE_ID);
                             restoreCodeView();
                             return;
@@ -1110,6 +1112,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                         mermaidDiagramPanel.setMermaidSource(mermaidCode);
                     } catch (Exception ex) {
                         diagramViewActive = false;
+                        updateDiagramToggleLabel();
                         sidebar.removeOverride(DIAGRAM_OVERRIDE_ID);
                         restoreCodeView();
                     }
@@ -1166,6 +1169,22 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         }
         updateSaveDownloadButton(activeFileType != null && needsHtmlRendering);
         applyViewMode(currentMode);
+    }
+
+    /**
+     * Update the diagram toggle button label to reflect the current state.
+     * Shows "📝 Text" when a diagram is active (clicking would switch to text),
+     * and "👁 Visuell" when text is shown (clicking would switch to diagram).
+     */
+    protected void updateDiagramToggleLabel() {
+        if (diagramToggleButton == null) return;
+        if (diagramViewActive) {
+            diagramToggleButton.setText("\uD83D\uDCDD Text"); // 📝 Text
+            diagramToggleButton.setToolTipText("Zurück zur Text-/Code-Ansicht");
+        } else {
+            diagramToggleButton.setText("\uD83D\uDC41 Visuell"); // 👁 Visuell
+            diagramToggleButton.setToolTipText("Interaktive Diagramm-Ansicht");
+        }
     }
 
     /**
