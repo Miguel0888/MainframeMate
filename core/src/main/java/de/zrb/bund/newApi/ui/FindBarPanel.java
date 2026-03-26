@@ -4,6 +4,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
@@ -63,6 +64,24 @@ public class FindBarPanel extends SearchBarPanel {
         void onStepSearchModeChanged(boolean stepSearch);
     }
 
+    // ── Exit listener (arrow key navigation out of the find bar) ──
+    private FindBarExitListener exitListener;
+
+    /** Callback for leaving the find bar via keyboard. */
+    public interface FindBarExitListener {
+        /** UP arrow pressed → transfer focus to first line of editor. */
+        void onExitUp();
+        /** DOWN arrow pressed → transfer focus to last line of editor. */
+        void onExitDown();
+        /** Enter on empty field or Escape → dismiss / leave find bar. */
+        void onDismiss();
+    }
+
+    /** Register a listener for keyboard-driven exits from the find bar. */
+    public void setExitListener(FindBarExitListener listener) {
+        this.exitListener = listener;
+    }
+
     // ═════════════════════════════════════════════════════════════
     //  Constructors
     // ═════════════════════════════════════════════════════════════
@@ -90,10 +109,13 @@ public class FindBarPanel extends SearchBarPanel {
         enterButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                fireSearch(e);
-                if (stepSearchEnabled && !getText().trim().isEmpty()) {
-                    showArrows();
+                if (getText().trim().isEmpty()) {
+                    // Empty field → dismiss / leave find bar
+                    if (exitListener != null) exitListener.onDismiss();
+                    return;
                 }
+                fireSearch(e);
+                showArrows();
             }
         });
 
@@ -127,6 +149,9 @@ public class FindBarPanel extends SearchBarPanel {
 
         // ── Right-click context menu for toggling search mode ──
         installContextMenu();
+
+        // ── Arrow key bindings on the text field ──
+        installArrowKeyBindings();
     }
 
     public FindBarPanel(String placeholder) {
@@ -151,6 +176,73 @@ public class FindBarPanel extends SearchBarPanel {
     }
 
     // ═════════════════════════════════════════════════════════════
+    //  Arrow key bindings (UP/DOWN = exit, LEFT/RIGHT = navigate matches)
+    // ═════════════════════════════════════════════════════════════
+
+    private void installArrowKeyBindings() {
+        final JTextField tf = getTextField();
+        InputMap im = tf.getInputMap(JComponent.WHEN_FOCUSED);
+        ActionMap am = tf.getActionMap();
+
+        // UP arrow → exit find bar, go to first line
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), "findbar.exitUp");
+        am.put("findbar.exitUp", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (exitListener != null) exitListener.onExitUp();
+            }
+        });
+
+        // DOWN arrow → exit find bar, go to last line
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), "findbar.exitDown");
+        am.put("findbar.exitDown", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (exitListener != null) exitListener.onExitDown();
+            }
+        });
+
+        // LEFT arrow → previous match (only when arrows visible)
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), "findbar.prevOrCursor");
+        am.put("findbar.prevOrCursor", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (arrowsVisible && prevListener != null) {
+                    prevListener.actionPerformed(e);
+                } else {
+                    // Default cursor-left behaviour
+                    int pos = tf.getCaretPosition();
+                    if (pos > 0) tf.setCaretPosition(pos - 1);
+                }
+            }
+        });
+
+        // RIGHT arrow → next match (only when arrows visible)
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), "findbar.nextOrCursor");
+        am.put("findbar.nextOrCursor", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (arrowsVisible && nextListener != null) {
+                    nextListener.actionPerformed(e);
+                } else {
+                    // Default cursor-right behaviour
+                    int pos = tf.getCaretPosition();
+                    if (pos < tf.getText().length()) tf.setCaretPosition(pos + 1);
+                }
+            }
+        });
+
+        // ESCAPE → dismiss find bar
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "findbar.dismiss");
+        am.put("findbar.dismiss", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (exitListener != null) exitListener.onDismiss();
+            }
+        });
+    }
+
+    // ═════════════════════════════════════════════════════════════
     //  Search action wiring
     // ═════════════════════════════════════════════════════════════
 
@@ -165,10 +257,13 @@ public class FindBarPanel extends SearchBarPanel {
         getTextField().addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                fireSearch(e);
-                if (stepSearchEnabled && !getText().trim().isEmpty()) {
-                    showArrows();
+                if (getText().trim().isEmpty()) {
+                    // Empty field → dismiss / leave find bar
+                    if (exitListener != null) exitListener.onDismiss();
+                    return;
                 }
+                fireSearch(e);
+                showArrows();
             }
         });
     }

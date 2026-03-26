@@ -342,6 +342,30 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         findBar.setPrevAction(e -> navigateFindMatch(-1));
         findBar.setNextAction(e -> navigateFindMatch(+1));
 
+        // Exit listener: arrow keys leave the find bar and focus the editor
+        findBar.setExitListener(new FindBarPanel.FindBarExitListener() {
+            @Override
+            public void onExitUp() {
+                // UP → focus editor, caret to first line
+                rawPane.requestFocusInWindow();
+                rawPane.setCaretPosition(0);
+            }
+
+            @Override
+            public void onExitDown() {
+                // DOWN → focus editor, caret to last line
+                rawPane.requestFocusInWindow();
+                int lastPos = rawPane.getDocument().getLength();
+                rawPane.setCaretPosition(lastPos);
+            }
+
+            @Override
+            public void onDismiss() {
+                // Enter on empty / Escape → focus editor at current position
+                rawPane.requestFocusInWindow();
+            }
+        });
+
         // Restore step-search preference from ApplicationState
         findBar.setStepSearchEnabled(restoreStepSearchPreference());
         findBar.setStepSearchModeListener(new FindBarPanel.StepSearchModeListener() {

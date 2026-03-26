@@ -113,6 +113,22 @@ public class TabbedPaneManager {
 
                 JPopupMenu menu = tab.createContextMenu(() -> closeTab(tabIndex));
                 if (menu != null) {
+                    menu.addSeparator();
+
+                    final Component keepComponent = tabComponent;
+                    JMenuItem closeOthersItem = new JMenuItem("\uD83D\uDDD9 Andere Tabs schließen");
+                    closeOthersItem.addActionListener(ev -> {
+                        for (int i = tabbedPane.getTabCount() - 1; i >= 0; i--) {
+                            if (tabbedPane.getComponentAt(i) == keepComponent) continue;
+                            closeTab(i);
+                        }
+                    });
+                    menu.add(closeOthersItem);
+
+                    JMenuItem closeAllItem = new JMenuItem("\uD83D\uDDD9 Alle Tabs schließen");
+                    closeAllItem.addActionListener(ev -> closeAllTabs());
+                    menu.add(closeAllItem);
+
                     menu.show(tabbedPane, e.getX(), e.getY());
                 }
             }
