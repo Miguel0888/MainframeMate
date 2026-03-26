@@ -193,7 +193,11 @@ public class FindBarPanel extends SearchBarPanel {
     //  Arrow / Enter state management
     // ═════════════════════════════════════════════════════════════
 
-    private void showArrows() {
+    /**
+     * Switch to arrow (◀ ▶) navigation mode.
+     * Can be called externally e.g. when diagram search finds results.
+     */
+    public void showArrows() {
         if (arrowsVisible) return;
         arrowsVisible = true;
         enterButton.setVisible(false);

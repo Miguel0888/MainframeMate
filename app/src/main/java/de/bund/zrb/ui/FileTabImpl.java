@@ -344,8 +344,21 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
      */
     @Override
     protected void highlightFindMatches() {
-        String query = statusBarPanel.getFindBar().getText().trim();
-        boolean stepMode = statusBarPanel.getFindBar().isStepSearchEnabled();
+        FindBarPanel fb = statusBarPanel.getFindBar();
+        String query = fb.getText().trim();
+
+        // ── Diagram search mode ──
+        if (diagramViewActive && mermaidDiagramPanel != null && mermaidDiagramPanel.hasDiagram()) {
+            int count = mermaidDiagramPanel.searchAndHighlight(query);
+            if (count > 0 && !query.isEmpty()) {
+                fb.showArrows();
+            } else {
+                fb.resetToEnterButton();
+            }
+            return;
+        }
+
+        boolean stepMode = fb.isStepSearchEnabled();
 
         if (!isTextFile && needsHtmlRendering) {
             // Binary document: rawPane has garbage, only search htmlRenderedPane

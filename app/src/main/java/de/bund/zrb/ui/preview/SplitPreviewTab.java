@@ -190,6 +190,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /** ApplicationState key for persisting the diagram type. */
     private static final String DIAGRAM_TYPE_STATE_KEY = "preview.diagramType";
 
+    /** ApplicationState key for persisting the auto-refresh zoom threshold (in percent points). */
+    private static final String AUTO_REFRESH_ZOOM_THRESHOLD_KEY = "diagram.autoRefreshZoomThreshold";
+
     /** Override pane id for the diagram detail sidebar. */
     private static final String DIAGRAM_OVERRIDE_ID = "diagram";
 
@@ -928,6 +931,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             // Lazy-init MermaidDiagramPanel
             if (mermaidDiagramPanel == null) {
                 mermaidDiagramPanel = new MermaidDiagramPanel(isEditable);
+                mermaidDiagramPanel.setAutoRefreshThresholdPercent(restoreAutoRefreshThreshold());
                 if (isEditable) {
                     mermaidDiagramPanel.setSourceChangeListener(new MermaidDiagramPanel.SourceChangeListener() {
                         @Override
@@ -959,6 +963,14 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         } else {
             // Remove diagram override from sidebar
             sidebar.removeOverride(DIAGRAM_OVERRIDE_ID);
+
+            // Reset findBar arrows (were forced visible for diagram step navigation)
+            findBar.resetToEnterButton();
+
+            // Clear diagram search state
+            if (mermaidDiagramPanel != null) {
+                mermaidDiagramPanel.clearSearch();
+            }
 
             // Restore normal code view
             applyViewMode(currentMode);
@@ -1354,7 +1366,13 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
         // ── Diagram search mode ──
         if (diagramViewActive && mermaidDiagramPanel != null && mermaidDiagramPanel.hasDiagram()) {
-            mermaidDiagramPanel.searchAndHighlight(query);
+            int count = mermaidDiagramPanel.searchAndHighlight(query);
+            // In diagram mode, always use step (per-node) navigation
+            if (count > 0 && !query.isEmpty()) {
+                findBar.showArrows();
+            } else {
+                findBar.resetToEnterButton();
+            }
             return;
         }
 
@@ -1450,10 +1468,21 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
     /**
      * Navigate to the previous or next match in step-search mode.
+     * When the diagram view is active, delegates to diagram navigation.
      *
      * @param direction -1 for previous, +1 for next
      */
     protected void navigateFindMatch(int direction) {
+        // ── Diagram navigation ──
+        if (diagramViewActive && mermaidDiagramPanel != null && mermaidDiagramPanel.hasDiagram()) {
+            if (direction > 0) {
+                mermaidDiagramPanel.searchNext();
+            } else {
+                mermaidDiagramPanel.searchPrev();
+            }
+            return;
+        }
+
         if (findMatchPositions.isEmpty()) return;
         String query = findBar.getText().trim();
         if (query.isEmpty()) return;
@@ -1554,6 +1583,34 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             }
         } catch (Exception ignored) { }
         return OutlineToMermaidConverter.DiagramType.STRUCTURE;
+    }
+
+    // ── Auto-refresh zoom threshold persistence ──
+
+    /**
+     * Restore the auto-refresh zoom threshold from ApplicationState.
+     * Default: 1.0 (refresh after 1 absolute percentage-point zoom change).
+     */
+    public static double restoreAutoRefreshThreshold() {
+        try {
+            de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+            String value = settings.applicationState.get(AUTO_REFRESH_ZOOM_THRESHOLD_KEY);
+            if (value != null) {
+                return Double.parseDouble(value);
+            }
+        } catch (Exception ignored) { }
+        return 1.0; // default: 1 %
+    }
+
+    /**
+     * Persist the auto-refresh zoom threshold to ApplicationState.
+     */
+    public static void persistAutoRefreshThreshold(double thresholdPercent) {
+        try {
+            de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+            settings.applicationState.put(AUTO_REFRESH_ZOOM_THRESHOLD_KEY, String.valueOf(thresholdPercent));
+            de.bund.zrb.helper.SettingsHelper.save(settings);
+        } catch (Exception ignored) { }
     }
 
     // === DocumentPreviewTabAdapter Interface ===

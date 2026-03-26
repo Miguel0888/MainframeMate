@@ -12,6 +12,7 @@ import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.mermaid.MermaidDiagramPanel;
 import de.bund.zrb.ui.mermaid.OutlineToMermaidConverter;
+import de.bund.zrb.ui.preview.SplitPreviewTab;
 import de.bund.zrb.ui.syntax.MainframeSyntaxSupport;
 import de.zrb.bund.newApi.ui.AppTab;
 import de.zrb.bund.newApi.ui.FindBarPanel;
@@ -731,6 +732,12 @@ public class JobDetailTab implements AppTab {
             if (query != null && !query.isEmpty()) {
                 int count = mermaidDiagramPanel.searchAndHighlight(query);
                 searchCountLabel.setText(count > 0 ? count + " Treffer" : "Nicht gefunden");
+                // Always show arrows in diagram mode
+                if (count > 0) {
+                    searchBar.showArrows();
+                } else {
+                    searchBar.resetToEnterButton();
+                }
             }
             return;
         }
@@ -1337,6 +1344,8 @@ public class JobDetailTab implements AppTab {
 
             if (mermaidDiagramPanel == null) {
                 mermaidDiagramPanel = new MermaidDiagramPanel(false); // always read-only for spool
+                mermaidDiagramPanel.setAutoRefreshThresholdPercent(
+                        SplitPreviewTab.restoreAutoRefreshThreshold());
             }
             mermaidDiagramPanel.setMermaidSource(mermaidCode);
 
@@ -1346,6 +1355,10 @@ public class JobDetailTab implements AppTab {
             contentPanelRef.repaint();
         } else {
             // Restore normal content view
+            searchBar.resetToEnterButton();
+            if (mermaidDiagramPanel != null) {
+                mermaidDiagramPanel.clearSearch();
+            }
             contentPanelRef.removeAll();
             contentPanelRef.add(contentScrollRef, BorderLayout.CENTER);
             contentPanelRef.revalidate();

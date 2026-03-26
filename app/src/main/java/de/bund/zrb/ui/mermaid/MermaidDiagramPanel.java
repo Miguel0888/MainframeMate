@@ -60,6 +60,12 @@ public class MermaidDiagramPanel extends JPanel {
     private boolean fitDone = false;
     private int baseW, baseH;
 
+    // ── Auto-refresh after zoom ──
+    private double lastRefreshZoom = 1.0;
+    /** Threshold in absolute zoom-percent points (e.g. 1.0 = 1%). */
+    private double autoRefreshThresholdPercent = 1.0;
+    private Timer autoRefreshTimer;
+
     // UI — image rendered on this panel (inside JLayeredPane for overlay)
     private final JPanel imagePanel;
     private final JLabel zoomLabel;
@@ -294,6 +300,15 @@ public class MermaidDiagramPanel extends JPanel {
     }
 
     /**
+     * Set the auto-refresh threshold in absolute zoom-percent points.
+     * E.g. 1.0 means a refresh is triggered once the zoom has moved ≥1 percentage-point
+     * from the zoom level at the last refresh. Set to 0 to disable auto-refresh.
+     */
+    public void setAutoRefreshThresholdPercent(double thresholdPercent) {
+        this.autoRefreshThresholdPercent = thresholdPercent;
+    }
+
+    /**
      * Render (or re-render) the given Mermaid source code.
      */
     public void setMermaidSource(String source) {
@@ -358,6 +373,7 @@ public class MermaidDiagramPanel extends JPanel {
                     } else {
                         fitDone = false;
                     }
+                    lastRefreshZoom = zoom;
                 }
 
                 imagePanel.repaint();
@@ -397,6 +413,7 @@ public class MermaidDiagramPanel extends JPanel {
         panOffsetY = (ph - dh) / 2.0;
         updateZoomLabel();
         imagePanel.repaint();
+        scheduleAutoRefreshCheck();
     }
 
     private void zoomBy(double factor, double pivotX, double pivotY) {
@@ -407,6 +424,31 @@ public class MermaidDiagramPanel extends JPanel {
         panOffsetY = pivotY - (pivotY - panOffsetY) * (zoom / oldZ);
         updateZoomLabel();
         imagePanel.repaint();
+        scheduleAutoRefreshCheck();
+    }
+
+    /**
+     * Debounced check: if zoom changed by more than the threshold from the last
+     * refresh, trigger a re-rasterize. Uses a 400 ms delay to avoid rapid re-renders
+     * during continuous mouse-wheel scrolling.
+     */
+    private void scheduleAutoRefreshCheck() {
+        if (autoRefreshThresholdPercent <= 0 || svg == null) return;
+        if (autoRefreshTimer != null) {
+            autoRefreshTimer.stop();
+        }
+        autoRefreshTimer = new Timer(400, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                double currentPct = zoom * 100.0;
+                double lastPct = lastRefreshZoom * 100.0;
+                if (Math.abs(currentPct - lastPct) >= autoRefreshThresholdPercent) {
+                    reRasterize();
+                }
+            }
+        });
+        autoRefreshTimer.setRepeats(false);
+        autoRefreshTimer.start();
     }
 
     private void updateZoomLabel() {
@@ -456,6 +498,7 @@ public class MermaidDiagramPanel extends JPanel {
                         zoom = currentZoom / scaleRatio;
                         panOffsetX = currentPanX;
                         panOffsetY = currentPanY;
+                        lastRefreshZoom = zoom;
                         updateZoomLabel();
                         imagePanel.repaint();
                         statusLabel.setText("\u2713 Neu gerendert (" + baseW + "\u00D7" + baseH + " px)");
@@ -937,7 +980,14 @@ public class MermaidDiagramPanel extends JPanel {
     private List<DiagramNode> lastSearchResults = new ArrayList<DiagramNode>();
     private int lastSearchIndex = -1;
     private String lastSearchQuery = "";
+    /** true once the first result has been zoomed-to (subsequent navigations only pan). */
+    private boolean searchZoomDone = false;
 
+    /**
+     * Search for nodes matching the query (case-insensitive label/id match).
+     * On the first call (or when query changes), zooms to the first match.
+     * Returns the total number of matches.
+     */
     public int searchAndHighlight(String query) {
         if (query == null || query.trim().isEmpty() || diagram == null) {
             clearSearch();
@@ -946,6 +996,7 @@ public class MermaidDiagramPanel extends JPanel {
 
         String q = query.trim().toLowerCase();
 
+        // Build result list when query changes
         if (!q.equals(lastSearchQuery)) {
             lastSearchQuery = q;
             lastSearchResults = new ArrayList<DiagramNode>();
@@ -958,6 +1009,7 @@ public class MermaidDiagramPanel extends JPanel {
                 }
             }
             lastSearchIndex = -1;
+            searchZoomDone = false;
         }
 
         if (lastSearchResults.isEmpty()) {
@@ -970,8 +1022,46 @@ public class MermaidDiagramPanel extends JPanel {
         }
 
         lastSearchIndex = (lastSearchIndex + 1) % lastSearchResults.size();
-        DiagramNode node = lastSearchResults.get(lastSearchIndex);
+        selectSearchResult();
+        return lastSearchResults.size();
+    }
 
+    /**
+     * Navigate to the next search result. Maintains current zoom, only pans.
+     */
+    public int searchNext() {
+        if (lastSearchResults.isEmpty()) return 0;
+        lastSearchIndex = (lastSearchIndex + 1) % lastSearchResults.size();
+        selectSearchResult();
+        return lastSearchResults.size();
+    }
+
+    /**
+     * Navigate to the previous search result. Maintains current zoom, only pans.
+     */
+    public int searchPrev() {
+        if (lastSearchResults.isEmpty()) return 0;
+        lastSearchIndex--;
+        if (lastSearchIndex < 0) lastSearchIndex = lastSearchResults.size() - 1;
+        selectSearchResult();
+        return lastSearchResults.size();
+    }
+
+    /** @return total number of results from the last search, 0 if none. */
+    public int getSearchResultCount() {
+        return lastSearchResults.size();
+    }
+
+    /** @return 1-based index of the currently shown result, 0 if none. */
+    public int getSearchResultIndex() {
+        return lastSearchResults.isEmpty() ? 0 : lastSearchIndex + 1;
+    }
+
+    /**
+     * Apply selection, highlight, zoom/pan, and status update for the current search index.
+     */
+    private void selectSearchResult() {
+        DiagramNode node = lastSearchResults.get(lastSearchIndex);
         selectedNode = node;
         selectedEdge = null;
         highlightRect = toImageRect(node.getX(), node.getY(),
@@ -979,32 +1069,29 @@ public class MermaidDiagramPanel extends JPanel {
         updateDetailArea();
         updateEditPanel();
 
-        zoomToNode(node);
+        if (!searchZoomDone) {
+            zoomToNode(node);
+            searchZoomDone = true;
+        } else {
+            panToNode(node);
+        }
 
         statusLabel.setText("Treffer " + (lastSearchIndex + 1) + " / " + lastSearchResults.size()
                 + " \u2014 \"" + (node.getLabel() != null ? node.getLabel() : node.getId()) + "\"");
         imagePanel.repaint();
-        return lastSearchResults.size();
-    }
-
-    public int searchNext() {
-        if (lastSearchResults.isEmpty()) return 0;
-        return searchAndHighlight(lastSearchQuery);
-    }
-
-    public int searchPrev() {
-        if (lastSearchResults.isEmpty()) return 0;
-        lastSearchIndex -= 2;
-        if (lastSearchIndex < -1) lastSearchIndex = lastSearchResults.size() - 2;
-        return searchAndHighlight(lastSearchQuery);
     }
 
     public void clearSearch() {
         lastSearchResults = new ArrayList<DiagramNode>();
         lastSearchIndex = -1;
         lastSearchQuery = "";
+        searchZoomDone = false;
     }
 
+    /**
+     * Zoom to a node: adjusts zoom so the node fills ~30 % of the viewport,
+     * then centres on the node. Used for the first search hit.
+     */
     private void zoomToNode(DiagramNode node) {
         if (image == null || diagram == null || baseW <= 0 || baseH <= 0) return;
         int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
@@ -1032,9 +1119,29 @@ public class MermaidDiagramPanel extends JPanel {
         updateZoomLabel();
     }
 
+    /**
+     * Pan to centre a node in the viewport without changing the current zoom level.
+     * Used when navigating between search results.
+     */
+    private void panToNode(DiagramNode node) {
+        if (image == null || diagram == null || baseW <= 0 || baseH <= 0) return;
+        int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
+        if (pw <= 0 || ph <= 0) return;
+
+        double vbX = diagram.getViewBoxX();
+        double vbY = diagram.getViewBoxY();
+        double vbW = diagram.getViewBoxWidth();
+        double vbH = diagram.getViewBoxHeight();
+
+        double nodeCenterImgX = ((node.getX() + node.getWidth() / 2.0) - vbX) / vbW * baseW;
+        double nodeCenterImgY = ((node.getY() + node.getHeight() / 2.0) - vbY) / vbH * baseH;
+
+        panOffsetX = pw / 2.0 - nodeCenterImgX * zoom;
+        panOffsetY = ph / 2.0 - nodeCenterImgY * zoom;
+    }
+
     /** Returns true if the diagram view has loaded content (image + diagram metadata). */
     public boolean hasDiagram() {
         return image != null && diagram != null;
     }
 }
-
