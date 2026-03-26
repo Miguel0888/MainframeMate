@@ -17,7 +17,6 @@ import de.zrb.bund.newApi.ui.FindBarPanel;
 import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
-import javax.swing.border.Border;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.TreeExpansionEvent;
@@ -2050,15 +2049,14 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
     // ==================== Filter Indicator Flash ====================
 
     /**
-     * Flash a red border around the given component to draw attention.
-     * Blinks 3 times over ~1.5 seconds, then restores the original border.
+     * Flash the background of the given component to draw attention.
+     * Blinks 3 times over ~1.5 seconds using an internal margin color,
+     * so the layout is not disturbed (no border changes).
      */
     private void flashButtonBorder(final JComponent button) {
-        final Border originalBorder = button.getBorder();
-        final Border flashBorder = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(Color.RED, 2),
-                originalBorder != null ? originalBorder : BorderFactory.createEmptyBorder()
-        );
+        final Color originalBg = button.getBackground();
+        final boolean wasOpaque = button.isOpaque();
+        final Color flashColor = new Color(255, 80, 80);
         final int[] count = {0};
         final int maxBlinks = 6; // 3 on + 3 off = 3 blinks
         final javax.swing.Timer timer = new javax.swing.Timer(250, null);
@@ -2066,15 +2064,20 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
             @Override
             public void actionPerformed(ActionEvent e) {
                 if (count[0] >= maxBlinks) {
-                    button.setBorder(originalBorder);
+                    button.setBackground(originalBg);
+                    button.setOpaque(wasOpaque);
+                    button.repaint();
                     timer.stop();
                     return;
                 }
                 if (count[0] % 2 == 0) {
-                    button.setBorder(flashBorder);
+                    button.setOpaque(true);
+                    button.setBackground(flashColor);
                 } else {
-                    button.setBorder(originalBorder);
+                    button.setBackground(originalBg);
+                    button.setOpaque(wasOpaque);
                 }
+                button.repaint();
                 count[0]++;
             }
         });

@@ -2620,7 +2620,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         infoPopup.show(infoButton, 0, infoButton.getHeight());
     }
 
-    /** Add a label+value row to the info popup (BetaView style). */
+    /** Labels that get a clipboard-copy button in the info popup. */
+    private static final java.util.Set<String> COPYABLE_INFO_LABELS = new java.util.HashSet<>(
+            java.util.Arrays.asList("Pfad", "Datei", "Library")
+    );
+
+    /** Add a label+value row to the info popup (BetaView style), with optional copy button. */
     private static void addInfoPopupRow(JPanel panel, GridBagConstraints gc, String label, String value) {
         gc.gridx = 0;
         gc.weightx = 0.0;
@@ -2632,7 +2637,39 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         gc.gridx = 1;
         gc.weightx = 1.0;
         gc.fill = GridBagConstraints.HORIZONTAL;
-        panel.add(new JLabel(value != null ? value : "\u2013"), gc);
+        String displayValue = value != null ? value : "\u2013";
+        panel.add(new JLabel(displayValue), gc);
+
+        gc.gridx = 2;
+        gc.weightx = 0.0;
+        gc.fill = GridBagConstraints.NONE;
+        if (COPYABLE_INFO_LABELS.contains(label) && value != null && !value.isEmpty()) {
+            final String copyText = value;
+            JButton copyBtn = new JButton("\uD83D\uDCCB"); // 📋
+            copyBtn.setToolTipText(label + " kopieren");
+            copyBtn.setMargin(new Insets(0, 2, 0, 2));
+            copyBtn.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
+            copyBtn.setFocusable(false);
+            copyBtn.setContentAreaFilled(false);
+            copyBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            copyBtn.addActionListener(new java.awt.event.ActionListener() {
+                @Override
+                public void actionPerformed(java.awt.event.ActionEvent e) {
+                    java.awt.datatransfer.StringSelection sel =
+                            new java.awt.datatransfer.StringSelection(copyText);
+                    Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
+                    // Brief visual feedback
+                    copyBtn.setText("✓");
+                    javax.swing.Timer reset = new javax.swing.Timer(800, ev -> copyBtn.setText("\uD83D\uDCCB"));
+                    reset.setRepeats(false);
+                    reset.start();
+                }
+            });
+            panel.add(copyBtn, gc);
+        } else {
+            panel.add(new JLabel(""), gc); // empty placeholder for alignment
+        }
+
         gc.gridy++;
     }
 }
