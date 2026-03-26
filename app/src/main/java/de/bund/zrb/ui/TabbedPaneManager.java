@@ -1419,7 +1419,6 @@ public class TabbedPaneManager {
                 || (sourceName != null && ddmService.isDdmFile(sourceName)))) {
             leftDrawer.showRelationsLoading();
             leftDrawer.showCallHierarchyLoading();
-            final String ddmContent = content;
             final String ddmSourceName = sourceName;
             final String lib = extractLibrary(tab);
             new javax.swing.SwingWorker<Object[], Void>() {
@@ -1429,7 +1428,7 @@ public class TabbedPaneManager {
                     de.bund.zrb.service.DdmAnalysisService.DdmDependencyResult deps =
                             lib != null ? ddmService.findDdmUsers(ddmName, lib)
                                     : ddmService.findDdmUsersAllLibraries(ddmName);
-                    de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode hierarchy =
+                    de.bund.zrb.service.DdmAnalysisService.DdmHierarchyResult hierarchy =
                             ddmService.buildDdmHierarchy(ddmName, lib, 3);
                     return new Object[]{deps, hierarchy, ddmName};
                 }
@@ -1440,8 +1439,8 @@ public class TabbedPaneManager {
                         Object[] results = get();
                         de.bund.zrb.service.DdmAnalysisService.DdmDependencyResult deps =
                                 (de.bund.zrb.service.DdmAnalysisService.DdmDependencyResult) results[0];
-                        de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode hierarchy =
-                                (de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode) results[1];
+                        de.bund.zrb.service.DdmAnalysisService.DdmHierarchyResult hierarchy =
+                                (de.bund.zrb.service.DdmAnalysisService.DdmHierarchyResult) results[1];
                         String ddmName = (String) results[2];
                         showDdmDependenciesInLeftDrawer(leftDrawer, deps, lib);
                         showDdmHierarchyInLeftDrawer(leftDrawer, hierarchy, ddmName, lib);
@@ -1934,12 +1933,16 @@ public class TabbedPaneManager {
     }
 
     /**
-     * Show DDM hierarchy (DDM → programs → related DDMs) in the LeftDrawer call hierarchy panel.
+     * Show DDM hierarchy in the LeftDrawer call hierarchy panel.
+     * <ul>
+     *   <li>Callers (⬅ Aufgerufen von): Programs using this DDM → who calls those programs</li>
+     *   <li>Related DDMs (➡ Verwandte DDMs): Other DDMs referenced by the same programs</li>
+     * </ul>
      */
     private void showDdmHierarchyInLeftDrawer(LeftDrawer leftDrawer,
-                                               de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode hierarchy,
+                                               de.bund.zrb.service.DdmAnalysisService.DdmHierarchyResult hierarchy,
                                                String ddmName, String library) {
-        if (hierarchy == null || hierarchy.getChildren().isEmpty()) {
+        if (hierarchy == null) {
             if (library == null) {
                 leftDrawer.showCallHierarchyPlaceholder(
                         "Bibliothek unbekannt — kein DDM-Nutzungsgraph.");
@@ -1950,10 +1953,32 @@ public class TabbedPaneManager {
             return;
         }
 
-        // Convert DdmHierarchyNode → CallHierarchyData
-        LeftDrawer.CallHierarchyData calleesData = convertDdmHierarchyNode(hierarchy, library);
-        // DDM doesn't have a "callers" hierarchy — only usage chain
-        leftDrawer.updateCallHierarchy(calleesData, null, ddmName);
+        de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode callersNode = hierarchy.getCallersRoot();
+        de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode relatedNode = hierarchy.getRelatedDdmsRoot();
+
+        boolean hasCallers = callersNode != null && !callersNode.getChildren().isEmpty();
+        boolean hasRelated = relatedNode != null && !relatedNode.getChildren().isEmpty();
+
+        if (!hasCallers && !hasRelated) {
+            if (library == null) {
+                leftDrawer.showCallHierarchyPlaceholder(
+                        "Bibliothek unbekannt — kein DDM-Nutzungsgraph.");
+            } else {
+                leftDrawer.showCallHierarchyPlaceholder(
+                        "Keine Nutzungskette für DDM " + ddmName + " gefunden.");
+            }
+            return;
+        }
+
+        // Callers → "⬅ Aufgerufen von" (callersData)
+        LeftDrawer.CallHierarchyData callersData = hasCallers
+                ? convertDdmHierarchyNode(callersNode, library) : null;
+
+        // Related DDMs → "➡ Verwandte DDMs" (calleesData)
+        LeftDrawer.CallHierarchyData calleesData = hasRelated
+                ? convertDdmHierarchyNode(relatedNode, library) : null;
+
+        leftDrawer.updateCallHierarchy(calleesData, callersData, ddmName);
     }
 
     /**

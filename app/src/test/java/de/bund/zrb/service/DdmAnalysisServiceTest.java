@@ -6,6 +6,7 @@ import de.bund.zrb.jcl.model.JclOutlineModel;
 import de.bund.zrb.jcl.parser.DdmParser.DdmDefinition;
 import de.bund.zrb.service.DdmAnalysisService.DdmDependencyResult;
 import de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode;
+import de.bund.zrb.service.DdmAnalysisService.DdmHierarchyResult;
 import de.bund.zrb.service.DdmAnalysisService.DdmUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -295,25 +296,27 @@ class DdmAnalysisServiceTest {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Hierarchy (DDM → programs → related DDMs)
+    //  Hierarchy (callers + related DDMs)
     // ═══════════════════════════════════════════════════════════
 
     @Test
-    void buildDdmHierarchy() {
+    void buildDdmHierarchyCallersContainPrograms() {
         Map<String, String> sources = new LinkedHashMap<String, String>();
         sources.put("EMPL-REPORT", PROG_WITH_EMPLOYEES);
         sources.put("COMBINED-REPORT", PROG_WITH_BOTH);
         NaturalAnalysisService.getInstance().buildGraph("TESTLIB", sources);
 
-        DdmHierarchyNode root = service.buildDdmHierarchy("EMPLOYEES", "TESTLIB", 3);
-        assertNotNull(root);
-        assertEquals("EMPLOYEES", root.getName());
-        assertEquals("DDM", root.getNodeType());
-        assertFalse(root.getChildren().isEmpty(), "Should have program children");
+        DdmHierarchyResult result = service.buildDdmHierarchy("EMPLOYEES", "TESTLIB", 3);
+        assertNotNull(result);
+        DdmHierarchyNode callersRoot = result.getCallersRoot();
+        assertNotNull(callersRoot);
+        assertEquals("EMPLOYEES", callersRoot.getName());
+        assertEquals("DDM", callersRoot.getNodeType());
+        assertFalse(callersRoot.getChildren().isEmpty(), "Should have program children (callers)");
 
-        // Check that programs are in the hierarchy
+        // Check that programs using this DDM are in the callers hierarchy
         Set<String> progNames = new HashSet<String>();
-        for (DdmHierarchyNode child : root.getChildren()) {
+        for (DdmHierarchyNode child : callersRoot.getChildren()) {
             assertEquals("PROGRAM", child.getNodeType());
             progNames.add(child.getName());
         }
@@ -324,49 +327,76 @@ class DdmAnalysisServiceTest {
     }
 
     @Test
-    void buildDdmHierarchyShowsRelatedDdms() {
+    void buildDdmHierarchyRelatedDdms() {
         Map<String, String> sources = new LinkedHashMap<String, String>();
         sources.put("EMPL-REPORT", PROG_WITH_EMPLOYEES);
         sources.put("COMBINED-REPORT", PROG_WITH_BOTH);
         NaturalAnalysisService.getInstance().buildGraph("TESTLIB", sources);
 
-        DdmHierarchyNode root = service.buildDdmHierarchy("EMPLOYEES", "TESTLIB", 3);
+        DdmHierarchyResult result = service.buildDdmHierarchy("EMPLOYEES", "TESTLIB", 3);
+        DdmHierarchyNode relatedRoot = result.getRelatedDdmsRoot();
+        assertNotNull(relatedRoot);
 
-        // Find COMBINED-REPORT node
-        DdmHierarchyNode combinedNode = null;
-        for (DdmHierarchyNode child : root.getChildren()) {
-            if ("COMBINED-REPORT".equals(child.getName())) {
-                combinedNode = child;
-                break;
-            }
-        }
-        assertNotNull(combinedNode, "Should find COMBINED-REPORT");
-
-        // COMBINED-REPORT should have child DDMs: EMPLOYEES (recursive) and VEHICLES
+        // COMBINED-REPORT also references VEHICLES, so VEHICLES should be a related DDM
         Set<String> relatedDdms = new HashSet<String>();
-        for (DdmHierarchyNode ddmChild : combinedNode.getChildren()) {
+        for (DdmHierarchyNode ddmChild : relatedRoot.getChildren()) {
             if ("DDM".equals(ddmChild.getNodeType())) {
                 relatedDdms.add(ddmChild.getName());
             }
         }
-        assertTrue(relatedDdms.contains("VEHICLES"), "COMBINED-REPORT references VEHICLES DDM");
-        assertTrue(relatedDdms.contains("EMPLOYEES"), "COMBINED-REPORT references EMPLOYEES DDM (recursive)");
+        assertTrue(relatedDdms.contains("VEHICLES"),
+                "VEHICLES should be a related DDM (referenced by COMBINED-REPORT)");
+
+        NaturalAnalysisService.getInstance().removeGraph("TESTLIB");
+    }
+
+    @Test
+    void buildDdmHierarchyRelatedDdmsShowConnectingPrograms() {
+        Map<String, String> sources = new LinkedHashMap<String, String>();
+        sources.put("EMPL-REPORT", PROG_WITH_EMPLOYEES);
+        sources.put("COMBINED-REPORT", PROG_WITH_BOTH);
+        NaturalAnalysisService.getInstance().buildGraph("TESTLIB", sources);
+
+        DdmHierarchyResult result = service.buildDdmHierarchy("EMPLOYEES", "TESTLIB", 3);
+        DdmHierarchyNode relatedRoot = result.getRelatedDdmsRoot();
+
+        // Find VEHICLES node in related DDMs
+        DdmHierarchyNode vehiclesNode = null;
+        for (DdmHierarchyNode child : relatedRoot.getChildren()) {
+            if ("VEHICLES".equals(child.getName())) {
+                vehiclesNode = child;
+                break;
+            }
+        }
+        assertNotNull(vehiclesNode, "Should find VEHICLES in related DDMs");
+
+        // VEHICLES should show COMBINED-REPORT as the connecting program
+        Set<String> connectingProgs = new HashSet<String>();
+        for (DdmHierarchyNode progChild : vehiclesNode.getChildren()) {
+            if ("PROGRAM".equals(progChild.getNodeType())) {
+                connectingProgs.add(progChild.getName());
+            }
+        }
+        assertTrue(connectingProgs.contains("COMBINED-REPORT"),
+                "COMBINED-REPORT connects EMPLOYEES to VEHICLES");
 
         NaturalAnalysisService.getInstance().removeGraph("TESTLIB");
     }
 
     @Test
     void buildDdmHierarchyNoGraph() {
-        DdmHierarchyNode root = service.buildDdmHierarchy("EMPLOYEES", "NONEXIST", 3);
-        assertNotNull(root);
-        assertTrue(root.getChildren().isEmpty());
+        DdmHierarchyResult result = service.buildDdmHierarchy("EMPLOYEES", "NONEXIST", 3);
+        assertNotNull(result);
+        assertTrue(result.getCallersRoot().getChildren().isEmpty());
+        assertTrue(result.getRelatedDdmsRoot().getChildren().isEmpty());
     }
 
     @Test
     void buildDdmHierarchyNullParams() {
-        DdmHierarchyNode root = service.buildDdmHierarchy(null, null, 3);
-        assertNotNull(root);
-        assertTrue(root.getChildren().isEmpty());
+        DdmHierarchyResult result = service.buildDdmHierarchy(null, null, 3);
+        assertNotNull(result);
+        assertTrue(result.getCallersRoot().getChildren().isEmpty());
+        assertTrue(result.getRelatedDdmsRoot().getChildren().isEmpty());
     }
 
     // ═══════════════════════════════════════════════════════════

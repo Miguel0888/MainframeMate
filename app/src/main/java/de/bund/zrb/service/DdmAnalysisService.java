@@ -10,7 +10,6 @@ import de.bund.zrb.service.NaturalDependencyService.Dependency;
 import de.bund.zrb.service.NaturalDependencyService.DependencyKind;
 import de.bund.zrb.service.NaturalDependencyService.DependencyResult;
 import de.bund.zrb.service.NaturalDependencyGraph.CallerInfo;
-import de.bund.zrb.service.NaturalDependencyGraph.CallHierarchyNode;
 
 import java.util.*;
 import java.util.logging.Logger;
@@ -362,7 +361,7 @@ public class DdmAnalysisService {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Hierarchy (for LeftDrawer bottom: DDM → users → their DDMs)
+    //  Hierarchy (for LeftDrawer bottom: callers + related DDMs)
     // ═══════════════════════════════════════════════════════════
 
     /**
@@ -371,7 +370,7 @@ public class DdmAnalysisService {
     public static class DdmHierarchyNode {
         private final String name;
         private final String nodeType; // "DDM", "PROGRAM"
-        private final String detail;   // e.g. "VIEW", "READ", or null for root
+        private final String detail;   // e.g. "VIEW", "READ", "CALLNAT", or null for root
         private final List<DdmHierarchyNode> children = new ArrayList<DdmHierarchyNode>();
         private final boolean recursive;
 
@@ -407,39 +406,54 @@ public class DdmAnalysisService {
     }
 
     /**
-     * Build a hierarchy: DDM → programs that use it → other DDMs those programs use.
-     * This shows the "impact chain" — if this DDM changes, which programs are affected,
-     * and what other DDMs those programs also depend on.
+     * Result of DDM hierarchy analysis — contains both callers and related DDMs.
+     */
+    public static class DdmHierarchyResult {
+        private final DdmHierarchyNode callersRoot;   // ⬅ Programs using this DDM → who calls them
+        private final DdmHierarchyNode relatedDdmsRoot; // ➡ Other DDMs referenced by the same programs
+
+        public DdmHierarchyResult(DdmHierarchyNode callersRoot, DdmHierarchyNode relatedDdmsRoot) {
+            this.callersRoot = callersRoot;
+            this.relatedDdmsRoot = relatedDdmsRoot;
+        }
+
+        public DdmHierarchyNode getCallersRoot() { return callersRoot; }
+        public DdmHierarchyNode getRelatedDdmsRoot() { return relatedDdmsRoot; }
+    }
+
+    /**
+     * Build the full DDM hierarchy with two branches:
+     * <ul>
+     *   <li><b>Callers</b> (⬅ Aufgerufen von): Programs that reference this DDM via VIEW/DB_ACCESS,
+     *       and for each program, who calls that program (via passive XRefs / call hierarchy).</li>
+     *   <li><b>Related DDMs</b> (➡ Verwandte DDMs): Other DDMs that are referenced by the same
+     *       programs that use this DDM.</li>
+     * </ul>
      *
      * @param ddmName  the DDM name
      * @param library  the library to search in
      * @param maxDepth max recursion depth (recommended: 3)
-     * @return hierarchy root node (never null)
+     * @return hierarchy result with both callers and related DDMs (never null)
      */
-    public DdmHierarchyNode buildDdmHierarchy(String ddmName, String library, int maxDepth) {
-        DdmHierarchyNode root = new DdmHierarchyNode(ddmName, "DDM", null, false);
-        if (library == null || ddmName == null) return root;
+    public DdmHierarchyResult buildDdmHierarchy(String ddmName, String library, int maxDepth) {
+        DdmHierarchyNode callersRoot = new DdmHierarchyNode(ddmName, "DDM", null, false);
+        DdmHierarchyNode relatedRoot = new DdmHierarchyNode(ddmName, "DDM", null, false);
 
-        Set<String> visitedDdms = new HashSet<String>();
-        visitedDdms.add(ddmName.toUpperCase());
-
-        buildDdmHierarchyRecursive(root, ddmName, library, maxDepth, 0, visitedDdms);
-        return root;
-    }
-
-    private void buildDdmHierarchyRecursive(DdmHierarchyNode ddmNode, String ddmName,
-                                             String library, int maxDepth, int depth,
-                                             Set<String> visitedDdms) {
-        if (depth >= maxDepth) return;
+        if (library == null || ddmName == null) {
+            return new DdmHierarchyResult(callersRoot, relatedRoot);
+        }
 
         NaturalAnalysisService analysisService = NaturalAnalysisService.getInstance();
         NaturalDependencyGraph graph = analysisService.getGraph(library);
-        if (graph == null || !graph.isBuilt()) return;
+        if (graph == null || !graph.isBuilt()) {
+            return new DdmHierarchyResult(callersRoot, relatedRoot);
+        }
 
         String ddmKey = ddmName.toUpperCase();
 
-        // Find programs that reference this DDM
-        Set<String> programsFound = new LinkedHashSet<String>();
+        // ── Collect programs that reference this DDM ──
+        // Map: programName → referenceKind (VIEW, READ, FIND, etc.)
+        Map<String, String> ddmUsers = new LinkedHashMap<String, String>();
         for (String sourceName : graph.getKnownSources()) {
             DependencyResult result = graph.getActiveXRefs(sourceName);
             if (result == null) continue;
@@ -448,57 +462,96 @@ public class DdmAnalysisService {
                 if (dep.getTargetName().equalsIgnoreCase(ddmKey)
                         && (dep.getKind() == DependencyKind.VIEW
                         || dep.getKind() == DependencyKind.DB_ACCESS)) {
-
-                    if (!programsFound.contains(sourceName)) {
-                        programsFound.add(sourceName);
-
+                    if (!ddmUsers.containsKey(sourceName)) {
                         String refKind = dep.getKind() == DependencyKind.VIEW ? "VIEW" :
                                 (dep.getDetail() != null ? dep.getDetail() : "DB");
-                        DdmHierarchyNode progNode = new DdmHierarchyNode(
-                                sourceName, "PROGRAM", refKind, false);
-                        ddmNode.addChild(progNode);
-
-                        // For each program, find other DDMs it references
-                        if (depth + 1 < maxDepth) {
-                            addRelatedDdms(progNode, sourceName, graph, visitedDdms,
-                                    library, maxDepth, depth + 1);
-                        }
+                        ddmUsers.put(sourceName, refKind);
                     }
                 }
             }
         }
+
+        // ── Branch 1: Callers — who uses this DDM → who calls those programs ──
+        for (Map.Entry<String, String> entry : ddmUsers.entrySet()) {
+            String progName = entry.getKey();
+            String refKind = entry.getValue();
+
+            DdmHierarchyNode progNode = new DdmHierarchyNode(progName, "PROGRAM", refKind, false);
+            callersRoot.addChild(progNode);
+
+            // Add callers of this program (passive XRefs) recursively
+            if (maxDepth > 1) {
+                Set<String> visited = new HashSet<String>();
+                visited.add(progName.toUpperCase());
+                addProgramCallers(progNode, progName, graph, maxDepth - 1, 0, visited, library);
+            }
+        }
+
+        // ── Branch 2: Related DDMs — other DDMs referenced by the same programs ──
+        Set<String> relatedDdmsFound = new LinkedHashSet<String>();
+        for (String progName : ddmUsers.keySet()) {
+            DependencyResult result = graph.getActiveXRefs(progName);
+            if (result == null) continue;
+
+            for (Dependency dep : result.getAllDependencies()) {
+                if (dep.getKind() == DependencyKind.VIEW || dep.getKind() == DependencyKind.DB_ACCESS) {
+                    String targetDdm = dep.getTargetName().toUpperCase();
+                    if (!targetDdm.equals(ddmKey) && !relatedDdmsFound.contains(targetDdm)) {
+                        relatedDdmsFound.add(targetDdm);
+
+                        String refKind = dep.getKind() == DependencyKind.VIEW ? "VIEW" :
+                                (dep.getDetail() != null ? dep.getDetail() : "DB");
+                        DdmHierarchyNode ddmChild = new DdmHierarchyNode(
+                                targetDdm, "DDM", refKind + " via " + progName, false);
+
+                        // Show which programs connect to this related DDM
+                        for (Map.Entry<String, String> user : ddmUsers.entrySet()) {
+                            DependencyResult userResult = graph.getActiveXRefs(user.getKey());
+                            if (userResult == null) continue;
+                            for (Dependency userDep : userResult.getAllDependencies()) {
+                                if (userDep.getTargetName().equalsIgnoreCase(targetDdm)
+                                        && (userDep.getKind() == DependencyKind.VIEW
+                                        || userDep.getKind() == DependencyKind.DB_ACCESS)) {
+                                    String userRef = userDep.getKind() == DependencyKind.VIEW ? "VIEW" :
+                                            (userDep.getDetail() != null ? userDep.getDetail() : "DB");
+                                    ddmChild.addChild(new DdmHierarchyNode(
+                                            user.getKey(), "PROGRAM", userRef, false));
+                                    break; // one entry per program
+                                }
+                            }
+                        }
+
+                        relatedRoot.addChild(ddmChild);
+                    }
+                }
+            }
+        }
+
+        return new DdmHierarchyResult(callersRoot, relatedRoot);
     }
 
     /**
-     * Add DDMs referenced by a program (other than the current DDM).
+     * Recursively add callers of a program (who calls this program) from passive XRefs.
      */
-    private void addRelatedDdms(DdmHierarchyNode progNode, String programName,
-                                NaturalDependencyGraph graph, Set<String> visitedDdms,
-                                String library, int maxDepth, int depth) {
-        DependencyResult result = graph.getActiveXRefs(programName);
-        if (result == null) return;
+    private void addProgramCallers(DdmHierarchyNode progNode, String programName,
+                                   NaturalDependencyGraph graph, int maxDepth, int depth,
+                                   Set<String> visited, String library) {
+        if (depth >= maxDepth) return;
 
-        Set<String> ddmsFromProgram = new LinkedHashSet<String>();
-        for (Dependency dep : result.getAllDependencies()) {
-            if (dep.getKind() == DependencyKind.VIEW || dep.getKind() == DependencyKind.DB_ACCESS) {
-                String targetDdm = dep.getTargetName().toUpperCase();
-                if (!ddmsFromProgram.contains(targetDdm)) {
-                    ddmsFromProgram.add(targetDdm);
+        List<CallerInfo> callers = graph.getPassiveXRefs(programName);
+        for (CallerInfo caller : callers) {
+            boolean recursive = visited.contains(caller.getCallerName().toUpperCase());
+            String kindLabel = caller.getReferenceKind() != null
+                    ? caller.getReferenceKind().name() : "CALL";
+            DdmHierarchyNode callerNode = new DdmHierarchyNode(
+                    caller.getCallerName(), "PROGRAM", kindLabel, recursive);
+            progNode.addChild(callerNode);
 
-                    boolean recursive = visitedDdms.contains(targetDdm);
-                    String refKind = dep.getKind() == DependencyKind.VIEW ? "VIEW" :
-                            (dep.getDetail() != null ? dep.getDetail() : "DB");
-                    DdmHierarchyNode ddmChild = new DdmHierarchyNode(
-                            targetDdm, "DDM", refKind, recursive);
-                    progNode.addChild(ddmChild);
-
-                    if (!recursive && depth < maxDepth) {
-                        visitedDdms.add(targetDdm);
-                        buildDdmHierarchyRecursive(ddmChild, targetDdm, library,
-                                maxDepth, depth, visitedDdms);
-                        visitedDdms.remove(targetDdm);
-                    }
-                }
+            if (!recursive && depth + 1 < maxDepth) {
+                visited.add(caller.getCallerName().toUpperCase());
+                addProgramCallers(callerNode, caller.getCallerName(), graph,
+                        maxDepth, depth + 1, visited, library);
+                visited.remove(caller.getCallerName().toUpperCase());
             }
         }
     }
