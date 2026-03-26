@@ -1462,13 +1462,32 @@ public class TabbedPaneManager {
             return;
         }
 
-        // For COBOL, show placeholder (future)
-        if (sentenceType != null) {
-            String upper = sentenceType.toUpperCase();
-            if (upper.contains("COBOL")) {
-                leftDrawer.showRelationsPlaceholder("COBOL-Dependencies werden in einer zukünftigen Version unterstützt.");
-                return;
-            }
+        // For COBOL, show external calls using CodeAnalyticsService
+        if (content != null && isCobolContent(content, sentenceType)) {
+            leftDrawer.showRelationsLoading();
+            leftDrawer.showCallHierarchyLoading();
+            final String cobolContent = content;
+            final String cobolName = sourceName;
+            new javax.swing.SwingWorker<java.util.List<de.bund.zrb.service.codeanalytics.ExternalCall>, Void>() {
+                @Override
+                protected java.util.List<de.bund.zrb.service.codeanalytics.ExternalCall> doInBackground() {
+                    return de.bund.zrb.service.codeanalytics.CodeAnalyticsService.getInstance()
+                            .extractExternalCalls(cobolContent, cobolName,
+                                    de.bund.zrb.service.codeanalytics.SourceLanguage.COBOL);
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        java.util.List<de.bund.zrb.service.codeanalytics.ExternalCall> calls = get();
+                        showExternalCallsInLeftDrawer(leftDrawer, calls, cobolName);
+                    } catch (Exception ex) {
+                        leftDrawer.showRelationsPlaceholder("Fehler bei COBOL-Analyse: " + ex.getMessage());
+                        leftDrawer.clearCallHierarchy();
+                    }
+                }
+            }.execute();
+            return;
         }
 
         leftDrawer.clearRelations();
@@ -1808,6 +1827,82 @@ public class TabbedPaneManager {
      */
     private boolean isNaturalSource(String content, String sentenceType) {
         return de.bund.zrb.service.NaturalAnalysisService.getInstance().isNaturalSource(content, sentenceType);
+    }
+
+    /**
+     * Determine if the source content is COBOL.
+     */
+    private boolean isCobolContent(String content, String sentenceType) {
+        if (sentenceType != null && sentenceType.toUpperCase().contains("COBOL")) return true;
+        if (content == null) return false;
+        String[] lines = content.split("\\r?\\n", 30);
+        int hits = 0;
+        for (String line : lines) {
+            String upper = line.toUpperCase();
+            if (upper.contains("IDENTIFICATION DIVISION")
+                    || upper.contains("PROCEDURE DIVISION")
+                    || upper.contains("DATA DIVISION")
+                    || upper.contains("WORKING-STORAGE SECTION")
+                    || upper.contains("PROGRAM-ID")) {
+                hits++;
+            }
+        }
+        return hits >= 1;
+    }
+
+    /**
+     * Show external calls from CodeAnalyticsService in the LeftDrawer (generic, works for all languages).
+     * Used as call hierarchy when no library-level graph is available.
+     */
+    private void showExternalCallsInLeftDrawer(LeftDrawer leftDrawer,
+                                                java.util.List<de.bund.zrb.service.codeanalytics.ExternalCall> calls,
+                                                String sourceName) {
+        if (calls == null || calls.isEmpty()) {
+            leftDrawer.showRelationsPlaceholder("Keine externen Aufrufe gefunden.");
+            leftDrawer.showCallHierarchyPlaceholder("Keine externen Aufrufe.");
+            return;
+        }
+
+        // Relations panel: group by call type
+        java.util.Map<String, java.util.List<LeftDrawer.RelationEntry>> sections =
+                new java.util.LinkedHashMap<String, java.util.List<LeftDrawer.RelationEntry>>();
+        int totalCount = 0;
+
+        java.util.Map<String, java.util.List<de.bund.zrb.service.codeanalytics.ExternalCall>> grouped =
+                new java.util.LinkedHashMap<String, java.util.List<de.bund.zrb.service.codeanalytics.ExternalCall>>();
+        for (de.bund.zrb.service.codeanalytics.ExternalCall call : calls) {
+            java.util.List<de.bund.zrb.service.codeanalytics.ExternalCall> list = grouped.get(call.getCallType());
+            if (list == null) {
+                list = new java.util.ArrayList<de.bund.zrb.service.codeanalytics.ExternalCall>();
+                grouped.put(call.getCallType(), list);
+            }
+            list.add(call);
+        }
+
+        for (java.util.Map.Entry<String, java.util.List<de.bund.zrb.service.codeanalytics.ExternalCall>> group
+                : grouped.entrySet()) {
+            java.util.List<LeftDrawer.RelationEntry> entries = new java.util.ArrayList<LeftDrawer.RelationEntry>();
+            for (de.bund.zrb.service.codeanalytics.ExternalCall call : group.getValue()) {
+                entries.add(new LeftDrawer.RelationEntry(
+                        call.getDisplayText(), null, "EXT_CALL_" + call.getCallType(), call.getLineNumber()));
+            }
+            sections.put("\u27A1 " + group.getKey() + " (" + entries.size() + ")", entries);
+            totalCount += entries.size();
+        }
+
+        leftDrawer.updateRelationsGrouped("Externe Aufrufe", sections, totalCount);
+
+        // Call hierarchy: flat list (no recursive graph available)
+        java.util.List<LeftDrawer.CallHierarchyData> children =
+                new java.util.ArrayList<LeftDrawer.CallHierarchyData>();
+        for (de.bund.zrb.service.codeanalytics.ExternalCall call : calls) {
+            children.add(new LeftDrawer.CallHierarchyData(
+                    call.getCallType() + " " + call.getTargetName(),
+                    null, false, java.util.Collections.<LeftDrawer.CallHierarchyData>emptyList()));
+        }
+        LeftDrawer.CallHierarchyData calleesRoot = new LeftDrawer.CallHierarchyData(
+                "Externe Aufrufe", null, false, children);
+        leftDrawer.updateCallHierarchy(calleesRoot, null, sourceName);
     }
 
     /**

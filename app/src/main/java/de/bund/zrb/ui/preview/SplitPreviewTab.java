@@ -190,6 +190,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /** ApplicationState key for persisting the diagram type. */
     private static final String DIAGRAM_TYPE_STATE_KEY = "preview.diagramType";
 
+    /** ApplicationState key for persisting the mindmap call depth. */
+    private static final String MINDMAP_DEPTH_STATE_KEY = "preview.mindmapDepth";
+
     /** ApplicationState key for persisting the auto-refresh zoom threshold (in percent points). */
     private static final String AUTO_REFRESH_ZOOM_THRESHOLD_KEY = "diagram.autoRefreshZoomThreshold";
 
@@ -223,6 +226,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
     /** Currently selected diagram type (restored from ApplicationState or default STRUCTURE). */
     protected OutlineToMermaidConverter.DiagramType activeDiagramType = restoreDiagramTypePreference();
+
+    /** Current mindmap call tree depth (1 = direct calls only, higher = recursive). Default 2. */
+    protected int mindmapDepth = restoreMindmapDepth();
+
+    /** Optional source resolver for resolving external call targets to source code. */
+    protected de.bund.zrb.service.codeanalytics.SourceResolver sourceResolver;
 
     /** @return true if the interactive diagram view is currently active. */
     public boolean isDiagramViewActive() { return diagramViewActive; }
@@ -1084,6 +1093,35 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         }
 
         headerPanel.add(headerRow);
+
+        // ── Mindmap depth control (only for outline-based diagrams) ──
+        if (!isMermaidCode) {
+            JPanel depthPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            depthPanel.setOpaque(false);
+            depthPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            depthPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+            JLabel depthLabel = new JLabel("Mindmap-Tiefe:");
+            depthLabel.setFont(depthLabel.getFont().deriveFont(Font.PLAIN, 11f));
+            depthLabel.setToolTipText("Rekursionstiefe für externe Aufrufe in der Mindmap (0 = keine Rekursion)");
+            final JSpinner depthSpinner = new JSpinner(new SpinnerNumberModel(mindmapDepth, 0, 10, 1));
+            depthSpinner.setPreferredSize(new Dimension(50, 22));
+            depthSpinner.setToolTipText("0 = flach, 1 = direkte Calls, 2+ = rekursiv");
+            depthSpinner.addChangeListener(e -> {
+                int newDepth = (Integer) depthSpinner.getValue();
+                if (newDepth != mindmapDepth) {
+                    mindmapDepth = newDepth;
+                    persistMindmapDepth(newDepth);
+                    // Refresh mindmap if currently showing
+                    if (diagramViewActive && activeDiagramType == DiagramType.MINDMAP) {
+                        switchDiagramType(DiagramType.MINDMAP);
+                    }
+                }
+            });
+            depthPanel.add(depthLabel);
+            depthPanel.add(depthSpinner);
+            headerPanel.add(depthPanel);
+        }
+
         outerPane.add(headerPanel, BorderLayout.NORTH);
 
         // ── Scrollable body (detail area, edit panel, status) ──
@@ -1133,6 +1171,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
     /**
      * Parse the current content and convert to the given diagram type.
+     * For MINDMAP, builds a recursive call tree using {@link de.bund.zrb.service.codeanalytics.CodeAnalyticsService}.
      */
     protected String parseMermaidFromOutline(OutlineToMermaidConverter.DiagramType type) {
         if (rawContent == null || rawContent.isEmpty()) return null;
@@ -1148,7 +1187,25 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         }
 
         if (model == null || model.isEmpty()) return null;
-        return OutlineToMermaidConverter.convert(model, type);
+
+        // For MINDMAP: build recursive call tree if depth > 0
+        de.bund.zrb.service.codeanalytics.CallTreeNode callTree = null;
+        if (type == DiagramType.MINDMAP && mindmapDepth > 0) {
+            try {
+                de.bund.zrb.service.codeanalytics.CodeAnalyticsService analytics =
+                        de.bund.zrb.service.codeanalytics.CodeAnalyticsService.getInstance();
+                de.bund.zrb.service.codeanalytics.SourceLanguage lang =
+                        analytics.detectLanguage(rawContent);
+                callTree = analytics.buildCallTree(rawContent, sourceName, lang,
+                        mindmapDepth, sourceResolver);
+            } catch (Exception e) {
+                // fallback: no call tree
+                java.util.logging.Logger.getLogger(getClass().getName())
+                        .log(java.util.logging.Level.FINE, "Call tree build failed", e);
+            }
+        }
+
+        return OutlineToMermaidConverter.convert(model, type, callTree);
     }
 
     /**
@@ -1650,6 +1707,36 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             }
         } catch (Exception ignored) { }
         return OutlineToMermaidConverter.DiagramType.STRUCTURE;
+    }
+
+    // ── Mindmap depth preference persistence ──
+
+    private void persistMindmapDepth(int depth) {
+        try {
+            de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+            settings.applicationState.put(MINDMAP_DEPTH_STATE_KEY, String.valueOf(depth));
+            de.bund.zrb.helper.SettingsHelper.save(settings);
+        } catch (Exception ignored) { }
+    }
+
+    private static int restoreMindmapDepth() {
+        try {
+            de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+            String value = settings.applicationState.get(MINDMAP_DEPTH_STATE_KEY);
+            if (value != null) {
+                int depth = Integer.parseInt(value);
+                return Math.max(0, Math.min(depth, 10));
+            }
+        } catch (Exception ignored) { }
+        return 2; // default: 2 levels deep
+    }
+
+    /**
+     * Set the source resolver for resolving external call targets.
+     * Called by TabbedPaneManager when the tab is created for an NDV/FTP source.
+     */
+    public void setSourceResolver(de.bund.zrb.service.codeanalytics.SourceResolver resolver) {
+        this.sourceResolver = resolver;
     }
 
     // ── Auto-refresh zoom threshold persistence ──
