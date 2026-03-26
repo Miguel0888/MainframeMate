@@ -14,10 +14,14 @@ import java.util.Map;
  *
  * <p>The typical RAG pipeline becomes:
  * <ol>
- *   <li>Hybrid retrieval (BM25 + semantic) → large candidate set</li>
- *   <li><b>Reranker</b> → re-scores and re-orders the candidate set</li>
+ *   <li>BM25 retrieval (+ optional semantic/embedding search) → candidate set</li>
+ *   <li><b>Reranker</b> → re-scores candidates on raw text, replaces BM25 scoring</li>
  *   <li>Top-K selection → final chunks for LLM context</li>
  * </ol>
+ *
+ * <p><b>Embeddings are NOT required.</b> The reranker works on raw text and can
+ * rescore BM25-only candidates. Embeddings only widen the candidate pool
+ * (semantic recall), while the reranker replaces the scoring step.
  *
  * <p>Supported providers:
  * <ul>

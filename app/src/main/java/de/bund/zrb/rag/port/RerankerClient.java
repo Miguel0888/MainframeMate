@@ -4,11 +4,14 @@ import java.util.List;
 
 /**
  * Port interface for cross-encoder reranking (Stage 3 of the RAG pipeline).
- ** <h3>Pipeline Architecture (Google-style)</h3>
+ *
+ * <h3>Pipeline Architecture (Google-style)</h3>
  * <pre>
- *   Stage 1+2 — Hybrid Search:   BM25 keywords + Embedding vectors (semantic).
- *                                 Embeddings widen the search: "Auto" finds "KFZ".
+ *   Stage 1   — BM25 Search:     Full-text keyword search via Lucene.
  *                                 → ~50 candidate passages
+ *   Stage 2   — Embeddings:      (OPTIONAL) Semantic vector search widens the
+ *                                 candidate set: "Auto" also finds "KFZ".
+ *                                 When active, results are merged with BM25.
  *   Stage 3   — Reranking:       Cross-encoder scores each (query, passage) pair
  *                                 on RAW TEXT. REPLACES BM25 scoring with much
  *                                 more accurate relevance scores.
@@ -16,10 +19,19 @@ import java.util.List;
  *   Stage 4   — LLM Generation:  (optional) Summarize top results into an answer.
  * </pre>
  *
- * <p><b>Prerequisite:</b> Embeddings (Stage 2) MUST be active before reranking
- * is useful. Without semantic search, the candidate set only contains keyword
- * matches, making cross-encoder reranking pointless. The reranker is NOT a
- * replacement for embeddings — it is a replacement for BM25 <em>scoring</em>.
+ * <p><b>Embeddings are NOT required for reranking.</b> The reranker works on
+ * raw text, not on vectors. It can rescore BM25-only candidates just fine.
+ * Embeddings improve the <em>candidate pool</em> (semantic recall), but the
+ * reranker independently replaces BM25 <em>scoring</em> with cross-encoder
+ * relevance scores regardless of how candidates were retrieved.
+ *
+ * <p>In settings, Embeddings and Reranker can be toggled independently:
+ * <ul>
+ *   <li>BM25 only → basic keyword retrieval</li>
+ *   <li>BM25 + Reranker → accurate rescoring of keyword results</li>
+ *   <li>BM25 + Embeddings → hybrid recall (keyword + semantic)</li>
+ *   <li>BM25 + Embeddings + Reranker → best quality (wide recall + precise scoring)</li>
+ * </ul>
  *
  * <p>Stages 1–3 run on <b>CPU only</b>. Only Stage 4 requires GPU/cloud.
  */

@@ -17,13 +17,14 @@ import java.util.logging.Logger;
  *
  * <pre>
  * ┌─────────────────────────────────────────────────────────────────────┐
- * │  Stage 1+2 — Hybrid Search (BM25 + Embeddings)                     │
- * │                                                                     │
- * │  BM25 (Lucene):  Keyword matching — fast, catches exact terms.     │
- * │  Embeddings:     Semantic search — "Auto" also finds "KFZ"/"Wagen".│
- * │                  Embeddings widen the search net so that fuzzy      │
- * │                  concepts are discovered, not just exact keywords.  │
- * │  → merged candidate pool (~50 chunks)                              │
+ * │  Stage 1 — BM25 Search (Lucene)                                    │
+ * │  Keyword matching — fast, catches exact terms.                     │
+ * │  → ~50 candidate passages                                          │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │  Stage 2 — Embeddings (OPTIONAL)                                   │
+ * │  Semantic vector search widens the candidate pool:                 │
+ * │  "Auto" also finds "KFZ"/"Wagen".                                  │
+ * │  When active, results are merged with BM25.                        │
  * ├─────────────────────────────────────────────────────────────────────┤
  * │  Stage 3 — Scoring / Ranking                                       │
  * │                                                                     │
@@ -39,13 +40,25 @@ import java.util.logging.Logger;
  * └─────────────────────────────────────────────────────────────────────┘
  * </pre>
  *
- * <p><b>Key insight:</b> Embeddings and reranking serve <em>different</em> purposes.
+ * <p><b>Key insight:</b> Embeddings and reranking serve <em>different</em> purposes
+ * and can be toggled <em>independently</em> in settings.
  * <ul>
  *   <li><b>Embeddings</b> = finding candidates (semantic widening of the search net)</li>
  *   <li><b>Reranker</b>   = scoring candidates (replaces BM25 scoring with cross-encoder)</li>
  * </ul>
- * Embeddings are a <b>prerequisite</b> for effective reranking — without them,
- * the candidate set only contains keyword matches, making reranking pointless.
+ * <b>Embeddings are NOT required for reranking.</b> The reranker works on raw
+ * text, not on vectors. It can rescore BM25-only candidates just fine.
+ * Embeddings improve the <em>candidate pool</em> (semantic recall), but the
+ * reranker independently replaces BM25 <em>scoring</em> with cross-encoder
+ * relevance scores regardless of how candidates were retrieved.
+ *
+ * <p>Valid combinations in settings:
+ * <ul>
+ *   <li>BM25 only → basic keyword retrieval</li>
+ *   <li>BM25 + Reranker → accurate rescoring of keyword results</li>
+ *   <li>BM25 + Embeddings → hybrid recall (keyword + semantic)</li>
+ *   <li>BM25 + Embeddings + Reranker → best quality (wide recall + precise scoring)</li>
+ * </ul>
  *
  * <p>Stages 1–3 run on <b>CPU only</b>. Only Stage 4 (LLM generation) needs
  * a GPU or cloud provider.

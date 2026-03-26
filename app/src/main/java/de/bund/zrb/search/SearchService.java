@@ -130,8 +130,8 @@ public class SearchService {
 
             // ── 2. Hybrid Search (BM25 + Embeddings) ──
             // Embeddings widen the search net: "Auto" also finds "KFZ", "Wagen".
-            // This MUST run before any reranking — the reranker needs these
-            // semantically enriched candidates as input.
+            // This is OPTIONAL — the reranker works on BM25-only candidates too.
+            // When active, semantic results are merged into the candidate pool.
             if (isSemanticAvailable()) {
                 try {
                     List<SearchResult> semResults = searchRag(query, maxResults);
@@ -228,13 +228,15 @@ public class SearchService {
             }
 
             // ── 4. Reranking: Re-score ALL merged results (replaces BM25 scoring) ──
-            // The reranker REPLACES BM25 scoring with a much better cross-encoder
-            // score. But it REQUIRES that Step 2 (Embeddings) ran first — without
-            // the semantic enrichment, the candidate set only contains keyword
-            // matches, making reranking pointless.
+            // The reranker works on RAW TEXT, not on vectors! It re-scores each
+            // (query, passage) pair through a cross-encoder — REPLACING the BM25
+            // scoring with much more accurate relevance scores.
             //
-            // Pipeline: 1+2 (Hybrid Search) → 3 (Reranking) → 4 (optional LLM)
-            if (isSemanticAvailable() && isRerankerAvailable()) {
+            // Embeddings are NOT required. The reranker can rescore BM25-only
+            // candidates just fine. Embeddings only widen the candidate pool.
+            //
+            // Pipeline: 1 (BM25) [+2 (optional Embeddings)] → 3 (Reranking) → 4 (optional LLM)
+            if (isRerankerAvailable()) {
                 allResults = rerankFinalResults(allResults, query, maxResults);
             }
 
