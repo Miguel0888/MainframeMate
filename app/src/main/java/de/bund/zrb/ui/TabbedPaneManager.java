@@ -2123,12 +2123,12 @@ public class TabbedPaneManager {
 
                     // Cache source
                     de.bund.zrb.service.NdvSourceCacheService.getInstance()
-                            .cacheSource(fLibrary, objInfo.getName(),
+                            .cacheSource(fLibrary, objInfo.getEffectiveName(),
                                     objInfo.getTypeExtension(), source,
                                     objInfo.getSourceSize(), objInfo.getSourceDate());
 
                     NdvResourceState ndvState = new NdvResourceState(service, fLibrary, objInfo);
-                    String fp = fLibrary + "/" + objInfo.getName()
+                    String fp = fLibrary + "/" + objInfo.getEffectiveName()
                             + (objInfo.getTypeExtension().isEmpty() ? "" : "." + objInfo.getTypeExtension());
                     VirtualResource resource = new VirtualResource(
                             de.bund.zrb.files.path.VirtualResourceRef.of(fp),

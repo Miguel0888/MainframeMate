@@ -392,7 +392,7 @@ public class NdvSourceCacheService {
                         continue;
                     }
 
-                    String key = cacheKey(libUpper, obj.getName());
+                    String key = cacheKey(libUpper, obj.getEffectiveName());
 
                     // Skip if already in memory cache (recently opened/downloaded)
                     if (memoryCache.containsKey(key)) {
@@ -437,12 +437,12 @@ public class NdvSourceCacheService {
 
                     try {
                         if (callback != null) {
-                            callback.onProgress(i + 1, total, obj.getName());
+                            callback.onProgress(i + 1, total, obj.getEffectiveName());
                         }
 
                         String source = ndvService.readSource(libUpper, obj);
                         if (source != null && !source.isEmpty()) {
-                            cacheSource(libUpper, obj.getName(), obj.getTypeExtension(),
+                            cacheSource(libUpper, obj.getEffectiveName(), obj.getTypeExtension(),
                                     source, obj.getSourceSize(), obj.getSourceDate());
                             indexed++;
                         }
@@ -453,7 +453,7 @@ public class NdvSourceCacheService {
                         Thread.currentThread().interrupt();
                         break;
                     } catch (Exception e) {
-                        LOG.log(Level.FINE, "[NdvCache] Prefetch failed for " + obj.getName(), e);
+                        LOG.log(Level.FINE, "[NdvCache] Prefetch failed for " + obj.getEffectiveName(), e);
                     }
                 }
 

@@ -422,7 +422,7 @@ public class ObjectBrowseService {
             for (IPalTypeObject obj : ergebnis) {
                 String schluessel;
                 if (obj.getType() == 8) {
-                    // Typ NONE: LongName als Schluessel
+                    // DDM: LongName als Schluessel (DDMs haben den Namen im longName-Feld)
                     schluessel = obj.getLongName();
                 } else {
                     schluessel = obj.getName();

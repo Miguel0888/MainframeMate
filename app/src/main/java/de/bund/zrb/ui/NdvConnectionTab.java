@@ -511,7 +511,7 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
                     if (i > 0) sb.append(", ");
                     Object item = sel.get(i);
                     if (item instanceof NdvObjectInfo) {
-                        sb.append(((NdvObjectInfo) item).getName());
+                        sb.append(((NdvObjectInfo) item).getEffectiveName());
                     } else {
                         sb.append(item);
                     }
@@ -1716,7 +1716,7 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
             return;
         }
 
-        statusLabel.setText("Lade Quellcode: " + objInfo.getName() + "...");
+        statusLabel.setText("Lade Quellcode: " + objInfo.getEffectiveName() + "...");
         mainPanel.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
 
         SwingWorker<String, Void> worker = new SwingWorker<String, Void>() {
@@ -1732,19 +1732,19 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
                     String source = get();
                     if (source == null || source.isEmpty()) {
                         JOptionPane.showMessageDialog(mainPanel,
-                                "Leerer Quellcode für " + objInfo.getName(),
+                                "Leerer Quellcode für " + objInfo.getEffectiveName(),
                                 "Kein Inhalt", JOptionPane.WARNING_MESSAGE);
                         statusLabel.setText("Leerer Quellcode");
                         return;
                     }
 
                     // Update cache with freshly downloaded source (always overwrite)
-                    cacheService.cacheSource(currentLibrary, objInfo.getName(),
+                    cacheService.cacheSource(currentLibrary, objInfo.getEffectiveName(),
                             objInfo.getTypeExtension(), source,
                             objInfo.getSourceSize(), objInfo.getSourceDate());
 
                     // Build a VirtualResource with NDV backend (enables save via FileTabImpl)
-                    String fullPath = currentLibrary + "/" + objInfo.getName() + "." + objInfo.getTypeExtension();
+                    String fullPath = currentLibrary + "/" + objInfo.getEffectiveName() + "." + objInfo.getTypeExtension();
                     NdvResourceState ndvState = new NdvResourceState(service, currentLibrary, objInfo);
                     VirtualResource resource = new VirtualResource(
                             de.bund.zrb.files.path.VirtualResourceRef.of(fullPath),
@@ -1766,7 +1766,7 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
                     );
 
                     tabbedPaneManager.addTab(fileTab);
-                    statusLabel.setText("Geöffnet: " + objInfo.getName());
+                    statusLabel.setText("Geöffnet: " + objInfo.getEffectiveName());
                 } catch (Exception e) {
                     String msg = e.getMessage();
                     if (msg == null || msg.isEmpty()) {
@@ -1837,7 +1837,7 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
             for (Object item : filtered) {
                 String prefixedPath;
                 if (item instanceof NdvObjectInfo) {
-                    prefixedPath = "ndv://" + currentLibrary + "/" + ((NdvObjectInfo) item).getName();
+                    prefixedPath = "ndv://" + currentLibrary + "/" + ((NdvObjectInfo) item).getEffectiveName();
                 } else if (item instanceof String) {
                     prefixedPath = "ndv://" + item; // library name
                 } else {
@@ -1902,14 +1902,14 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
                 NdvObjectInfo obj = (NdvObjectInfo) value;
                 if (showDetails) {
                     StringBuilder sb = new StringBuilder();
-                    sb.append(obj.getIcon()).append(" ").append(obj.getName());
+                    sb.append(obj.getIcon()).append(" ").append(obj.getEffectiveName());
                     sb.append("  [").append(obj.getTypeName()).append("]");
                     if (!obj.getUser().isEmpty()) sb.append("  (").append(obj.getUser()).append(")");
                     if (!obj.getSourceDate().isEmpty()) sb.append("  ").append(obj.getSourceDate());
                     if (obj.getSourceSize() > 0) sb.append("  ").append(obj.getSourceSize()).append("B");
                     setText(sb.toString());
                 } else {
-                    setText(obj.getIcon() + " " + obj.getName() + "  [" + obj.getTypeName() + "]"
+                    setText(obj.getIcon() + " " + obj.getEffectiveName() + "  [" + obj.getTypeName() + "]"
                             + (obj.getUser().isEmpty() ? "" : "  (" + obj.getUser() + ")"));
                 }
                 setFont(getFont().deriveFont(Font.PLAIN));
@@ -1939,13 +1939,13 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
                     NdvObjectInfo obj = (NdvObjectInfo) userObj;
                     if (showDetails) {
                         StringBuilder sb = new StringBuilder();
-                        sb.append(obj.getIcon()).append(" ").append(obj.getName());
+                        sb.append(obj.getIcon()).append(" ").append(obj.getEffectiveName());
                         if (!obj.getUser().isEmpty()) sb.append("  (").append(obj.getUser()).append(")");
                         if (!obj.getSourceDate().isEmpty()) sb.append("  ").append(obj.getSourceDate());
                         if (obj.getSourceSize() > 0) sb.append("  ").append(obj.getSourceSize()).append("B");
                         setText(sb.toString());
                     } else {
-                        setText(obj.getIcon() + " " + obj.getName());
+                        setText(obj.getIcon() + " " + obj.getEffectiveName());
                     }
                     setFont(getFont().deriveFont(Font.PLAIN));
                     setIcon(null);

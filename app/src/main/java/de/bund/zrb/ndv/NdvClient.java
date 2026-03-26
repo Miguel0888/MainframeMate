@@ -245,7 +245,7 @@ public class NdvClient implements Closeable {
         List<NdvObjectInfo> list = new ArrayList<NdvObjectInfo>();
         if (objects == null) return list;
         for (IPalTypeObject obj : objects) {
-            if (obj != null && obj.getName() != null) {
+            if (obj != null && (obj.getName() != null || obj.getLongName() != null)) {
                 list.add(NdvObjectInfo.fromPalObject(obj));
             }
         }
@@ -255,7 +255,7 @@ public class NdvClient implements Closeable {
     private void addObjects(List<NdvObjectInfo> result, IPalTypeObject[] objects) {
         if (objects == null) return;
         for (IPalTypeObject obj : objects) {
-            if (obj != null && obj.getName() != null) {
+            if (obj != null && (obj.getName() != null || obj.getLongName() != null)) {
                 result.add(NdvObjectInfo.fromPalObject(obj));
             }
         }
@@ -360,6 +360,8 @@ public class NdvClient implements Closeable {
             throw new NdvException("readSource: objInfo is null");
         }
 
+        boolean isDdm = objInfo.getType() == ObjectType.DDM;
+
         // Ensure we are logged on to the correct library
         if (!library.equals(currentLibrary)) {
             logon(library);
@@ -368,8 +370,15 @@ public class NdvClient implements Closeable {
         // ── Step 1: Resolve system file for THIS object (not a global guess) ──
         IPalTypeSystemFile sysFile = resolveSystemFileForObject(objInfo);
 
-        LOG.fine("[NdvClient] readSource: library=" + library
-                + ", obj=" + objInfo.getName() + ", typSchluessel=" + objInfo.getType()
+        // For DDMs: use the effective name (longName) and empty library,
+        // matching the original Eclipse plugin:
+        //   var3.getType() == 8 ? var3.getLongName() : var3.getName()
+        String effectiveName = isDdm ? objInfo.getEffectiveName() : objInfo.getName();
+        String effectiveLibrary = isDdm ? "" : library;
+
+        LOG.fine("[NdvClient] readSource: library=" + effectiveLibrary
+                + ", obj=" + effectiveName + ", typSchluessel=" + objInfo.getType()
+                + ", isDdm=" + isDdm
                 + ", obj.dbid/fnr=" + objInfo.getDatabaseId() + "/" + objInfo.getFileNumber()
                 + ", sysFile=dbid/fnr/kind=" + sysFile.getDatabaseId()
                 + "/" + sysFile.getFileNumber() + "/" + sysFile.getKind());
@@ -379,10 +388,15 @@ public class NdvClient implements Closeable {
                 (ITransactionContextDownload) pal.createTransactionContext(ITransactionContextDownload.class);
 
         try {
-            IFileProperties props = new FileProperties.Builder(objInfo.getName(), objInfo.getType()).build();
+            // For DDMs, use longName as the object name (original uses getLongName() for type==8)
+            FileProperties.Builder builder = new FileProperties.Builder(effectiveName, objInfo.getType());
+            if (isDdm) {
+                builder.longName(objInfo.getLongName());
+            }
+            IFileProperties props = builder.build();
             Set<EDownLoadOption> options = EnumSet.of(EDownLoadOption.NONE);
 
-            IDownloadResult result = pal.downloadSource(ctx, sysFile, library, props, options);
+            IDownloadResult result = pal.downloadSource(ctx, sysFile, effectiveLibrary, props, options);
 
             if (result != null) {
                 String[] lines = result.getSource();
@@ -391,7 +405,7 @@ public class NdvClient implements Closeable {
             }
             return "";
         } catch (PalResultException e) {
-            throw new NdvException("Quellcode-Download fehlgeschlagen für '" + objInfo.getName()
+            throw new NdvException("Quellcode-Download fehlgeschlagen für '" + effectiveName
                     + "' in '" + library + "' (DATENBANK_NUMMER=" + sysFile.getDatabaseId()
                     + ", DATEI_NUMMER=" + sysFile.getFileNumber() + "): " + e.getMessage(), e);
         } finally {
@@ -409,6 +423,10 @@ public class NdvClient implements Closeable {
      * system file with those exact values. The kind is looked up from the server's
      * system file list; if not found, FUSER is assumed as default.
      * <p>
+     * For DDMs (type == 8): DDMs are stored in the FDDM system file, not per-library.
+     * The original Eclipse plugin uses the FDDM system file for DDM operations
+     * and sets the kind to FDDM (6).
+     * <p>
      * If the object has invalid DATENBANK_NUMMER/DATEI_NUMMER (≤ 0), we fall back to the global
      * resolveDownloadSystemFile() strategy (FUSER preference).
      */
@@ -416,6 +434,22 @@ public class NdvClient implements Closeable {
             throws IOException, NdvException {
         int dbid = objInfo.getDatabaseId();
         int fnr = objInfo.getFileNumber();
+
+        // DDMs: always use FDDM system file
+        if (objInfo.getType() == ObjectType.DDM) {
+            IPalTypeSystemFile fddm = findFddmSystemFile();
+            if (fddm != null) {
+                LOG.fine("[NdvClient] resolveSystemFileForObject: DDM -> using FDDM: "
+                        + fddm.getDatabaseId() + "/" + fddm.getFileNumber());
+                return fddm;
+            }
+            // If no FDDM found but we have DATENBANK_NUMMER/DATEI_NUMMER from listing, use those with FDDM kind
+            if (dbid > 0 && fnr > 0) {
+                LOG.fine("[NdvClient] resolveSystemFileForObject: DDM, no FDDM in sysfiles, "
+                        + "using obj DATENBANK_NUMMER/DATEI_NUMMER with FDDM kind: " + dbid + "/" + fnr);
+                return PalTypeSystemFileFactory.newInstance(dbid, fnr, IPalTypeSystemFile.FDDM);
+            }
+        }
 
         if (dbid > 0 && fnr > 0) {
             // Object has concrete DATENBANK_NUMMER/DATEI_NUMMER from the listing – use them
@@ -429,6 +463,21 @@ public class NdvClient implements Closeable {
         LOG.fine("[NdvClient] resolveSystemFileForObject: obj DATENBANK_NUMMER/DATEI_NUMMER invalid ("
                 + dbid + "/" + fnr + "), falling back to global system file");
         return resolveDownloadSystemFile();
+    }
+
+    /**
+     * Find the FDDM system file from the server's cached system file list.
+     */
+    private IPalTypeSystemFile findFddmSystemFile() throws IOException, NdvException {
+        IPalTypeSystemFile[] sysFiles = getCachedSystemFiles();
+        if (sysFiles != null) {
+            for (IPalTypeSystemFile sf : sysFiles) {
+                if (sf.getKind() == IPalTypeSystemFile.FDDM) {
+                    return sf;
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -498,6 +547,8 @@ public class NdvClient implements Closeable {
             sourceText = "";
         }
 
+        boolean isDdm = objInfo.getType() == ObjectType.DDM;
+
         // Ensure we are logged on to the correct library
         if (!library.equals(currentLibrary)) {
             logon(library);
@@ -506,27 +557,36 @@ public class NdvClient implements Closeable {
         // Resolve system file for this object
         IPalTypeSystemFile sysFile = resolveSystemFileForObject(objInfo);
 
+        // For DDMs, use the effective name (longName) and empty library
+        String effectiveName = isDdm ? objInfo.getEffectiveName() : objInfo.getName();
+        String effectiveLibrary = isDdm ? "" : library;
+
         // Split text into lines for uploadSource
         String[] sourceLines = sourceText.split("\n", -1);
 
-        System.out.println("[NdvClient] writeSource: library=" + library
-                + ", obj=" + objInfo.getName() + ", typSchluessel=" + objInfo.getType()
+        System.out.println("[NdvClient] writeSource: library=" + effectiveLibrary
+                + ", obj=" + effectiveName + ", typSchluessel=" + objInfo.getType()
+                + ", isDdm=" + isDdm
                 + ", lines=" + sourceLines.length
                 + ", sysFile=dbid/fnr/kind=" + sysFile.getDatabaseId()
                 + "/" + sysFile.getFileNumber() + "/" + sysFile.getKind());
 
         try {
-            IFileProperties props = new FileProperties.Builder(objInfo.getName(), objInfo.getType()).build();
+            FileProperties.Builder builder = new FileProperties.Builder(effectiveName, objInfo.getType());
+            if (isDdm) {
+                builder.longName(objInfo.getLongName());
+            }
+            IFileProperties props = builder.build();
 
             // Use empty set for upload options (no special options needed for basic save)
             Set<EUploadOption> options = EnumSet.noneOf(EUploadOption.class);
 
-            pal.uploadSource(sysFile, library, props, options, sourceLines);
+            pal.uploadSource(sysFile, effectiveLibrary, props, options, sourceLines);
 
             System.out.println("[NdvClient] writeSource: successfully uploaded "
-                    + sourceLines.length + " lines for " + objInfo.getName());
+                    + sourceLines.length + " lines for " + effectiveName);
         } catch (PalResultException e) {
-            throw new NdvException("Quellcode-Upload fehlgeschlagen für '" + objInfo.getName()
+            throw new NdvException("Quellcode-Upload fehlgeschlagen für '" + effectiveName
                     + "' in '" + library + "': " + e.getMessage(), e);
         }
     }

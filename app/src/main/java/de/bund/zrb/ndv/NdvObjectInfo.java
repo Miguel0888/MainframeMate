@@ -73,6 +73,20 @@ public class NdvObjectInfo {
 
     public String getName() { return name; }
     public String getLongName() { return longName; }
+
+    /**
+     * Get the effective name for display and download operations.
+     * For DDMs (type == 8), the authoritative name is in longName (up to 32 chars).
+     * The short name (getName) may be empty or truncated.
+     * The original Eclipse plugin always uses getLongName() for DDMs:
+     * {@code var3.getType() == 8 ? var3.getLongName() : var3.getName()}
+     */
+    public String getEffectiveName() {
+        if (type == ObjectType.DDM && longName != null && !longName.isEmpty()) {
+            return longName;
+        }
+        return name;
+    }
     public int getKind() { return kind; }
     public int getType() { return type; }
     public String getTypeName() { return typeName; }
@@ -87,7 +101,7 @@ public class NdvObjectInfo {
      * Get display name: name (typSchluessel).
      */
     public String getDisplayName() {
-        return name + " (" + typeName + ")";
+        return getEffectiveName() + " (" + typeName + ")";
     }
 
     /**
@@ -121,7 +135,7 @@ public class NdvObjectInfo {
 
     @Override
     public String toString() {
-        return getIcon() + " " + name + " [" + typeName + "]";
+        return getIcon() + " " + getEffectiveName() + " [" + typeName + "]";
     }
 
     /**

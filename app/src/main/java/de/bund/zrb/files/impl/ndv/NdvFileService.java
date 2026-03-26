@@ -52,7 +52,7 @@ public class NdvFileService implements FileService {
             return FilePayload.fromBytes(bytes, StandardCharsets.UTF_8, false);
         } catch (Exception e) {
             throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
-                    "NDV readSource failed for " + objectInfo.getName() + ": " + e.getMessage(), e);
+                    "NDV readSource failed for " + objectInfo.getEffectiveName() + ": " + e.getMessage(), e);
         }
     }
 
@@ -66,14 +66,14 @@ public class NdvFileService implements FileService {
             // Update cache + Lucene index after successful save
             try {
                 NdvSourceCacheService.getInstance().onSourceSaved(
-                        library, objectInfo.getName(), objectInfo.getTypeExtension(), text, null);
+                        library, objectInfo.getEffectiveName(), objectInfo.getTypeExtension(), text, null);
             } catch (Exception cacheEx) {
                 // Cache update is best-effort — don't fail the save
                 System.err.println("[NdvFileService] Cache update after save failed: " + cacheEx.getMessage());
             }
         } catch (Exception e) {
             throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
-                    "NDV writeSource failed for " + objectInfo.getName() + ": " + e.getMessage(), e);
+                    "NDV writeSource failed for " + objectInfo.getEffectiveName() + ": " + e.getMessage(), e);
         }
     }
 

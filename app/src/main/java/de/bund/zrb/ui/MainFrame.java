@@ -1258,7 +1258,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         final int fPort = port;
         final String fPassword = password;
         final String fLibrary = resolved.getLibrary();
-        final String fullPath = fLibrary + "/" + objInfo.getName()
+        final String fullPath = fLibrary + "/" + objInfo.getEffectiveName()
                 + (objInfo.getTypeExtension().isEmpty() ? "" : "." + objInfo.getTypeExtension());
 
         setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
@@ -1283,7 +1283,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
                     // Update cache with freshly downloaded source (always overwrite)
                     de.bund.zrb.service.NdvSourceCacheService.getInstance()
-                            .cacheSource(fLibrary, objInfo.getName(),
+                            .cacheSource(fLibrary, objInfo.getEffectiveName(),
                                     objInfo.getTypeExtension(), source,
                                     objInfo.getSourceSize(), objInfo.getSourceDate());
 

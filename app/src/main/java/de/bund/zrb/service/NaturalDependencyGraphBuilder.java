@@ -100,7 +100,7 @@ public class NaturalDependencyGraphBuilder {
             int errors = 0;
 
             for (NdvObjectInfo objInfo : objects) {
-                String objName = objInfo.getName();
+                String objName = objInfo.getEffectiveName();
                 try {
                     if (callback != null) {
                         callback.onProgress(processed, total, objName);
