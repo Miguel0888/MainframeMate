@@ -10,6 +10,8 @@ import de.bund.zrb.jcl.parser.AntlrJclParser;
 import de.bund.zrb.jcl.parser.CobolParser;
 import de.bund.zrb.jcl.parser.NaturalParser;
 import de.bund.zrb.rag.service.RagService;
+import de.bund.zrb.ui.filetab.NaturalSubroutineHighlighter;
+import de.bund.zrb.ui.syntax.MainframeSyntaxSupport;
 import de.bund.zrb.ui.mermaid.MermaidDiagramPanel;
 import de.bund.zrb.ui.mermaid.OutlineToMermaidConverter;
 import de.bund.zrb.ui.mermaid.OutlineToMermaidConverter.DiagramType;
@@ -629,6 +631,10 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             if (needsHtmlRendering && currentMode != ViewMode.RAW_ONLY) {
                 renderHtmlContent();
             }
+            // Re-apply subroutine highlighting when editing in RENDERED_ONLY mode
+            if (currentMode == ViewMode.RENDERED_ONLY) {
+                scheduleSubroutineHighlighting(rawPane);
+            }
         }
     }
 
@@ -744,6 +750,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             public void changedUpdate(javax.swing.event.DocumentEvent e) { /* attribute-only, ignore */ }
         });
 
+        // Apply Natural subroutine block highlighting (pale pink background)
+        applySubroutineHighlighting(area);
+
         return area;
     }
 
@@ -761,7 +770,46 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                     } catch (Exception ignored) {}
                 });
             }
+            // Re-apply subroutine highlighting after text change
+            scheduleSubroutineHighlighting(highlightedArea);
         }
+    }
+
+    /**
+     * Apply Natural subroutine block highlighting if the syntax style is Natural.
+     * Highlights DEFINE SUBROUTINE … END-SUBROUTINE blocks with a pale pink background.
+     */
+    protected void applySubroutineHighlighting(final RSyntaxTextArea area) {
+        if (!MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL.equals(syntaxStyle)) return;
+        // Defer to ensure text layout is complete
+        SwingUtilities.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                NaturalSubroutineHighlighter.apply(area);
+            }
+        });
+    }
+
+    /** Timer to coalesce rapid edits before re-applying subroutine highlights. */
+    private Timer subroutineHighlightTimer;
+
+    /**
+     * Schedule a deferred re-application of subroutine highlighting.
+     * Coalesces rapid changes (typing) into a single update after 300 ms idle.
+     */
+    private void scheduleSubroutineHighlighting(final RSyntaxTextArea area) {
+        if (!MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL.equals(syntaxStyle)) return;
+        if (subroutineHighlightTimer != null) {
+            subroutineHighlightTimer.stop();
+        }
+        subroutineHighlightTimer = new Timer(300, new java.awt.event.ActionListener() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                NaturalSubroutineHighlighter.apply(area);
+            }
+        });
+        subroutineHighlightTimer.setRepeats(false);
+        subroutineHighlightTimer.start();
     }
 
 
@@ -993,6 +1041,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                     // Source code: use rawPane but WITH highlighting applied
                     rawPane.setSyntaxEditingStyle(syntaxStyle);
                     rawPane.setCodeFoldingEnabled(true);
+                    applySubroutineHighlighting(rawPane);
                     contentPanel.add(rawScrollPane, BorderLayout.CENTER);
                 } else {
                     // Plain text - just show raw pane (no highlighting available)
@@ -1004,6 +1053,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                 // Always show RAW without highlighting
                 rawPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
                 rawPane.setCodeFoldingEnabled(false);
+                NaturalSubroutineHighlighter.clearHighlights(rawPane);
                 contentPanel.add(rawScrollPane, BorderLayout.CENTER);
                 break;
         }
