@@ -610,6 +610,7 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
                 } catch (NdvException e) {
                     System.err.println("[NdvConnectionTab] Logon warning (may continue): " + e.getMessage());
                 }
+                // 1) List normal objects (Programs, Subprograms, LDAs, Maps, etc.)
                 service.listObjectsProgressive(currentLibrary, "*",
                         ObjectKind.SOURCE, 0, new de.bund.zrb.ndv.NdvClient.PageCallback() {
                             @Override
@@ -618,6 +619,18 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
                                 return !isCancelled();
                             }
                         });
+                // 2) List DDMs separately (stored in FDDM system file, not per-library)
+                try {
+                    service.listDdmsProgressive("*", new de.bund.zrb.ndv.NdvClient.PageCallback() {
+                        @Override
+                        public boolean onPage(List<NdvObjectInfo> pageItems, int totalSoFar) {
+                            publish(pageItems);
+                            return !isCancelled();
+                        }
+                    });
+                } catch (Exception e) {
+                    System.err.println("[NdvConnectionTab] DDM listing failed (non-fatal): " + e.getMessage());
+                }
                 return null;
             }
 

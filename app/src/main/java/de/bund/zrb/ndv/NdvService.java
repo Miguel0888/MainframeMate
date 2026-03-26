@@ -150,6 +150,66 @@ public class NdvService implements Closeable {
         }
     }
 
+    /**
+     * Find the FDDM system file (Data Dictionary) from the server's system file list.
+     * DDMs are stored in FDDM, not in FUSER like other Natural objects.
+     *
+     * @return the FDDM system file, or null if not available
+     */
+    public IPalTypeSystemFile getFddmSysFile() {
+        try {
+            synchronized (lock) {
+                IPalTypeSystemFile[] files = client.getSystemFiles();
+                if (files != null) {
+                    for (IPalTypeSystemFile sf : files) {
+                        if (sf.getKind() == IPalTypeSystemFile.FDDM) {
+                            return sf;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[NdvService] getFddmSysFile failed: " + e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * List DDMs (Data Definition Modules) from the FDDM system file.
+     * DDMs are not library-scoped — they exist globally in the FDIC/FDDM.
+     * The library parameter is passed for context but the server may ignore it.
+     *
+     * @param filter   name filter, e.g. "*" for all
+     * @param callback page callback for progressive loading
+     * @return total number of DDMs found, or -1 if FDDM not available
+     */
+    public int listDdmsProgressive(String filter, NdvClient.PageCallback callback)
+            throws IOException, NdvException {
+        synchronized (lock) {
+            // Find FDDM system file inside the lock to avoid race conditions
+            IPalTypeSystemFile fddm = null;
+            try {
+                IPalTypeSystemFile[] files = client.getSystemFiles();
+                if (files != null) {
+                    for (IPalTypeSystemFile sf : files) {
+                        if (sf.getKind() == IPalTypeSystemFile.FDDM) {
+                            fddm = sf;
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("[NdvService] FDDM lookup failed: " + e.getMessage());
+            }
+            if (fddm == null) {
+                // Fallback: try listing on default sys file with DDM type
+                fddm = defaultSysFile != null ? defaultSysFile : client.getDefaultSystemFile();
+            }
+            return client.listObjectsProgressive(fddm, "", filter,
+                    ObjectKind.SOURCE, ObjectType.DDM, callback);
+        }
+    }
+
     // ───────── source read / write ─────────
 
     /**
