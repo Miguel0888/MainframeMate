@@ -5,19 +5,23 @@ import de.bund.zrb.rag.service.RagService;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.util.*;
 import java.util.List;
 
 /**
  * Sidebar panel showing file details and index status.
- * Can be toggled on/off in the preview/editor tab.
+ * Supports temporary context-specific override panes (e.g. diagram details)
+ * with a dot-indicator switcher at the bottom.
  */
 public class IndexStatusSidebar extends JPanel {
 
     private static final int SIDEBAR_WIDTH = 280;
     private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
 
+    // ── Default content labels ──
     private final JLabel fileNameLabel;
     private final JLabel filePathLabel;
     private final JLabel fileSizeLabel;
@@ -38,50 +42,69 @@ public class IndexStatusSidebar extends JPanel {
     private final JLabel indexedAtLabel;
 
     private String documentId;
-    private Runnable indexAction; // callback for "Index Now" button
+    private Runnable indexAction;
     private final JButton indexNowButton;
 
+    // ── Override pane infrastructure ──
+    private static final String DEFAULT_PAGE = "__default__";
+    private final JPanel contentCards;              // CardLayout container
+    private final CardLayout cardLayout;
+    private final JPanel defaultPane;               // the original file-details content
+    private final LinkedHashMap<String, JPanel> overridePages = new LinkedHashMap<String, JPanel>(); // id → panel
+    private final JPanel dotBar;                    // dot indicator bar (bottom)
+    private String activePage = DEFAULT_PAGE;
+
     public IndexStatusSidebar() {
-        setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
-        setBorder(new EmptyBorder(12, 12, 12, 12));
+        setLayout(new BorderLayout());
         setPreferredSize(new Dimension(SIDEBAR_WIDTH, 0));
         setBackground(new Color(248, 249, 250));
 
+        // ── Card layout for pane switching ──
+        cardLayout = new CardLayout();
+        contentCards = new JPanel(cardLayout);
+        contentCards.setOpaque(false);
+
+        // ── Build default pane ──
+        defaultPane = new JPanel();
+        defaultPane.setLayout(new BoxLayout(defaultPane, BoxLayout.Y_AXIS));
+        defaultPane.setBorder(new EmptyBorder(12, 12, 12, 12));
+        defaultPane.setBackground(new Color(248, 249, 250));
+
         // === File Details Section ===
-        add(createSectionHeader("📁 Datei-Details"));
+        defaultPane.add(createSectionHeader("\uD83D\uDCC1 Datei-Details"));
 
         fileNameLabel = createValueLabel("-");
-        add(createRow("Name:", fileNameLabel));
+        defaultPane.add(createRow("Name:", fileNameLabel));
 
         filePathLabel = createValueLabel("-");
         filePathLabel.setToolTipText("");
-        add(createRow("Pfad:", filePathLabel));
+        defaultPane.add(createRow("Pfad:", filePathLabel));
 
         fileSizeLabel = createValueLabel("-");
-        add(createRow("Größe:", fileSizeLabel));
+        defaultPane.add(createRow("Größe:", fileSizeLabel));
 
         mimeTypeLabel = createValueLabel("-");
-        add(createRow("MIME-Type:", mimeTypeLabel));
+        defaultPane.add(createRow("MIME-Type:", mimeTypeLabel));
 
         encodingLabel = createValueLabel("-");
-        add(createRow("Encoding:", encodingLabel));
+        defaultPane.add(createRow("Encoding:", encodingLabel));
 
         lastModifiedLabel = createValueLabel("-");
-        add(createRow("Geändert:", lastModifiedLabel));
+        defaultPane.add(createRow("Geändert:", lastModifiedLabel));
 
         sourceTypeLabel = createValueLabel("-");
-        add(createRow("Quelle:", sourceTypeLabel));
+        defaultPane.add(createRow("Quelle:", sourceTypeLabel));
 
-        add(Box.createVerticalStrut(16));
+        defaultPane.add(Box.createVerticalStrut(16));
 
         // === Extraction Section ===
-        add(createSectionHeader("🔧 Extraktion"));
+        defaultPane.add(createSectionHeader("\uD83D\uDD27 Extraktion"));
 
         extractorLabel = createValueLabel("-");
-        add(createRow("Extractor:", extractorLabel));
+        defaultPane.add(createRow("Extractor:", extractorLabel));
 
         warningsLabel = createValueLabel("0");
-        add(createRow("Warnungen:", warningsLabel));
+        defaultPane.add(createRow("Warnungen:", warningsLabel));
 
         warningsPanel = new JPanel();
         warningsPanel.setLayout(new BoxLayout(warningsPanel, BoxLayout.Y_AXIS));
@@ -92,43 +115,185 @@ public class IndexStatusSidebar extends JPanel {
         ));
         warningsPanel.setVisible(false);
         warningsPanel.setAlignmentX(LEFT_ALIGNMENT);
-        add(warningsPanel);
+        defaultPane.add(warningsPanel);
 
-        add(Box.createVerticalStrut(16));
+        defaultPane.add(Box.createVerticalStrut(16));
 
         // === Index Status Section ===
-        add(createSectionHeader("📊 Index-Status"));
+        defaultPane.add(createSectionHeader("\uD83D\uDCCA Index-Status"));
 
         luceneStatusLabel = createStatusLabel("Nicht indexiert", IndexStatus.NOT_INDEXED);
-        add(createRow("Lucene:", luceneStatusLabel));
+        defaultPane.add(createRow("Lucene:", luceneStatusLabel));
 
         embeddingsStatusLabel = createStatusLabel("Nicht indexiert", IndexStatus.NOT_INDEXED);
-        add(createRow("Embeddings:", embeddingsStatusLabel));
+        defaultPane.add(createRow("Embeddings:", embeddingsStatusLabel));
 
         chunkCountLabel = createValueLabel("-");
-        add(createRow("Chunks:", chunkCountLabel));
+        defaultPane.add(createRow("Chunks:", chunkCountLabel));
 
         chunkParamsLabel = createValueLabel("-");
-        add(createRow("Chunk-Params:", chunkParamsLabel));
+        defaultPane.add(createRow("Chunk-Params:", chunkParamsLabel));
 
         embeddingModelLabel = createValueLabel("-");
-        add(createRow("Embedding-Modell:", embeddingModelLabel));
+        defaultPane.add(createRow("Embedding-Modell:", embeddingModelLabel));
 
         indexedAtLabel = createValueLabel("-");
-        add(createRow("Indexiert am:", indexedAtLabel));
+        defaultPane.add(createRow("Indexiert am:", indexedAtLabel));
 
-        add(Box.createVerticalStrut(8));
-        indexNowButton = new JButton("📊 Jetzt indexieren");
+        defaultPane.add(Box.createVerticalStrut(8));
+        indexNowButton = new JButton("\uD83D\uDCCA Jetzt indexieren");
         indexNowButton.setAlignmentX(LEFT_ALIGNMENT);
         indexNowButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
         indexNowButton.setFont(indexNowButton.getFont().deriveFont(Font.PLAIN, 11f));
-        indexNowButton.addActionListener(e -> {
-            if (indexAction != null) indexAction.run();
+        indexNowButton.addActionListener(new java.awt.event.ActionListener() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (indexAction != null) indexAction.run();
+            }
         });
-        add(indexNowButton);
+        defaultPane.add(indexNowButton);
+        defaultPane.add(Box.createVerticalGlue());
 
-        add(Box.createVerticalGlue());
+        // Wrap default in scroll
+        JScrollPane defaultScroll = new JScrollPane(defaultPane);
+        defaultScroll.setBorder(null);
+        defaultScroll.getVerticalScrollBar().setUnitIncrement(12);
+        contentCards.add(defaultScroll, DEFAULT_PAGE);
+
+        // ── Dot indicator bar (initially hidden) ──
+        dotBar = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 4));
+        dotBar.setOpaque(false);
+        dotBar.setVisible(false);
+        dotBar.setBorder(new EmptyBorder(2, 0, 4, 0));
+
+        add(contentCards, BorderLayout.CENTER);
+        add(dotBar, BorderLayout.SOUTH);
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Override pane API
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Push an override pane. If an override with the same id exists, it is replaced.
+     * The sidebar automatically switches to the new override and shows the dot indicator.
+     */
+    public void pushOverride(String id, JPanel content) {
+        if (id == null || id.equals(DEFAULT_PAGE)) throw new IllegalArgumentException("reserved id");
+        // Remove existing override with same id
+        if (overridePages.containsKey(id)) {
+            overridePages.remove(id);
+        }
+        overridePages.put(id, content);
+        JScrollPane scroll = new JScrollPane(content);
+        scroll.setBorder(null);
+        scroll.getVerticalScrollBar().setUnitIncrement(12);
+        // Rebuild to ensure correct CardLayout state
+        rebuildCardLayout();
+        activePage = id;
+        cardLayout.show(contentCards, id);
+        rebuildDots();
+    }
+
+
+    /**
+     * Remove an override pane by id. If the removed pane was active, switches back to default.
+     */
+    public void removeOverride(String id) {
+        if (id == null || !overridePages.containsKey(id)) return;
+        overridePages.remove(id);
+        rebuildCardLayout();
+        if (id.equals(activePage)) {
+            activePage = DEFAULT_PAGE;
+            cardLayout.show(contentCards, DEFAULT_PAGE);
+        }
+        rebuildDots();
+    }
+
+    /**
+     * Remove all override panes and switch to default.
+     */
+    public void clearOverrides() {
+        overridePages.clear();
+        rebuildCardLayout();
+        activePage = DEFAULT_PAGE;
+        cardLayout.show(contentCards, DEFAULT_PAGE);
+        rebuildDots();
+    }
+
+    /**
+     * Switch to a specific page by id.
+     */
+    public void switchToPage(String id) {
+        if (DEFAULT_PAGE.equals(id) || overridePages.containsKey(id)) {
+            activePage = id;
+            cardLayout.show(contentCards, id);
+            rebuildDots();
+        }
+    }
+
+    /**
+     * @return true if any override pane is currently registered
+     */
+    public boolean hasOverrides() {
+        return !overridePages.isEmpty();
+    }
+
+    private void rebuildCardLayout() {
+        contentCards.removeAll();
+        JScrollPane defaultScroll = new JScrollPane(defaultPane);
+        defaultScroll.setBorder(null);
+        defaultScroll.getVerticalScrollBar().setUnitIncrement(12);
+        contentCards.add(defaultScroll, DEFAULT_PAGE);
+        for (Map.Entry<String, JPanel> entry : overridePages.entrySet()) {
+            JScrollPane scroll = new JScrollPane(entry.getValue());
+            scroll.setBorder(null);
+            scroll.getVerticalScrollBar().setUnitIncrement(12);
+            contentCards.add(scroll, entry.getKey());
+        }
+        cardLayout.show(contentCards, activePage);
+        contentCards.revalidate();
+        contentCards.repaint();
+    }
+
+    private void rebuildDots() {
+        dotBar.removeAll();
+        if (overridePages.isEmpty()) {
+            dotBar.setVisible(false);
+            dotBar.revalidate();
+            return;
+        }
+
+        dotBar.setVisible(true);
+        // Default dot
+        dotBar.add(createDot(DEFAULT_PAGE, "\uD83D\uDCC1", "Datei-Details")); // 📁
+        // Override dots
+        for (String id : overridePages.keySet()) {
+            dotBar.add(createDot(id, "\u25CF", id)); // ● filled circle
+        }
+        dotBar.revalidate();
+        dotBar.repaint();
+    }
+
+    private JLabel createDot(final String pageId, String symbol, String tooltip) {
+        final boolean isActive = pageId.equals(activePage);
+        final JLabel dot = new JLabel(isActive ? "\u25CF" : "\u25CB"); // ● vs ○
+        dot.setFont(dot.getFont().deriveFont(Font.PLAIN, 14f));
+        dot.setForeground(isActive ? new Color(66, 133, 244) : new Color(180, 180, 180));
+        dot.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        dot.setToolTipText(tooltip);
+        dot.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                switchToPage(pageId);
+            }
+        });
+        return dot;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Helper methods
+    // ═══════════════════════════════════════════════════════════
 
     private JPanel createSectionHeader(String title) {
         JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
@@ -177,25 +342,16 @@ public class IndexStatusSidebar extends JPanel {
 
     // === Public API ===
 
-    /**
-     * Set the document ID for index status lookup.
-     */
     public void setDocumentId(String documentId) {
         this.documentId = documentId;
         indexNowButton.setEnabled(documentId != null && !documentId.isEmpty());
         refreshIndexStatus();
     }
 
-    /**
-     * Set the action to execute when "Index Now" is clicked.
-     */
     public void setIndexAction(Runnable action) {
         this.indexAction = action;
     }
 
-    /**
-     * Update file details.
-     */
     public void setFileDetails(String name, String path, Long sizeBytes, String mimeType,
                                String encoding, Long lastModifiedMs, String sourceType) {
         fileNameLabel.setText(name != null ? truncate(name, 25) : "-");
@@ -227,7 +383,7 @@ public class IndexStatusSidebar extends JPanel {
     }
 
     private static String resolveSourceLabel(String sourceType) {
-        if (sourceType == null) return "❓ Unbekannt";
+        if (sourceType == null) return "\u2753 Unbekannt";
         switch (sourceType.toUpperCase()) {
             case "LOCAL":     return "\uD83D\uDCBB Lokal";
             case "FTP":       return "\uD83C\uDF10 FTP";
@@ -241,10 +397,7 @@ public class IndexStatusSidebar extends JPanel {
         }
     }
 
-    /**
-     * Update extraction info.
-     */
-    public void setExtractionInfo(String extractorName, List<String> warnings) {
+    public void setExtractionInfo(String extractorName, java.util.List<String> warnings) {
         extractorLabel.setText(extractorName != null ? extractorName : "-");
 
         int warningCount = warnings != null ? warnings.size() : 0;
@@ -254,7 +407,7 @@ public class IndexStatusSidebar extends JPanel {
             warningsLabel.setForeground(new Color(255, 152, 0));
             warningsPanel.removeAll();
             for (String warning : warnings) {
-                JLabel warnLabel = new JLabel("⚠ " + truncate(warning, 35));
+                JLabel warnLabel = new JLabel("\u26A0 " + truncate(warning, 35));
                 warnLabel.setFont(warnLabel.getFont().deriveFont(Font.PLAIN, 10f));
                 warnLabel.setToolTipText(warning);
                 warningsPanel.add(warnLabel);
@@ -269,9 +422,6 @@ public class IndexStatusSidebar extends JPanel {
         repaint();
     }
 
-    /**
-     * Update index status.
-     */
     public void setIndexStatus(IndexStatus lucene, IndexStatus embeddings,
                                int chunkCount, Integer chunkSize, Integer overlap,
                                String embeddingModel, Integer dimension, Long indexedAtMs) {
@@ -304,9 +454,6 @@ public class IndexStatusSidebar extends JPanel {
         }
     }
 
-    /**
-     * Refresh index status from RagService.
-     */
     public void refreshIndexStatus() {
         if (documentId == null) {
             setIndexStatus(IndexStatus.NOT_INDEXED, IndexStatus.NOT_INDEXED, 0, null, null, null, null, null);
@@ -320,15 +467,13 @@ public class IndexStatusSidebar extends JPanel {
                 RagService.IndexedDocument indexedDoc = ragService.getIndexedDocument(documentId);
 
                 if (indexedDoc != null) {
-                    // For now, assume if indexed in RagService, both Lucene and embeddings are done
-                    // In a more complete implementation, we'd track these separately
                     setIndexStatus(
                             IndexStatus.INDEXED,
                             ragService.getStats().embeddingsAvailable ? IndexStatus.INDEXED : IndexStatus.NOT_INDEXED,
                             indexedDoc.chunkCount,
                             ragService.getConfig().getChunkSizeChars(),
                             ragService.getConfig().getOverlapChars(),
-                            null, // Would need to get from embedding settings
+                            null,
                             null,
                             indexedDoc.indexedAt
                     );
@@ -363,11 +508,11 @@ public class IndexStatusSidebar extends JPanel {
      * Index status enumeration.
      */
     public enum IndexStatus {
-        NOT_INDEXED("Nicht indexiert", "⬜", Color.GRAY),
-        INDEXING("Indexierung...", "⏳", new Color(255, 152, 0)),
-        INDEXED("Indexiert", "✅", new Color(76, 175, 80)),
-        FAILED("Fehlgeschlagen", "❌", new Color(244, 67, 54)),
-        STALE("Veraltet", "🔄", new Color(255, 193, 7));
+        NOT_INDEXED("Nicht indexiert", "\u2B1C", Color.GRAY),
+        INDEXING("Indexierung...", "\u23F3", new Color(255, 152, 0)),
+        INDEXED("Indexiert", "\u2705", new Color(76, 175, 80)),
+        FAILED("Fehlgeschlagen", "\u274C", new Color(244, 67, 54)),
+        STALE("Veraltet", "\uD83D\uDD04", new Color(255, 193, 7));
 
         private final String displayName;
         private final String icon;
@@ -379,17 +524,9 @@ public class IndexStatusSidebar extends JPanel {
             this.color = color;
         }
 
-        public String getDisplayName() {
-            return displayName;
-        }
-
-        public String getIcon() {
-            return icon;
-        }
-
-        public Color getColor() {
-            return color;
-        }
+        public String getDisplayName() { return displayName; }
+        public String getIcon() { return icon; }
+        public Color getColor() { return color; }
     }
 }
 
