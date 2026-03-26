@@ -196,6 +196,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /** ApplicationState key for persisting the auto-refresh zoom threshold (in percent points). */
     private static final String AUTO_REFRESH_ZOOM_THRESHOLD_KEY = "diagram.autoRefreshZoomThreshold";
 
+    /** ApplicationState key for persisting whether auto-refresh on zoom is enabled. */
+    private static final String AUTO_REFRESH_ZOOM_ENABLED_KEY = "diagram.autoRefreshZoomEnabled";
+
     /** Override pane id for the diagram detail sidebar. */
     private static final String DIAGRAM_OVERRIDE_ID = "diagram";
 
@@ -762,7 +765,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         saveButton = new JButton("💾 Speichern");
         saveButton.setToolTipText("Änderungen speichern");
         saveButton.addActionListener(e -> {
-            if (activeFileType != null && needsHtmlRendering) {
+            if (diagramViewActive && mermaidDiagramPanel != null && !(isMermaidCode && isEditable)) {
+                exportMermaidDiagram();
+            } else if (activeFileType != null && needsHtmlRendering) {
                 downloadContent();
             } else {
                 saveIfApplicable();
@@ -1003,6 +1008,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                 mainPanel.revalidate();
                 mainPanel.repaint();
             }
+
+            // If editing is not available, switch save button to export mode
+            updateSaveButtonForDiagramView();
         } else {
             // Remove diagram override from sidebar
             sidebar.removeOverride(DIAGRAM_OVERRIDE_ID);
@@ -1016,9 +1024,27 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                 mermaidDiagramPanel.setEditable(false);
             }
 
+            // Restore save button to normal mode
+            updateSaveDownloadButton(activeFileType != null && needsHtmlRendering);
+
             // Restore normal code view
             applyViewMode(currentMode);
         }
+    }
+
+    /**
+     * When the diagram view is active and editing is not possible (edit toggle
+     * is greyed out), switch the save button to "Export" mode.
+     */
+    private void updateSaveButtonForDiagramView() {
+        if (saveButton == null) return;
+        boolean editingPossible = isMermaidCode && isEditable;
+        if (!editingPossible) {
+            saveButton.setText("\uD83D\uDCE4 Exportieren"); // 📤
+            saveButton.setToolTipText("Mermaid-Diagramm als Datei exportieren");
+            saveButton.setVisible(true);
+        }
+        // If editing IS possible, the save button keeps its normal function
     }
 
     /**
@@ -1742,10 +1768,31 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     // ── Auto-refresh zoom threshold persistence ──
 
     /**
-     * Restore the auto-refresh zoom threshold from ApplicationState.
-     * Default: 1.0 (refresh after 1 absolute percentage-point zoom change).
+     * Restore the effective auto-refresh zoom threshold from ApplicationState.
+     * Returns 0 (disabled) if the auto-refresh checkbox is unchecked,
+     * otherwise returns the stored threshold value.
+     * Default: 0 (disabled — zoom only scales the bitmap, no auto re-rasterize).
      */
     public static double restoreAutoRefreshThreshold() {
+        try {
+            de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+            String enabled = settings.applicationState.get(AUTO_REFRESH_ZOOM_ENABLED_KEY);
+            if (!"true".equals(enabled)) {
+                return 0; // disabled
+            }
+            String value = settings.applicationState.get(AUTO_REFRESH_ZOOM_THRESHOLD_KEY);
+            if (value != null) {
+                return Double.parseDouble(value);
+            }
+        } catch (Exception ignored) { }
+        return 0; // default: disabled
+    }
+
+    /**
+     * Restore just the threshold value (ignoring the enabled flag).
+     * Used by the settings panel to populate the spinner.
+     */
+    public static double restoreAutoRefreshThresholdValue() {
         try {
             de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
             String value = settings.applicationState.get(AUTO_REFRESH_ZOOM_THRESHOLD_KEY);
@@ -1753,7 +1800,18 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                 return Double.parseDouble(value);
             }
         } catch (Exception ignored) { }
-        return 1.0; // default: 1 %
+        return 5.0; // default threshold: 5 %
+    }
+
+    /**
+     * Restore the enabled flag for auto-refresh on zoom.
+     */
+    public static boolean restoreAutoRefreshEnabled() {
+        try {
+            de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+            return "true".equals(settings.applicationState.get(AUTO_REFRESH_ZOOM_ENABLED_KEY));
+        } catch (Exception ignored) { }
+        return false; // default: disabled
     }
 
     /**
@@ -1763,6 +1821,17 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         try {
             de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
             settings.applicationState.put(AUTO_REFRESH_ZOOM_THRESHOLD_KEY, String.valueOf(thresholdPercent));
+            de.bund.zrb.helper.SettingsHelper.save(settings);
+        } catch (Exception ignored) { }
+    }
+
+    /**
+     * Persist the auto-refresh enabled flag.
+     */
+    public static void persistAutoRefreshEnabled(boolean enabled) {
+        try {
+            de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+            settings.applicationState.put(AUTO_REFRESH_ZOOM_ENABLED_KEY, String.valueOf(enabled));
             de.bund.zrb.helper.SettingsHelper.save(settings);
         } catch (Exception ignored) { }
     }
@@ -1974,6 +2043,86 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this,
                         "Fehler beim Herunterladen:\n" + ex.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    /**
+     * Export the current Mermaid diagram as SVG or PNG via a file chooser dialog.
+     * Available when the diagram view is active and editing is not possible.
+     */
+    protected void exportMermaidDiagram() {
+        if (mermaidDiagramPanel == null) return;
+
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Mermaid-Diagramm exportieren");
+
+        // Build suggested file name from source name
+        String baseName = sourceName != null ? sourceName : "diagram";
+        int dot = baseName.lastIndexOf('.');
+        if (dot > 0) baseName = baseName.substring(0, dot);
+
+        javax.swing.filechooser.FileNameExtensionFilter svgFilter =
+                new javax.swing.filechooser.FileNameExtensionFilter("SVG-Datei (*.svg)", "svg");
+        javax.swing.filechooser.FileNameExtensionFilter pngFilter =
+                new javax.swing.filechooser.FileNameExtensionFilter("PNG-Bild (*.png)", "png");
+        chooser.addChoosableFileFilter(svgFilter);
+        chooser.addChoosableFileFilter(pngFilter);
+        chooser.setFileFilter(svgFilter); // SVG as default
+        chooser.setSelectedFile(new java.io.File(baseName + ".svg"));
+
+        // Update file name extension when filter changes
+        final String finalBaseName = baseName;
+        chooser.addPropertyChangeListener(JFileChooser.FILE_FILTER_CHANGED_PROPERTY, evt -> {
+            javax.swing.filechooser.FileFilter filter = chooser.getFileFilter();
+            String ext = (filter == pngFilter) ? ".png" : ".svg";
+            chooser.setSelectedFile(new java.io.File(finalBaseName + ext));
+        });
+
+        if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            java.io.File target = chooser.getSelectedFile();
+            if (target == null) return;
+
+            try {
+                String name = target.getName().toLowerCase();
+                if (name.endsWith(".png")) {
+                    // Export as PNG
+                    java.awt.image.BufferedImage img = mermaidDiagramPanel.getImage();
+                    if (img != null) {
+                        javax.imageio.ImageIO.write(img, "PNG", target);
+                    } else {
+                        JOptionPane.showMessageDialog(this,
+                                "Kein Bild verf\u00FCgbar \u2014 bitte warten, bis das Rendering abgeschlossen ist.",
+                                "Export", JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
+                } else {
+                    // Export as SVG (default)
+                    if (!name.endsWith(".svg")) {
+                        target = new java.io.File(target.getAbsolutePath() + ".svg");
+                    }
+                    String svgContent = mermaidDiagramPanel.getSvg();
+                    if (svgContent != null && !svgContent.isEmpty()) {
+                        java.nio.file.Files.write(target.toPath(),
+                                svgContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    } else {
+                        JOptionPane.showMessageDialog(this,
+                                "Kein SVG verf\u00FCgbar \u2014 bitte warten, bis das Rendering abgeschlossen ist.",
+                                "Export", JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
+                }
+
+                // Brief confirmation
+                String original = saveButton.getText();
+                saveButton.setText("\u2713 Exportiert!");
+                Timer timer = new Timer(1500, evt -> saveButton.setText(original));
+                timer.setRepeats(false);
+                timer.start();
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this,
+                        "Fehler beim Exportieren:\n" + ex.getMessage(),
                         "Fehler", JOptionPane.ERROR_MESSAGE);
             }
         }

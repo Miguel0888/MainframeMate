@@ -535,6 +535,11 @@ public final class DiagramLayoutExtractor {
             double rw = parseDoubleAttr(rect, "width", 150);
             double rh = parseDoubleAttr(rect, "height", 65);
 
+            // Account for parent <g> transforms (Mermaid wraps everything in translated groups)
+            double[] parentOffset = resolveParentTranslates(rect);
+            rx += parentOffset[0];
+            ry += parentOffset[1];
+
             if (!actorBounds.containsKey(name)) {
                 // Store as [minX, minY, maxX, maxY] for easier merging
                 actorBounds.put(name, new double[]{rx, ry, rx + rw, ry + rh});
@@ -598,6 +603,13 @@ public final class DiagramLayoutExtractor {
             double y1 = parseDoubleAttr(line, "y1", 0);
             double x2 = parseDoubleAttr(line, "x2", 0);
             double y2 = parseDoubleAttr(line, "y2", 0);
+
+            // Account for parent <g> transforms
+            double[] parentOffset = resolveParentTranslates(line);
+            x1 += parentOffset[0];
+            y1 += parentOffset[1];
+            x2 += parentOffset[0];
+            y2 += parentOffset[1];
 
             // Match source/target by closest actor center x
             String sourceId = findClosestActor(actorCenterX, x1);
@@ -666,6 +678,11 @@ public final class DiagramLayoutExtractor {
             double rw = parseDoubleAttr(rect, "width", 0);
             double rh = parseDoubleAttr(rect, "height", 0);
             if (rw < 1 || rh < 1) continue;
+
+            // Account for parent <g> transforms
+            double[] parentOffset = resolveParentTranslates(rect);
+            rx += parentOffset[0];
+            ry += parentOffset[1];
 
             // Walk up to the parent <g> and find sibling <text class="loopText"> elements
             String fragmentKeyword = "";

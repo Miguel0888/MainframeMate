@@ -44,6 +44,8 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
     private final JCheckBox historyEnabledBox;
     private final JSpinner historyMaxVersionsSpinner;
     private final JSpinner historyMaxAgeDaysSpinner;
+    private final JCheckBox autoRefreshZoomBox;
+    private final JSpinner autoRefreshZoomSpinner;
 
     /** The password method that was active when the panel was opened. */
     private PasswordMethod initialMethod;
@@ -347,6 +349,27 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         fb.addRow("Ankündigung (ms):", lockPre);
 
 
+        fb.addSection("Diagramm");
+
+        boolean autoRefreshEnabled = de.bund.zrb.ui.preview.SplitPreviewTab.restoreAutoRefreshEnabled();
+        double autoRefreshValue = de.bund.zrb.ui.preview.SplitPreviewTab.restoreAutoRefreshThresholdValue();
+
+        autoRefreshZoomBox = new JCheckBox("Nur alle x % neu rendern (bei Zoom)");
+        autoRefreshZoomBox.setSelected(autoRefreshEnabled);
+        autoRefreshZoomBox.setToolTipText(
+                "Wenn aktiviert, wird das Diagramm automatisch bei größeren Zoomänderungen neu gerastert. "
+                + "Andernfalls nur manuell über den Neu-Rendern-Button.");
+        fb.addWide(autoRefreshZoomBox);
+
+        autoRefreshZoomSpinner = new JSpinner(new SpinnerNumberModel(autoRefreshValue, 1.0, 50.0, 1.0));
+        autoRefreshZoomSpinner.setEnabled(autoRefreshEnabled);
+        autoRefreshZoomSpinner.setToolTipText("Schwellwert in Prozentpunkten");
+        fb.addRow("Schwellwert (%):", autoRefreshZoomSpinner);
+
+        autoRefreshZoomBox.addActionListener(e -> {
+            autoRefreshZoomSpinner.setEnabled(autoRefreshZoomBox.isSelected());
+        });
+
         fb.addSection("Lokale Historie");
 
         historyEnabledBox = new JCheckBox("Lokale Historie aktivieren");
@@ -465,6 +488,11 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         s.historyEnabled = historyEnabledBox.isSelected();
         s.historyMaxVersionsPerFile = ((Number) historyMaxVersionsSpinner.getValue()).intValue();
         s.historyMaxAgeDays = ((Number) historyMaxAgeDaysSpinner.getValue()).intValue();
+
+        // Diagram auto-refresh settings (stored in applicationState, not in typed fields)
+        de.bund.zrb.ui.preview.SplitPreviewTab.persistAutoRefreshEnabled(autoRefreshZoomBox.isSelected());
+        de.bund.zrb.ui.preview.SplitPreviewTab.persistAutoRefreshThreshold(
+                ((Number) autoRefreshZoomSpinner.getValue()).doubleValue());
     }
 
     private void browseFile(JTextField target, String description, String extension) {

@@ -409,6 +409,16 @@ public class MermaidDiagramPanel extends JPanel {
         return mermaidSource;
     }
 
+    /** @return the current SVG markup, or null if not yet rendered */
+    public String getSvg() {
+        return svg;
+    }
+
+    /** @return the current rendered image, or null if not yet rendered */
+    public BufferedImage getImage() {
+        return image;
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  Zoom & Pan
     // ═══════════════════════════════════════════════════════════
@@ -481,8 +491,6 @@ public class MermaidDiagramPanel extends JPanel {
 
         final String currentSvg = this.svg;
         final double currentZoom = this.zoom;
-        final double currentPanX = this.panOffsetX;
-        final double currentPanY = this.panOffsetY;
 
         SwingWorker<BufferedImage, Void> worker = new SwingWorker<BufferedImage, Void>() {
             @Override
@@ -504,13 +512,16 @@ public class MermaidDiagramPanel extends JPanel {
                 try {
                     BufferedImage newImage = get();
                     if (newImage != null) {
+                        // Use the CURRENT zoom/pan at completion time — not the
+                        // values captured when the worker started.  This avoids
+                        // "zoom bounce-back" when the user zooms further while
+                        // the re-rasterize is in progress.
                         double scaleRatio = (double) newImage.getWidth() / baseW;
                         image = newImage;
                         baseW = newImage.getWidth();
                         baseH = newImage.getHeight();
-                        zoom = currentZoom / scaleRatio;
-                        panOffsetX = currentPanX;
-                        panOffsetY = currentPanY;
+                        zoom = zoom / scaleRatio;
+                        // panOffset stays untouched — the user may have panned during the worker
                         lastRefreshZoom = zoom;
                         updateZoomLabel();
                         imagePanel.repaint();
