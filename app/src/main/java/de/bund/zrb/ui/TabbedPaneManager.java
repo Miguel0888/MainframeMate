@@ -1927,7 +1927,9 @@ public class TabbedPaneManager {
                         ? "ndv://" + library + "/" + user.getProgramName()
                         : null;
                 entries.add(new LeftDrawer.RelationEntry(
-                        user.getDisplayText(), targetPath, "DDM_USER_" + user.getReferenceKind()));
+                        user.getDisplayText(), targetPath,
+                        "DDM_USER_" + user.getReferenceKind(),
+                        user.getLineNumber()));
             }
 
             sections.put("⬅ " + group.getKey(), entries);
@@ -1938,13 +1940,14 @@ public class TabbedPaneManager {
     }
 
     /**
-     * Show DDM hierarchy in the LeftDrawer call hierarchy panel.
+     * Show DDM hierarchy in the LeftDrawer call hierarchy panel as a properly nested tree.
      * <p>
-     * Uses DDM-centric groups instead of the generic "Ruft auf / Aufgerufen von" framing:
+     * Uses {@link LeftDrawer#updateCallHierarchy} with DDM-specific labels:
      * <ul>
-     *   <li><b>Verwandte DDMs</b>: Other DDMs used by the same programs (data model neighborhood)</li>
-     *   <li><b>Aufrufketten</b>: Entry-point programs that eventually lead to DDM access
-     *       (only shown when deep passive XRef chains exist)</li>
+     *   <li><b>🗃 Verwandte DDMs</b>: Other DDMs used by the same programs (each DDM node
+     *       has connecting programs as children, navigable via double-click)</li>
+     *   <li><b>⬅ Wird verwendet von</b>: Programs using this DDM → who calls those programs
+     *       (nested tree with double-click navigation)</li>
      * </ul>
      */
     private void showDdmHierarchyInLeftDrawer(LeftDrawer leftDrawer,
@@ -1960,103 +1963,56 @@ public class TabbedPaneManager {
         de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode relatedNode = hierarchy.getRelatedDdmsRoot();
         de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode callersNode = hierarchy.getCallersRoot();
 
-        java.util.List<LeftDrawer.CallHierarchyData> groups =
-                new java.util.ArrayList<LeftDrawer.CallHierarchyData>();
+        boolean hasRelated = relatedNode != null && !relatedNode.getChildren().isEmpty();
+        boolean hasCallers = callersNode != null && !callersNode.getChildren().isEmpty();
 
-        // ── Group 1: Related DDMs (data model neighborhood) ──
-        if (relatedNode != null && !relatedNode.getChildren().isEmpty()) {
-            java.util.List<LeftDrawer.CallHierarchyData> ddmEntries =
-                    new java.util.ArrayList<LeftDrawer.CallHierarchyData>();
-
-            for (de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode ddmChild : relatedNode.getChildren()) {
-                StringBuilder display = new StringBuilder();
-                display.append("🗃 ").append(ddmChild.getName());
-                if (!ddmChild.getChildren().isEmpty()) {
-                    display.append("  —  via ");
-                    for (int i = 0; i < ddmChild.getChildren().size(); i++) {
-                        if (i > 0) display.append(", ");
-                        de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode prog = ddmChild.getChildren().get(i);
-                        display.append(prog.getName());
-                        if (prog.getDetail() != null) {
-                            display.append(" [").append(prog.getDetail()).append("]");
-                        }
-                    }
-                }
-                ddmEntries.add(new LeftDrawer.CallHierarchyData(
-                        display.toString(), null, false,
-                        java.util.Collections.<LeftDrawer.CallHierarchyData>emptyList()));
-            }
-
-            groups.add(new LeftDrawer.CallHierarchyData(
-                    "🗃 Verwandte DDMs (" + ddmEntries.size() + ")",
-                    null, false, ddmEntries));
-        }
-
-        // ── Group 2: Entry-point chains (only if deep passive XRef chains exist) ──
-        if (callersNode != null && !callersNode.getChildren().isEmpty()) {
-            java.util.List<LeftDrawer.CallHierarchyData> chainEntries =
-                    new java.util.ArrayList<LeftDrawer.CallHierarchyData>();
-
-            for (de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode progNode : callersNode.getChildren()) {
-                // Only show if this program has callers (=depth beyond Dependencies panel)
-                if (!progNode.getChildren().isEmpty()) {
-                    flattenCallerChains(progNode, ddmName, library, chainEntries,
-                            new java.util.ArrayList<String>());
-                }
-            }
-
-            if (!chainEntries.isEmpty()) {
-                groups.add(new LeftDrawer.CallHierarchyData(
-                        "📝 Aufrufketten (" + chainEntries.size() + ")",
-                        null, false, chainEntries));
-            }
-        }
-
-        if (groups.isEmpty()) {
+        if (!hasRelated && !hasCallers) {
             leftDrawer.showCallHierarchyPlaceholder(library == null
                     ? "Bibliothek unbekannt — kein DDM-Nutzungsgraph."
                     : "Keine DDM-Beziehungen für " + ddmName + " gefunden.");
-        } else {
-            leftDrawer.updateCallHierarchyGrouped("DDM " + ddmName, groups);
+            return;
         }
+
+        // Convert DdmHierarchyNode trees → CallHierarchyData with targetPaths for navigation
+        LeftDrawer.CallHierarchyData relatedData = hasRelated
+                ? convertDdmHierarchyNode(relatedNode, library) : null;
+        LeftDrawer.CallHierarchyData callersData = hasCallers
+                ? convertDdmHierarchyNode(callersNode, library) : null;
+
+        // Use custom labels instead of "Ruft auf" / "Aufgerufen von"
+        String relatedLabel = hasRelated
+                ? "🗃 Verwandte DDMs (" + relatedNode.getChildren().size() + ")" : null;
+        String callersLabel = hasCallers
+                ? "⬅ Wird verwendet von (" + callersNode.getChildren().size() + ")" : null;
+
+        leftDrawer.updateCallHierarchy(relatedData, callersData, ddmName,
+                relatedLabel, callersLabel);
     }
 
     /**
-     * Flatten caller chains into "ENTRY ➝ … ➝ PROG ➝ DDM" display strings.
-     * Walks caller nodes recursively and produces one entry per leaf (entry-point).
+     * Recursively convert DdmHierarchyNode → CallHierarchyData with navigation paths.
      */
-    private void flattenCallerChains(
-            de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode progNode,
-            String ddmName, String library,
-            java.util.List<LeftDrawer.CallHierarchyData> out,
-            java.util.List<String> chainSoFar) {
+    private LeftDrawer.CallHierarchyData convertDdmHierarchyNode(
+            de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode node, String library) {
 
-        chainSoFar.add(progNode.getName());
-
-        if (progNode.getChildren().isEmpty() || progNode.isRecursive()) {
-            // Leaf caller → build chain string: ENTRY ➝ … ➝ PROG ➝ DDM
-            StringBuilder chain = new StringBuilder("📝 ");
-            for (int i = chainSoFar.size() - 1; i >= 0; i--) {
-                chain.append(chainSoFar.get(i));
-                if (i > 0) chain.append(" ➝ ");
-            }
-            chain.append(" ➝ ").append(ddmName);
-            if (progNode.isRecursive()) chain.append(" 🔄");
-
-            // Navigate to the entry-point (top of chain)
-            String entryPoint = chainSoFar.get(chainSoFar.size() - 1);
-            String targetPath = library != null ? "ndv://" + library + "/" + entryPoint : null;
-
-            out.add(new LeftDrawer.CallHierarchyData(
-                    chain.toString(), targetPath, false,
-                    java.util.Collections.<LeftDrawer.CallHierarchyData>emptyList()));
-        } else {
-            for (de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode caller : progNode.getChildren()) {
-                flattenCallerChains(caller, ddmName, library, out, chainSoFar);
-            }
+        java.util.List<LeftDrawer.CallHierarchyData> children =
+                new java.util.ArrayList<LeftDrawer.CallHierarchyData>();
+        for (de.bund.zrb.service.DdmAnalysisService.DdmHierarchyNode child : node.getChildren()) {
+            children.add(convertDdmHierarchyNode(child, library));
         }
 
-        chainSoFar.remove(chainSoFar.size() - 1);
+        // Build navigation path — both DDMs and programs should be navigable
+        String targetPath = null;
+        if (library != null && !library.isEmpty()) {
+            targetPath = "ndv://" + library + "/" + node.getName();
+        }
+
+        return new LeftDrawer.CallHierarchyData(
+                node.getDisplayText(),
+                targetPath,
+                node.isRecursive(),
+                children
+        );
     }
 
     /**

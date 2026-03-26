@@ -328,14 +328,32 @@ public class LeftDrawer extends JPanel {
     public void updateCallHierarchy(CallHierarchyData calleesRoot,
                                     CallHierarchyData callersRoot,
                                     String objectName) {
+        updateCallHierarchy(calleesRoot, callersRoot, objectName, null, null);
+    }
+
+    /**
+     * Update the call hierarchy tree with custom group labels.
+     *
+     * @param calleesRoot   call hierarchy root for callees — may be null
+     * @param callersRoot   call hierarchy root for callers — may be null
+     * @param objectName    name of the object for the status label
+     * @param calleesLabel  custom label for callees group (null → default "➡ Ruft auf")
+     * @param callersLabel  custom label for callers group (null → default "⬅ Aufgerufen von")
+     */
+    public void updateCallHierarchy(CallHierarchyData calleesRoot,
+                                    CallHierarchyData callersRoot,
+                                    String objectName,
+                                    String calleesLabel,
+                                    String callersLabel) {
         callHierarchyRoot.removeAllChildren();
 
         int totalNodes = 0;
 
         // ── Callees (what this program calls, recursive) ──
         if (calleesRoot != null && !calleesRoot.getChildren().isEmpty()) {
-            DefaultMutableTreeNode calleesGroup = new DefaultMutableTreeNode(
-                    "➡ Ruft auf (" + calleesRoot.getChildren().size() + ")");
+            String label = calleesLabel != null ? calleesLabel
+                    : "➡ Ruft auf (" + calleesRoot.getChildren().size() + ")";
+            DefaultMutableTreeNode calleesGroup = new DefaultMutableTreeNode(label);
             addHierarchyChildren(calleesGroup, calleesRoot.getChildren());
             callHierarchyRoot.add(calleesGroup);
             totalNodes += countNodes(calleesRoot);
@@ -343,8 +361,9 @@ public class LeftDrawer extends JPanel {
 
         // ── Callers (who calls this program, recursive) ──
         if (callersRoot != null && !callersRoot.getChildren().isEmpty()) {
-            DefaultMutableTreeNode callersGroup = new DefaultMutableTreeNode(
-                    "⬅ Aufgerufen von (" + callersRoot.getChildren().size() + ")");
+            String label = callersLabel != null ? callersLabel
+                    : "⬅ Aufgerufen von (" + callersRoot.getChildren().size() + ")";
+            DefaultMutableTreeNode callersGroup = new DefaultMutableTreeNode(label);
             addHierarchyChildren(callersGroup, callersRoot.getChildren());
             callHierarchyRoot.add(callersGroup);
             totalNodes += countNodes(callersRoot);
