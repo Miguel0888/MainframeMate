@@ -128,11 +128,11 @@ public class Settings {
 
     // Natural block highlight colors (hex, e.g. "#FFE6E6")
     /** Background color for DEFINE SUBROUTINE … END-SUBROUTINE blocks. */
-    public String naturalColorSubroutine = "#FFE6E6";
+    public String naturalColorSubroutine = "#FFF8DC";
     /** Background color for DEFINE DATA … END-DEFINE blocks. */
     public String naturalColorDefineData = "#E6F0FF";
     /** Background color for ON ERROR … END-ERROR blocks. */
-    public String naturalColorOnError    = "#FFF8DC";
+    public String naturalColorOnError    = "#FFE6E6";
 
     // BetaView Settings
     public String betaviewUrl = "";                 // BetaView Base URL (z.B. https://betaview.example.com/betaview/)
