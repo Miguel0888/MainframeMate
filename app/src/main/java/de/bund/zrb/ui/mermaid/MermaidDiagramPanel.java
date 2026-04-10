@@ -4,6 +4,10 @@ import com.aresstack.mermaid.editor.SourceEditBridge;
 import com.aresstack.mermaid.layout.*;
 import de.bund.zrb.mermaid.MermaidRenderer;
 import de.bund.zrb.mermaid.MermaidSvgFixup;
+import de.bund.zrb.ui.mermaid.tile.DiagramTile;
+import de.bund.zrb.ui.mermaid.tile.DiagramTileCache;
+import de.bund.zrb.ui.mermaid.tile.TiledDiagramRenderer;
+import de.bund.zrb.ui.mermaid.tile.TiledExporter;
 import de.bund.zrb.wiki.ui.SvgRenderer;
 
 import javax.swing.*;
@@ -11,8 +15,10 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Reusable Swing panel that renders a Mermaid diagram as an interactive SVG image.
@@ -39,6 +45,16 @@ public class MermaidDiagramPanel extends JPanel {
     private String svg;
     private boolean renderError;
     private boolean loading;
+
+    // ── Tile-based rendering ──
+    private TiledDiagramRenderer tiledRenderer;
+    private DiagramTileCache tileCache;
+    private int currentLod = 2;
+    private String currentDiagramId;
+    /** true when the diagram is large enough to use tiled rendering. */
+    private boolean tiledMode;
+    /** Threshold in SVG units: diagrams exceeding this in either axis use tiled mode. */
+    private static final double TILED_THRESHOLD = 1500.0;
 
     // Selection (highlight is computed dynamically from these in paintDiagram)
     private DiagramNode selectedNode;
@@ -111,6 +127,11 @@ public class MermaidDiagramPanel extends JPanel {
         setLayout(new BorderLayout());
         setBackground(Color.WHITE);
 
+        // ── Initialise tile cache ──
+        File cacheDir = new File(System.getProperty("user.home"),
+                ".mainframemate/cache/diagram-tiles");
+        tileCache = new DiagramTileCache(cacheDir);
+
         // ── Image panel (renders the SVG) ──
         imagePanel = new JPanel() {
             @Override
@@ -128,7 +149,7 @@ public class MermaidDiagramPanel extends JPanel {
         imagePanel.addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {
-                if (!fitDone && image != null
+                if (!fitDone && (image != null || tiledMode)
                         && imagePanel.getWidth() > 0 && imagePanel.getHeight() > 0) {
                     fitToPanel();
                     fitDone = true;
@@ -309,6 +330,16 @@ public class MermaidDiagramPanel extends JPanel {
     /** @return the status label showing render info */
     public JLabel getStatusLabel() { return statusLabel; }
 
+    /**
+     * Get the tile cache (for external export use).
+     */
+    public DiagramTileCache getTileCache() { return tileCache; }
+
+    /**
+     * Get the tiled renderer (for external export use).
+     */
+    public TiledDiagramRenderer getTiledRenderer() { return tiledRenderer; }
+
     public void setDetailChangeListener(DetailChangeListener listener) {
         this.detailChangeListener = listener;
     }
@@ -362,6 +393,8 @@ public class MermaidDiagramPanel extends JPanel {
             this.image = null;
             this.diagram = null;
             this.svg = null;
+            this.tiledRenderer = null;
+            this.tiledMode = false;
             this.loading = false;
             imagePanel.repaint();
             statusLabel.setText("Kein Diagramm-Quelltext.");
@@ -370,6 +403,8 @@ public class MermaidDiagramPanel extends JPanel {
 
         this.loading = true;
         this.image = null;
+        this.tiledRenderer = null;
+        this.tiledMode = false;
         imagePanel.repaint();
         statusLabel.setText("Rendering\u2026");
 
@@ -378,6 +413,8 @@ public class MermaidDiagramPanel extends JPanel {
             private RenderedDiagram renderedDiagram;
             private String renderedSvg;
             private boolean error;
+            private TiledDiagramRenderer tiled;
+            private boolean useTiled;
 
             @Override
             protected Void doInBackground() {
@@ -390,9 +427,30 @@ public class MermaidDiagramPanel extends JPanel {
                     }
                     renderedDiagram = DiagramLayoutExtractor.extract(svgResult);
                     renderedSvg = MermaidSvgFixup.fixForBatik(svgResult, source);
-                    renderedImage = SvgRenderer.renderToBufferedImage(
-                            renderedSvg.getBytes("UTF-8"));
-                    if (renderedImage == null) error = true;
+
+                    // ── Decide: tiled or single-image rendering ──
+                    double vbW = renderedDiagram.getViewBoxWidth();
+                    double vbH = renderedDiagram.getViewBoxHeight();
+                    if (vbW > TILED_THRESHOLD || vbH > TILED_THRESHOLD) {
+                        // Large diagram → use tiled rendering
+                        String dId = UUID.randomUUID().toString();
+                        tiled = new TiledDiagramRenderer(renderedSvg, dId);
+                        useTiled = true;
+                        // Render a low-LOD overview for immediate display
+                        // Only render the first few visible tiles at LOD 0 (thumbnail)
+                        List<DiagramTile> all = tiled.getAllTiles();
+                        int preRender = Math.min(all.size(), 4); // first 4 tiles for quick preview
+                        for (int i = 0; i < preRender; i++) {
+                            DiagramTile t = all.get(i);
+                            BufferedImage img = tiled.renderTile(t, 0, tileCache);
+                            t.setImage(img);
+                        }
+                    } else {
+                        // Small diagram → render as single image (legacy path)
+                        renderedImage = SvgRenderer.renderToBufferedImage(
+                                renderedSvg.getBytes("UTF-8"));
+                        if (renderedImage == null) error = true;
+                    }
                 } catch (Exception e) {
                     System.err.println("[MermaidDiagramPanel] Render error: " + e);
                     error = true;
@@ -404,13 +462,28 @@ public class MermaidDiagramPanel extends JPanel {
             protected void done() {
                 loading = false;
                 renderError = error;
-                image = renderedImage;
-                diagram = renderedDiagram;
                 svg = renderedSvg;
+                diagram = renderedDiagram;
 
-                if (!error && image != null) {
-                    baseW = image.getWidth();
-                    baseH = image.getHeight();
+                if (useTiled && tiled != null) {
+                    tiledRenderer = tiled;
+                    tiledMode = true;
+                    currentDiagramId = tiled.getDiagramId();
+                    image = null; // no single image in tiled mode
+                    // Use viewBox dimensions for base size
+                    baseW = (int) Math.round(tiled.getViewBoxWidth());
+                    baseH = (int) Math.round(tiled.getViewBoxHeight());
+                } else {
+                    tiledMode = false;
+                    tiledRenderer = null;
+                    image = renderedImage;
+                    if (!error && image != null) {
+                        baseW = image.getWidth();
+                        baseH = image.getHeight();
+                    }
+                }
+
+                if (!error) {
                     if (imagePanel.getWidth() > 0 && imagePanel.getHeight() > 0) {
                         fitToPanel();
                         fitDone = true;
@@ -427,9 +500,17 @@ public class MermaidDiagramPanel extends JPanel {
                 } else {
                     int nodes = diagram != null ? diagram.getNodes().size() : 0;
                     int edges = diagram != null ? diagram.getEdges().size() : 0;
-                    statusLabel.setText(nodes + " Knoten, " + edges + " Kanten"
+                    String tileInfo = tiledMode
+                            ? " \u2014 Kachel-Modus: " + tiledRenderer.getCols() + "\u00D7" + tiledRenderer.getRows()
+                            : "";
+                    statusLabel.setText(nodes + " Knoten, " + edges + " Kanten" + tileInfo
                             + (editable ? " \u2014 Rechtsklick: Verbindung ziehen" : "")
                             + " \u2014 Mausrad: Zoom, Linksklick: Pan");
+                }
+
+                // In tiled mode, trigger async loading of visible tiles at current LOD
+                if (tiledMode) {
+                    scheduleVisibleTileRefresh();
                 }
             }
         };
@@ -451,11 +532,138 @@ public class MermaidDiagramPanel extends JPanel {
     }
 
     // ═══════════════════════════════════════════════════════════
+    //  Tile management
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Compute the SVG-space viewport from the current zoom/pan state.
+     */
+    private double[] getViewportInSvgSpace() {
+        if (diagram == null || baseW <= 0 || baseH <= 0) return null;
+        int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
+        if (pw <= 0 || ph <= 0) return null;
+
+        double vbW = diagram.getViewBoxWidth();
+        double vbH = diagram.getViewBoxHeight();
+        double vbX = diagram.getViewBoxX();
+        double vbY = diagram.getViewBoxY();
+
+        // Screen (0,0) → SVG coords
+        double svgLeft, svgTop, svgRight, svgBot;
+        if (tiledMode) {
+            // In tiled mode, baseW/baseH are SVG units
+            svgLeft = vbX + (-panOffsetX / zoom);
+            svgTop = vbY + (-panOffsetY / zoom);
+            svgRight = svgLeft + (pw / zoom);
+            svgBot = svgTop + (ph / zoom);
+        } else {
+            svgLeft = vbX + ((-panOffsetX / zoom) / baseW) * vbW;
+            svgTop = vbY + ((-panOffsetY / zoom) / baseH) * vbH;
+            svgRight = svgLeft + ((pw / zoom) / baseW) * vbW;
+            svgBot = svgTop + ((ph / zoom) / baseH) * vbH;
+        }
+
+        return new double[]{svgLeft, svgTop, svgRight - svgLeft, svgBot - svgTop};
+    }
+
+    /**
+     * Schedule async rendering of visible tiles at the appropriate LOD.
+     * Debounced to avoid excessive re-renders during rapid zoom/pan.
+     */
+    private Timer tileRefreshTimer;
+
+    private void scheduleVisibleTileRefresh() {
+        if (!tiledMode || tiledRenderer == null) return;
+        if (tileRefreshTimer != null) tileRefreshTimer.stop();
+        tileRefreshTimer = new Timer(200, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                loadVisibleTiles();
+            }
+        });
+        tileRefreshTimer.setRepeats(false);
+        tileRefreshTimer.start();
+    }
+
+    private void loadVisibleTiles() {
+        if (!tiledMode || tiledRenderer == null) return;
+        double[] vp = getViewportInSvgSpace();
+        if (vp == null) return;
+
+        final int lod = TiledDiagramRenderer.lodForZoom(zoom);
+        currentLod = lod;
+
+        final List<DiagramTile> visible = tiledRenderer.getVisibleTiles(vp[0], vp[1], vp[2], vp[3]);
+
+        // Find tiles that need rendering (no image or wrong LOD)
+        final List<DiagramTile> toRender = new ArrayList<DiagramTile>();
+        for (DiagramTile t : visible) {
+            if (t.getImage() == null && !t.isRendering()) {
+                toRender.add(t);
+            }
+        }
+
+        if (toRender.isEmpty()) return;
+
+        // Background worker to render missing tiles
+        SwingWorker<Void, DiagramTile> worker = new SwingWorker<Void, DiagramTile>() {
+            @Override
+            protected Void doInBackground() {
+                for (DiagramTile t : toRender) {
+                    t.setRendering(true);
+                    BufferedImage img = tiledRenderer.renderTile(t, lod, tileCache);
+                    t.setImage(img);
+                    t.setRendering(false);
+                    publish(t);
+                }
+                return null;
+            }
+
+            @Override
+            protected void process(List<DiagramTile> chunks) {
+                imagePanel.repaint();
+            }
+
+            @Override
+            protected void done() {
+                imagePanel.repaint();
+            }
+        };
+        worker.execute();
+    }
+
+    /**
+     * Export the current diagram to a PNG file using tiled rendering.
+     * For non-tiled diagrams, falls back to direct image export.
+     *
+     * @param output   target file
+     * @param lod      export LOD (0=thumbnail, 3=print quality)
+     * @param listener progress listener (may be null)
+     */
+    public void exportToPng(File output, int lod, TiledExporter.ProgressListener listener) {
+        if (tiledMode && tiledRenderer != null) {
+            try {
+                TiledExporter.export(tiledRenderer, tileCache, lod, output, listener);
+            } catch (Exception e) {
+                System.err.println("[MermaidDiagramPanel] Export failed: " + e);
+            }
+        } else if (image != null) {
+            try {
+                javax.imageio.ImageIO.write(image, "PNG", output);
+                if (listener != null) listener.onProgress(100);
+            } catch (Exception e) {
+                System.err.println("[MermaidDiagramPanel] Export failed: " + e);
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
     //  Zoom & Pan
     // ═══════════════════════════════════════════════════════════
 
     private void fitToPanel() {
-        if (image == null || baseW <= 0 || baseH <= 0) return;
+        if (!tiledMode && image == null) return;
+        if (baseW <= 0 || baseH <= 0) return;
         int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
         if (pw <= 0 || ph <= 0) return;
         double sx = (double) pw / baseW;
@@ -468,6 +676,7 @@ public class MermaidDiagramPanel extends JPanel {
         updateZoomLabel();
         imagePanel.repaint();
         scheduleAutoRefreshCheck();
+        if (tiledMode) scheduleVisibleTileRefresh();
     }
 
     private void zoomBy(double factor, double pivotX, double pivotY) {
@@ -479,6 +688,7 @@ public class MermaidDiagramPanel extends JPanel {
         updateZoomLabel();
         imagePanel.repaint();
         scheduleAutoRefreshCheck();
+        if (tiledMode) scheduleVisibleTileRefresh();
     }
 
     /**
@@ -573,7 +783,7 @@ public class MermaidDiagramPanel extends JPanel {
     // ═══════════════════════════════════════════════════════════
 
     private void paintDiagram(Graphics2D g) {
-        if (image == null) {
+        if (!tiledMode && image == null) {
             String msg;
             if (renderError) {
                 msg = "\u26A0 Rendering fehlgeschlagen";
@@ -592,6 +802,16 @@ public class MermaidDiagramPanel extends JPanel {
                 int y = Math.max(textH, (imagePanel.getHeight() + fm.getAscent()) / 2);
                 g.drawString(msg, x, y);
             }
+            if (tiledMode && loading) {
+                // Show loading for tiled mode too
+                g.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 14));
+                g.setColor(Color.GRAY);
+                String msg2 = "\u23F3 Diagramm wird geladen\u2026";
+                FontMetrics fm = g.getFontMetrics();
+                int x = Math.max(0, (imagePanel.getWidth() - fm.stringWidth(msg2)) / 2);
+                int y = (imagePanel.getHeight() + fm.getAscent()) / 2;
+                g.drawString(msg2, x, y);
+            }
             return;
         }
 
@@ -599,24 +819,31 @@ public class MermaidDiagramPanel extends JPanel {
         g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                 RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 
-        int dw = (int) Math.round(baseW * zoom);
-        int dh = (int) Math.round(baseH * zoom);
         int ox = (int) Math.round(panOffsetX);
         int oy = (int) Math.round(panOffsetY);
-        g2.drawImage(image, ox, oy, dw, dh, null);
+
+        if (tiledMode && tiledRenderer != null) {
+            // ── Tiled painting ──
+            paintTiledDiagram(g2, ox, oy);
+        } else if (image != null) {
+            // ── Single-image painting (legacy) ──
+            int dw = (int) Math.round(baseW * zoom);
+            int dh = (int) Math.round(baseH * zoom);
+            g2.drawImage(image, ox, oy, dw, dh, null);
+        }
 
         // ── Highlight all search results with a lighter colour ──
         if (!lastSearchResults.isEmpty() && diagram != null) {
             g2.setColor(new Color(255, 220, 100, 50));
             for (int i = 0; i < lastSearchResults.size(); i++) {
-                if (i == lastSearchIndex) continue; // active result is drawn separately
+                if (i == lastSearchIndex) continue;
                 DiagramNode sr = lastSearchResults.get(i);
                 Rectangle r = computeScreenRect(sr.getX(), sr.getY(), sr.getWidth(), sr.getHeight(), ox, oy);
                 g2.fillRect(r.x, r.y, r.width, r.height);
             }
         }
 
-        // ── Highlight selected node or edge (computed fresh from current baseW/zoom) ──
+        // ── Highlight selected node or edge ──
         Rectangle hlRect = null;
         if (selectedNode != null && diagram != null) {
             hlRect = computeScreenRect(selectedNode.getX(), selectedNode.getY(),
@@ -647,25 +874,92 @@ public class MermaidDiagramPanel extends JPanel {
     }
 
     /**
-     * Convert SVG viewBox coordinates to screen rectangle, using the CURRENT
-     * baseW / baseH / zoom / panOffset.  This ensures the highlight is always
-     * correct even after reRasterize changes baseW.
+     * Paint the diagram using tiles. Only renders tiles that overlap
+     * the current viewport. Missing tiles show a placeholder.
+     */
+    private void paintTiledDiagram(Graphics2D g2, int ox, int oy) {
+        double vbX = tiledRenderer.getViewBoxX();
+        double vbY = tiledRenderer.getViewBoxY();
+        double vbW = tiledRenderer.getViewBoxWidth();
+        double vbH = tiledRenderer.getViewBoxHeight();
+
+        for (int r = 0; r < tiledRenderer.getRows(); r++) {
+            for (int c = 0; c < tiledRenderer.getCols(); c++) {
+                DiagramTile tile = tiledRenderer.getTile(c, r);
+
+                // Convert tile SVG bounds to screen coordinates
+                double tileScreenX = ox + (tile.getSvgX() - vbX) * zoom;
+                double tileScreenY = oy + (tile.getSvgY() - vbY) * zoom;
+                double tileScreenW = tile.getSvgW() * zoom;
+                double tileScreenH = tile.getSvgH() * zoom;
+
+                // Frustum culling: skip tiles outside the panel
+                int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
+                if (tileScreenX + tileScreenW < -10 || tileScreenX > pw + 10 ||
+                    tileScreenY + tileScreenH < -10 || tileScreenY > ph + 10) {
+                    continue;
+                }
+
+                int sx = (int) Math.round(tileScreenX);
+                int sy = (int) Math.round(tileScreenY);
+                int sw = (int) Math.round(tileScreenW);
+                int sh = (int) Math.round(tileScreenH);
+
+                BufferedImage tileImg = tile.getImage();
+                if (tileImg != null) {
+                    g2.drawImage(tileImg, sx, sy, sw, sh, null);
+                } else {
+                    // Placeholder: light grey with grid lines
+                    g2.setColor(new Color(245, 245, 245));
+                    g2.fillRect(sx, sy, sw, sh);
+                    g2.setColor(new Color(200, 200, 200));
+                    g2.drawRect(sx, sy, sw, sh);
+
+                    if (tile.isRendering()) {
+                        // Show loading indicator
+                        g2.setColor(new Color(150, 150, 150));
+                        g2.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 11));
+                        String msg = "\u23F3";
+                        FontMetrics fm = g2.getFontMetrics();
+                        g2.drawString(msg, sx + (sw - fm.stringWidth(msg)) / 2,
+                                sy + (sh + fm.getAscent()) / 2);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Convert SVG viewBox coordinates to screen rectangle.
+     * Handles both tiled mode (baseW/H = SVG units) and legacy mode (baseW/H = pixels).
      */
     private Rectangle computeScreenRect(double svgX, double svgY, double svgW, double svgH,
                                          int ox, int oy) {
         if (diagram == null || baseW <= 0 || baseH <= 0) {
             return new Rectangle(ox, oy, 5, 5);
         }
-        double vbX = diagram.getViewBoxX();
-        double vbY = diagram.getViewBoxY();
-        double vbW = diagram.getViewBoxWidth();
-        double vbH = diagram.getViewBoxHeight();
-        // SVG → image pixel → screen pixel (in one step)
-        int hx = (int) Math.round(((svgX - vbX) / vbW * baseW) * zoom) + ox;
-        int hy = (int) Math.round(((svgY - vbY) / vbH * baseH) * zoom) + oy;
-        int hw = Math.max((int) Math.round((svgW / vbW * baseW) * zoom), 4);
-        int hh = Math.max((int) Math.round((svgH / vbH * baseH) * zoom), 4);
-        return new Rectangle(hx, hy, hw, hh);
+
+        if (tiledMode) {
+            // In tiled mode, baseW/H ARE the viewBox dimensions
+            double vbX = diagram.getViewBoxX();
+            double vbY = diagram.getViewBoxY();
+            int hx = (int) Math.round((svgX - vbX) * zoom) + ox;
+            int hy = (int) Math.round((svgY - vbY) * zoom) + oy;
+            int hw = Math.max((int) Math.round(svgW * zoom), 4);
+            int hh = Math.max((int) Math.round(svgH * zoom), 4);
+            return new Rectangle(hx, hy, hw, hh);
+        } else {
+            // Legacy: baseW/H are pixel dimensions
+            double vbX = diagram.getViewBoxX();
+            double vbY = diagram.getViewBoxY();
+            double vbW = diagram.getViewBoxWidth();
+            double vbH = diagram.getViewBoxHeight();
+            int hx = (int) Math.round(((svgX - vbX) / vbW * baseW) * zoom) + ox;
+            int hy = (int) Math.round(((svgY - vbY) / vbH * baseH) * zoom) + oy;
+            int hw = Math.max((int) Math.round((svgW / vbW * baseW) * zoom), 4);
+            int hh = Math.max((int) Math.round((svgH / vbH * baseH) * zoom), 4);
+            return new Rectangle(hx, hy, hw, hh);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -677,7 +971,7 @@ public class MermaidDiagramPanel extends JPanel {
         imagePanel.addMouseWheelListener(new MouseWheelListener() {
             @Override
             public void mouseWheelMoved(MouseWheelEvent e) {
-                if (image == null) return;
+                if (image == null && !tiledMode) return;
                 double factor = e.getWheelRotation() < 0 ? 1.25 : 1.0 / 1.25;
                 zoomBy(factor, e.getX(), e.getY());
             }
@@ -696,7 +990,7 @@ public class MermaidDiagramPanel extends JPanel {
 
                 // ── Right-click → edge creation / reconnection (editable only) ──
                 if (SwingUtilities.isRightMouseButton(e)) {
-                    if (!editable || image == null || diagram == null) return;
+                    if (!editable || (image == null && !tiledMode) || diagram == null) return;
 
                     double[] svgCoords = screenToSvg(e.getX(), e.getY());
                     if (svgCoords == null) return;
@@ -776,7 +1070,7 @@ public class MermaidDiagramPanel extends JPanel {
 
                 // ── Right-click release → complete edge creation / reconnection ──
                 if (SwingUtilities.isRightMouseButton(e)) {
-                    if (editable && dragging && image != null && diagram != null) {
+                    if (editable && dragging && (image != null || tiledMode) && diagram != null) {
                         double[] svgCoords = screenToSvg(e.getX(), e.getY());
                         if (svgCoords != null) {
                             DiagramNode targetNode = diagram.findNodeAt(svgCoords[0], svgCoords[1]);
@@ -818,6 +1112,7 @@ public class MermaidDiagramPanel extends JPanel {
                         panOffsetY += e.getY() - panDragStart.y;
                         panDragStart = new Point(e.getX(), e.getY());
                         imagePanel.repaint();
+                        if (tiledMode) scheduleVisibleTileRefresh();
                     }
                     return;
                 }
@@ -845,7 +1140,7 @@ public class MermaidDiagramPanel extends JPanel {
      * Called on left-click release when no drag occurred.
      */
     private void doSelection(int screenX, int screenY) {
-        if (image == null || diagram == null) return;
+        if ((image == null && !tiledMode) || diagram == null) return;
 
         double[] svgCoords = screenToSvg(screenX, screenY);
         if (svgCoords == null) return;
@@ -920,16 +1215,27 @@ public class MermaidDiagramPanel extends JPanel {
     }
 
     private double[] screenToSvg(int sx, int sy) {
-        if (image == null || diagram == null || zoom <= 0 || baseW <= 0 || baseH <= 0) return null;
-        double imgPx = (sx - panOffsetX) / zoom;
-        double imgPy = (sy - panOffsetY) / zoom;
-        double vbX = diagram.getViewBoxX();
-        double vbY = diagram.getViewBoxY();
-        double vbW = diagram.getViewBoxWidth();
-        double vbH = diagram.getViewBoxHeight();
-        double svgX = vbX + (imgPx / baseW) * vbW;
-        double svgY = vbY + (imgPy / baseH) * vbH;
-        return new double[]{svgX, svgY};
+        if (diagram == null || zoom <= 0 || baseW <= 0 || baseH <= 0) return null;
+        if (!tiledMode && image == null) return null;
+
+        if (tiledMode) {
+            // In tiled mode, baseW/H are SVG units
+            double vbX = diagram.getViewBoxX();
+            double vbY = diagram.getViewBoxY();
+            double svgX = vbX + (sx - panOffsetX) / zoom;
+            double svgY = vbY + (sy - panOffsetY) / zoom;
+            return new double[]{svgX, svgY};
+        } else {
+            double imgPx = (sx - panOffsetX) / zoom;
+            double imgPy = (sy - panOffsetY) / zoom;
+            double vbX = diagram.getViewBoxX();
+            double vbY = diagram.getViewBoxY();
+            double vbW = diagram.getViewBoxWidth();
+            double vbH = diagram.getViewBoxHeight();
+            double svgX = vbX + (imgPx / baseW) * vbW;
+            double svgY = vbY + (imgPy / baseH) * vbH;
+            return new double[]{svgX, svgY};
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -1232,7 +1538,7 @@ public class MermaidDiagramPanel extends JPanel {
      * then centres on the node. Used for the first search hit.
      */
     private void zoomToNode(DiagramNode node) {
-        if (image == null || diagram == null || baseW <= 0 || baseH <= 0) return;
+        if ((image == null && !tiledMode) || diagram == null || baseW <= 0 || baseH <= 0) return;
         int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
         if (pw <= 0 || ph <= 0) return;
 
@@ -1263,7 +1569,7 @@ public class MermaidDiagramPanel extends JPanel {
      * Used when navigating between search results.
      */
     private void panToNode(DiagramNode node) {
-        if (image == null || diagram == null || baseW <= 0 || baseH <= 0) return;
+        if ((image == null && !tiledMode) || diagram == null || baseW <= 0 || baseH <= 0) return;
         int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
         if (pw <= 0 || ph <= 0) return;
 
@@ -1293,7 +1599,7 @@ public class MermaidDiagramPanel extends JPanel {
      */
     public boolean navigateToElement(String elementLabel) {
         if (elementLabel == null || elementLabel.trim().isEmpty()
-                || diagram == null || image == null) {
+                || diagram == null || (image == null && !tiledMode)) {
             return false;
         }
         String q = elementLabel.trim().toLowerCase();
@@ -1341,15 +1647,22 @@ public class MermaidDiagramPanel extends JPanel {
         int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
         if (pw <= 0 || ph <= 0) return false;
 
-        double vbX = diagram.getViewBoxX();
-        double vbY = diagram.getViewBoxY();
-        double vbW = diagram.getViewBoxWidth();
-        double vbH = diagram.getViewBoxHeight();
-
-        double imgX = (node.getX() + node.getWidth() / 2.0 - vbX) / vbW * baseW;
-        double imgY = (node.getY() + node.getHeight() / 2.0 - vbY) / vbH * baseH;
-        double screenX = imgX * zoom + panOffsetX;
-        double screenY = imgY * zoom + panOffsetY;
+        double screenX, screenY;
+        if (tiledMode) {
+            double vbX = diagram.getViewBoxX();
+            double vbY = diagram.getViewBoxY();
+            screenX = (node.getX() + node.getWidth() / 2.0 - vbX) * zoom + panOffsetX;
+            screenY = (node.getY() + node.getHeight() / 2.0 - vbY) * zoom + panOffsetY;
+        } else {
+            double vbX = diagram.getViewBoxX();
+            double vbY = diagram.getViewBoxY();
+            double vbW = diagram.getViewBoxWidth();
+            double vbH = diagram.getViewBoxHeight();
+            double imgX = (node.getX() + node.getWidth() / 2.0 - vbX) / vbW * baseW;
+            double imgY = (node.getY() + node.getHeight() / 2.0 - vbY) / vbH * baseH;
+            screenX = imgX * zoom + panOffsetX;
+            screenY = imgY * zoom + panOffsetY;
+        }
 
         return screenX >= -50 && screenX <= pw + 50 && screenY >= -50 && screenY <= ph + 50;
     }
@@ -1370,7 +1683,7 @@ public class MermaidDiagramPanel extends JPanel {
 
     /** Returns true if the diagram view has loaded content (image + diagram metadata). */
     public boolean hasDiagram() {
-        return image != null && diagram != null;
+        return (image != null || tiledMode) && diagram != null;
     }
 
     public boolean isEditable() {
