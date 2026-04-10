@@ -1429,7 +1429,13 @@ public class JobDetailTab implements AppTab {
         }
 
         if (model == null || model.isEmpty()) return null;
-        return OutlineToMermaidConverter.convert(model, type);
+
+        // Generate diagram; if the selected type yields nothing, fall back to STRUCTURE
+        String result = OutlineToMermaidConverter.convert(model, type);
+        if (result == null && type != OutlineToMermaidConverter.DiagramType.STRUCTURE) {
+            result = OutlineToMermaidConverter.convert(model, OutlineToMermaidConverter.DiagramType.STRUCTURE);
+        }
+        return result;
     }
 
 

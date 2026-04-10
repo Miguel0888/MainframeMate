@@ -1427,6 +1427,16 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
      * For MINDMAP, builds a recursive call tree using {@link de.bund.zrb.service.codeanalytics.CodeAnalyticsService}.
      */
     protected String parseMermaidFromOutline(OutlineToMermaidConverter.DiagramType type) {
+        // ── Sync rawContent from the editor pane (may have been edited since construction) ──
+        try {
+            String editorText = rawPane.getText();
+            if (editorText != null && !editorText.isEmpty()) {
+                rawContent = editorText;
+            }
+        } catch (Exception ignored) {
+            // rawPane might not be accessible from background thread — use existing rawContent
+        }
+
         if (rawContent == null || rawContent.isEmpty()) return null;
 
         // Detect language: extension-based detection takes priority,
@@ -1436,7 +1446,11 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         boolean isDdmFile = ext != null && "nsd".equalsIgnoreCase(ext);
 
         // ── DDM file (.NSD): always render as ER diagram ──
-        if (isDdmFile || de.bund.zrb.jcl.parser.DdmParser.isDdmContent(rawContent)) {
+        // Only enter DDM path if the file extension is .NSD or the content
+        // genuinely looks like a DDM (and the extension is NOT a known non-DDM Natural extension).
+        boolean isDdmByContent = !isNatByExt
+                && de.bund.zrb.jcl.parser.DdmParser.isDdmContent(rawContent);
+        if (isDdmFile || isDdmByContent) {
             String ddmName = sourceName;
             if (ddmName != null && ddmName.contains(".")) {
                 ddmName = ddmName.substring(0, ddmName.lastIndexOf('.'));
@@ -1448,9 +1462,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             de.bund.zrb.jcl.parser.DdmParser.DdmDefinition ddmDef =
                     ddmParser.parse(rawContent, ddmName);
             if (ddmDef != null) {
-                return OutlineToMermaidConverter.convertDdmToErDiagram(ddmDef);
+                String erResult = OutlineToMermaidConverter.convertDdmToErDiagram(ddmDef);
+                if (erResult != null) {
+                    return erResult;
+                }
             }
-            // If DDM parsing fails, fall through to try normal parsing
+            // If DDM parsing fails or produces no diagram, fall through to try normal parsing
         }
 
         JclOutlineModel model = null;
@@ -1489,7 +1506,15 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             ddmDefs = resolveDdmDefinitions(model);
         }
 
-        return OutlineToMermaidConverter.convert(model, type, callTree, ddmDefs);
+        // ── Generate diagram; if the selected type yields nothing, fall back to STRUCTURE ──
+        String result = OutlineToMermaidConverter.convert(model, type, callTree, ddmDefs);
+        if (result == null && type != DiagramType.STRUCTURE) {
+            // The chosen diagram type couldn't produce output for this file
+            // (e.g., ER_DIAGRAM on a program without VIEW statements).
+            // Fall back to STRUCTURE which always produces output for parsed models.
+            result = OutlineToMermaidConverter.convert(model, DiagramType.STRUCTURE, null, null);
+        }
+        return result;
     }
 
     /**
