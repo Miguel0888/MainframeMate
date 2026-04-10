@@ -424,11 +424,15 @@ public class MermaidDiagramPanel extends JPanel {
             protected Void doInBackground() {
                 try {
                     MermaidRenderer renderer = MermaidRenderer.getInstance();
-                    if (renderer.isAvailable()) {
-                        publish("\u23F3 Mermaid rendert Diagramm\u2026");
-                    } else {
-                        publish("\u23F3 Mermaid-Engine wird initialisiert\u2026");
+
+                    // ── Phase 1: ensure the JS engine is warm ──
+                    if (!renderer.isEngineWarm()) {
+                        publish("\u23F3 JS-Engine wird aufgew\u00E4rmt\u2026");
+                        renderer.ensureWarm();
                     }
+
+                    // ── Phase 2: actual Mermaid render (fast with warm engine) ──
+                    publish("\u23F3 Mermaid rendert Diagramm\u2026");
                     String svgResult = renderer.renderToSvg(source);
                     if (svgResult == null || !svgResult.contains("<svg")) {
                         error = true;

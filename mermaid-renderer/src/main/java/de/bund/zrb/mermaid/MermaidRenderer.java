@@ -110,6 +110,9 @@ public final class MermaidRenderer {
     /** Lazily loaded and cached shim + mermaid bundle. */
     private volatile String cachedPreamble;
 
+    /** true once background pre-warming has been kicked off. */
+    private volatile boolean preWarmStarted;
+
     /**
      * LRU cache: diagram source code → rendered SVG (post-processed).
      * Avoids re-running the expensive JS engine for identical input.
@@ -126,6 +129,19 @@ public final class MermaidRenderer {
     }
 
     public static MermaidRenderer getInstance() {
+        // Kick off background pre-warming on first access so the
+        // ~6 s warm-up happens before the user opens a diagram.
+        if (!INSTANCE.preWarmStarted) {
+            INSTANCE.preWarmStarted = true;
+            Thread t = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    INSTANCE.ensureWarm();
+                }
+            }, "MermaidPreWarm");
+            t.setDaemon(true);
+            t.start();
+        }
         return INSTANCE;
     }
 
@@ -1399,6 +1415,40 @@ public final class MermaidRenderer {
      */
     public boolean isAvailable() {
         return getPreamble() != null;
+    }
+
+    /**
+     * Check whether the GraalJS warm context is already initialised.
+     * When {@code false}, the next call to {@link #renderToSvg} (or
+     * {@link #ensureWarm()}) will trigger a ~6 s warm-up phase.
+     */
+    public boolean isEngineWarm() {
+        return executor.isWarm() && !executor.needsRecycle();
+    }
+
+    /**
+     * Ensure the warm GraalJS context is ready.  If it is already warm
+     * (and does not need recycling), this returns immediately.  Otherwise
+     * it performs the full preamble evaluation (~6 s on first call).
+     * <p>
+     * Call this from a background thread <em>before</em>
+     * {@link #renderToSvg} so the caller can show a specific progress
+     * message (e.g. "JS-Engine wird aufgewärmt…") during this phase.
+     *
+     * @return {@code true} if the warm context is ready afterwards
+     */
+    public boolean ensureWarm() {
+        String preamble = getPreamble();
+        if (preamble == null) return false;
+
+        if (executor.isWarm() && !executor.needsRecycle()) {
+            return true; // already warm — nothing to do
+        }
+
+        String warmPreamble = buildWarmPreamble(preamble);
+        System.err.println("[MermaidRenderer] " +
+                (executor.isWarm() ? "Recycling" : "Warming up") + " GraalJS context (explicit)...");
+        return executor.warmUp(warmPreamble);
     }
 
     private String getPreamble() {
