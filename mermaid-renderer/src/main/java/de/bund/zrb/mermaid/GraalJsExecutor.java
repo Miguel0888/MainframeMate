@@ -1,6 +1,7 @@
 package de.bund.zrb.mermaid;
 
 import org.graalvm.polyglot.Context;
+import org.graalvm.polyglot.Engine;
 import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Value;
 
@@ -21,9 +22,17 @@ import java.util.concurrent.TimeoutException;
 /**
  * Executes JavaScript code snippets inside an embedded GraalJS context.
  * <p>
- * Each call to {@link #execute(String)} creates a fresh JS context,
- * exposes a {@link JavaBridge} under the global name {@code javaBridge},
- * and returns the evaluation result wrapped in a {@link JsExecutionResult}.
+ * Supports two modes of operation:
+ * <ol>
+ *   <li><b>Cold execution</b> ({@link #execute}, {@link #executeAsync}): creates
+ *       a fresh context per call — simple but slow for large scripts.</li>
+ *   <li><b>Warm-context execution</b> ({@link #warmUp}, {@link #executeWarm}):
+ *       evaluates a large preamble (browser shim + Mermaid bundle) once and keeps
+ *       the context alive.  Subsequent calls only evaluate a short render script
+ *       against the pre-initialised environment — typically 10–50× faster.</li>
+ * </ol>
+ * The warm context lives on a dedicated single-thread executor to satisfy
+ * GraalJS's thread-confinement requirement.
  */
 final class GraalJsExecutor {
 
@@ -31,19 +40,51 @@ final class GraalJsExecutor {
     private static final int TIMEOUT_SECONDS = 600;
 
     /**
+     * Shared GraalVM engine — enables code-cache sharing across contexts.
+     * Even in cold mode this avoids re-parsing the same source repeatedly.
+     */
+    private static final Engine SHARED_ENGINE;
+    static {
+        Engine e;
+        try {
+            e = Engine.newBuilder()
+                    .option("engine.WarnInterpreterOnly", "false")
+                    .build();
+        } catch (Exception ex) {
+            System.err.println("[GraalJS] Failed to create shared engine: " + ex);
+            e = null;
+        }
+        SHARED_ENGINE = e;
+    }
+
+    // ── Warm-context state ──────────────────────────────────────────────────
+
+    /** Dedicated thread for the warm context (GraalJS contexts are thread-confined). */
+    private ExecutorService warmThread;
+    /** The pre-initialised GraalJS context (preamble already evaluated). */
+    private Context warmContext;
+    /** Number of renders executed on the current warm context. */
+    private int warmRenderCount;
+    /** Maximum renders before recycling the warm context (prevents memory bloat). */
+    private static final int MAX_WARM_RENDERS = 100;
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Cold execution (legacy — creates a fresh context every time)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /**
      * Evaluates the given JavaScript source and returns the result.
      *
      * @param script JavaScript source code
-     * @return execution result — either success with the stringified return value, or failure with the exception details
+     * @return execution result
      */
     JsExecutionResult execute(String script) {
         Context context = null;
-
         try {
-            context = Context.newBuilder("js")
-                    .allowAllAccess(true)
-                    .option("engine.WarnInterpreterOnly", "false")
-                    .build();
+            Context.Builder builder = Context.newBuilder("js").allowAllAccess(true);
+            if (SHARED_ENGINE != null) builder.engine(SHARED_ENGINE);
+            else builder.option("engine.WarnInterpreterOnly", "false");
+            context = builder.build();
 
             Value bindings = context.getBindings("js");
             bindings.putMember("javaBridge", new JavaBridge());
@@ -57,37 +98,24 @@ final class GraalJsExecutor {
             return JsExecutionResult.failure(exception.getClass().getName() + ": " + exception.getMessage());
         } finally {
             if (context != null) {
-                context.close();
+                try { context.close(); } catch (Exception ignored) {}
             }
         }
     }
 
     /**
-     * Evaluates a setup script, flushes pending microtasks (important for
-     * Promise-based APIs like Mermaid 11+), and then evaluates a separate
-     * result expression to read the outcome.
-     * <p>
-     * GraalJS processes pending microtasks at the start of each {@code eval()} call,
-     * so inserting a no-op eval between setup and result reading ensures that
-     * Promise {@code .then()} callbacks have fired.
-     * <p>
-     * The evaluation is guarded by a {@value #TIMEOUT_SECONDS}-second timeout.
-     * If the script does not finish in time, the GraalJS context is closed
-     * (which interrupts execution) and a failure result is returned.
-     *
-     * @param setupScript      JavaScript that starts async operations and stores results in globals
-     * @param resultExpression JavaScript expression evaluated after microtask flush to read the final result
-     * @return execution result
+     * Evaluates a setup script, flushes pending microtasks, and reads the result.
+     * Creates a fresh context — use {@link #executeWarm} for repeat renders.
      */
     JsExecutionResult executeAsync(String setupScript, String resultExpression) {
         final Context context;
         try {
             System.err.println("[GraalJS] Creating context...");
             long t0 = System.currentTimeMillis();
-            context = Context.newBuilder("js")
-                    .allowAllAccess(true)
-                    .option("engine.WarnInterpreterOnly", "false")
-                    .build();
+            Context.Builder builder = Context.newBuilder("js").allowAllAccess(true);
+            if (SHARED_ENGINE != null) builder.engine(SHARED_ENGINE);
+            else builder.option("engine.WarnInterpreterOnly", "false");
+            context = builder.build();
             System.err.println("[GraalJS] Context created in " + (System.currentTimeMillis() - t0) + " ms");
         } catch (Exception e) {
             return JsExecutionResult.failure("Failed to create GraalJS context: " + e.getMessage());
@@ -104,7 +132,6 @@ final class GraalJsExecutor {
                         bindings.putMember("javaBridge", new JavaBridge());
                         System.err.println("[GraalJS] Bindings set in " + (System.currentTimeMillis() - t1) + " ms");
 
-                        // Step 1: Run the setup script
                         System.err.println("[GraalJS] Evaluating setup script ("
                                 + (setupScript.length() / 1024) + " KB)...");
                         long t2 = System.currentTimeMillis();
@@ -112,10 +139,8 @@ final class GraalJsExecutor {
                         System.err.println("[GraalJS] Setup script evaluated in "
                                 + (System.currentTimeMillis() - t2) + " ms");
 
-                        // Step 2: Flush pending microtasks
                         context.eval("js", "void 0");
 
-                        // Step 3: Read the result
                         long t3 = System.currentTimeMillis();
                         Value result = context.eval("js", resultExpression);
                         System.err.println("[GraalJS] Result read in "
@@ -133,7 +158,6 @@ final class GraalJsExecutor {
 
             return future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
-            // Force-close the context to interrupt the JS evaluation
             try { context.close(true); } catch (Exception ignored) {}
             return JsExecutionResult.failure(
                     "JS evaluation timed out after " + TIMEOUT_SECONDS + " seconds");
@@ -144,6 +168,136 @@ final class GraalJsExecutor {
             try { context.close(); } catch (Exception ignored) {}
         }
     }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Warm-context execution (preamble evaluated once, render calls reuse)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Prepare a warm context by evaluating the given preamble script once.
+     * After this returns successfully, subsequent calls to {@link #executeWarm}
+     * will run against this pre-initialised context.
+     *
+     * @param preambleScript the browser shim + Mermaid bundle + initialize call
+     * @return true if the warm-up succeeded
+     */
+    synchronized boolean warmUp(String preambleScript) {
+        disposeWarmContext();
+
+        warmThread = Executors.newSingleThreadExecutor();
+        try {
+            Future<Boolean> future = warmThread.submit(new Callable<Boolean>() {
+                @Override
+                public Boolean call() {
+                    try {
+                        long t0 = System.currentTimeMillis();
+                        Context.Builder builder = Context.newBuilder("js").allowAllAccess(true);
+                        if (SHARED_ENGINE != null) builder.engine(SHARED_ENGINE);
+                        else builder.option("engine.WarnInterpreterOnly", "false");
+                        warmContext = builder.build();
+
+                        Value bindings = warmContext.getBindings("js");
+                        bindings.putMember("javaBridge", new JavaBridge());
+
+                        System.err.println("[GraalJS] Warm-up: evaluating preamble ("
+                                + (preambleScript.length() / 1024) + " KB)...");
+                        warmContext.eval("js", preambleScript);
+                        warmContext.eval("js", "void 0"); // flush microtasks
+                        warmRenderCount = 0;
+
+                        System.err.println("[GraalJS] Warm-up complete in "
+                                + (System.currentTimeMillis() - t0) + " ms");
+                        return Boolean.TRUE;
+                    } catch (Exception e) {
+                        System.err.println("[GraalJS] Warm-up failed: " + e);
+                        if (warmContext != null) {
+                            try { warmContext.close(); } catch (Exception ignored) {}
+                            warmContext = null;
+                        }
+                        return Boolean.FALSE;
+                    }
+                }
+            });
+            return future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            System.err.println("[GraalJS] Warm-up error: " + e);
+            disposeWarmContext();
+            return false;
+        }
+    }
+
+    /**
+     * Execute a short render script against the warm context.
+     * The preamble is already loaded — this only evaluates the diagram-specific code.
+     *
+     * @param renderScript     short JS that calls mermaid.render() and stores result in globals
+     * @param resultExpression JS expression to read the final SVG result
+     * @return execution result, or failure if the warm context is not available
+     */
+    JsExecutionResult executeWarm(final String renderScript, final String resultExpression) {
+        if (warmContext == null || warmThread == null || warmThread.isShutdown()) {
+            return JsExecutionResult.failure("Warm context not available");
+        }
+
+        try {
+            Future<JsExecutionResult> future = warmThread.submit(new Callable<JsExecutionResult>() {
+                @Override
+                public JsExecutionResult call() {
+                    try {
+                        long t0 = System.currentTimeMillis();
+                        warmContext.eval("js", renderScript);
+                        warmContext.eval("js", "void 0"); // flush microtasks
+                        Value result = warmContext.eval("js", resultExpression);
+                        String output = convertResultToString(result);
+                        warmRenderCount++;
+                        System.err.println("[GraalJS] Warm render #" + warmRenderCount
+                                + " completed in " + (System.currentTimeMillis() - t0) + " ms");
+                        return JsExecutionResult.success(output);
+                    } catch (PolyglotException polyglotException) {
+                        return JsExecutionResult.failure(formatPolyglotError(polyglotException));
+                    } catch (Exception exception) {
+                        return JsExecutionResult.failure(
+                                exception.getClass().getName() + ": " + exception.getMessage());
+                    }
+                }
+            });
+            return future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            System.err.println("[GraalJS] Warm render timed out — disposing context");
+            disposeWarmContext();
+            return JsExecutionResult.failure(
+                    "JS evaluation timed out after " + TIMEOUT_SECONDS + " seconds");
+        } catch (Exception e) {
+            return JsExecutionResult.failure("Warm execution error: " + e.getMessage());
+        }
+    }
+
+    /** @return true if a warm context is active and ready for {@link #executeWarm} calls. */
+    boolean isWarm() {
+        return warmContext != null && warmThread != null && !warmThread.isShutdown();
+    }
+
+    /** @return true if the warm context should be recycled (too many renders). */
+    boolean needsRecycle() {
+        return warmRenderCount >= MAX_WARM_RENDERS;
+    }
+
+    /** Dispose the warm context and its dedicated thread. */
+    synchronized void disposeWarmContext() {
+        if (warmContext != null) {
+            try { warmContext.close(true); } catch (Exception ignored) {}
+            warmContext = null;
+        }
+        if (warmThread != null) {
+            warmThread.shutdownNow();
+            warmThread = null;
+        }
+        warmRenderCount = 0;
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Utilities
+    // ═════════════════════════════════════════════════════════════════════════
 
     private String formatPolyglotError(PolyglotException polyglotException) {
         StringBuilder sb = new StringBuilder();
@@ -190,18 +344,10 @@ final class GraalJsExecutor {
      */
     public static final class JavaBridge {
 
-        /**
-         * Off-screen image used to obtain a Graphics2D context for font metrics.
-         * Created once and reused (thread-confined to the GraalJS executor thread).
-         */
         private static final BufferedImage MEASURE_IMAGE =
                 new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
         private static final Graphics2D MEASURE_GFX = MEASURE_IMAGE.createGraphics();
 
-        /**
-         * Batik-based BBox service for accurate SVG geometry computation.
-         * Lazily initialized on first use.
-         */
         private BatikBBoxService bboxService;
 
         @SuppressWarnings("unused") // called from JS
@@ -210,14 +356,6 @@ final class GraalJsExecutor {
             System.err.println("[JS] " + message);
         }
 
-        /**
-         * Measure the pixel width of the given text using Java's font engine.
-         *
-         * @param text       the text to measure
-         * @param fontFamily CSS font-family string (e.g. "trebuchet ms, verdana, arial, sans-serif")
-         * @param fontSize   font size in pixels (e.g. 16)
-         * @return width in pixels (double)
-         */
         @SuppressWarnings("unused") // called from JS
         @HostAccess.Export
         public double measureTextWidth(String text, String fontFamily, double fontSize) {
@@ -227,11 +365,6 @@ final class GraalJsExecutor {
             return fm.stringWidth(text);
         }
 
-        /**
-         * Measure text and return both width and height.
-         *
-         * @return comma-separated "width,ascent,descent,height"
-         */
         @SuppressWarnings("unused") // called from JS
         @HostAccess.Export
         public String measureTextFull(String text, String fontFamily, double fontSize) {
@@ -245,21 +378,6 @@ final class GraalJsExecutor {
             return width + "," + ascent + "," + descent + "," + height;
         }
 
-        /**
-         * Compute the accurate bounding box of an SVG fragment using Apache Batik's
-         * GVT (Graphics Vector Toolkit) tree.
-         * <p>
-         * This is the key method that replaces the heuristic JavaScript-side
-         * {@code _computeElementDims()} for elements where accurate layout matters
-         * (especially {@code <text>} with {@code <tspan>} children).
-         * <p>
-         * The fragment is wrapped in a minimal {@code <svg>} document, parsed by
-         * Batik, and the resulting GVT tree's geometry bounds are returned.
-         *
-         * @param svgFragment well-formed SVG markup
-         *                    (e.g. {@code <text x="10" y="20"><tspan dy="1.2em">Hello</tspan></text>})
-         * @return comma-separated "x,y,width,height" string, or empty string if computation fails
-         */
         @SuppressWarnings("unused") // called from JS
         @HostAccess.Export
         public String computeSvgBBox(String svgFragment) {
@@ -271,10 +389,6 @@ final class GraalJsExecutor {
             return result != null ? result : "";
         }
 
-        /**
-         * Clear the Batik BBox cache. Should be called between diagram renders
-         * to prevent stale results.
-         */
         @SuppressWarnings("unused") // called from JS
         @HostAccess.Export
         public void clearBBoxCache() {
@@ -283,10 +397,6 @@ final class GraalJsExecutor {
             }
         }
 
-        /**
-         * Resolve a CSS font-family string to a Java Font.
-         * Tries each comma-separated font name, falls back to SansSerif.
-         */
         private static Font resolveFont(String fontFamily, int style, float size) {
             if (fontFamily != null && !fontFamily.isEmpty()) {
                 String[] families = fontFamily.split(",");

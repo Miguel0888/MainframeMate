@@ -423,8 +423,12 @@ public class MermaidDiagramPanel extends JPanel {
             @Override
             protected Void doInBackground() {
                 try {
-                    publish("\u23F3 SVG wird erzeugt (Mermaid-Engine)\u2026");
                     MermaidRenderer renderer = MermaidRenderer.getInstance();
+                    if (renderer.isAvailable()) {
+                        publish("\u23F3 Mermaid rendert Diagramm\u2026");
+                    } else {
+                        publish("\u23F3 Mermaid-Engine wird initialisiert\u2026");
+                    }
                     String svgResult = renderer.renderToSvg(source);
                     if (svgResult == null || !svgResult.contains("<svg")) {
                         error = true;

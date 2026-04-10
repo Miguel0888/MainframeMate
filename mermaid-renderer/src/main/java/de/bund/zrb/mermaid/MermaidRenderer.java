@@ -4,6 +4,9 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -11,8 +14,14 @@ import java.util.regex.Pattern;
 /**
  * Renders Mermaid diagram code to SVG using GraalJS with an embedded browser shim.
  * <p>
- * Thread-safe: each {@link #renderToSvg(String)} call creates a fresh GraalJS context.
- * The browser shim and Mermaid bundle are loaded once and cached.
+ * Performance: the first render warms up a persistent GraalJS context (browser shim +
+ * Mermaid bundle + {@code mermaid.initialize()}).  Subsequent renders reuse this
+ * context and only evaluate the short diagram-specific render script — typically
+ * 10–50× faster than creating a fresh context each time.
+ * <p>
+ * A small LRU SVG-cache avoids re-rendering identical diagram source.
+ * <p>
+ * Thread-safe: all GraalJS interaction is confined to the executor's dedicated thread.
  * <p>
  * Usage:
  * <pre>
@@ -63,6 +72,36 @@ public final class MermaidRenderer {
     private static final String EDGE_CHECK_PATCHED =
             "(this.config.maxEdges===0||this.edges.length<(this.config.maxEdges??Infinity))";
 
+    /** Maximum number of SVG results cached (LRU). */
+    private static final int SVG_CACHE_SIZE = 20;
+
+    // ── Pre-compiled regex patterns for postProcessSvg (avoid re-compilation per call) ──
+    private static final Pattern P_TRANSLATE_UNDEF = Pattern.compile("translate\\(undefined[^)]*\\)");
+    private static final Pattern P_TRANSLATE_NAN = Pattern.compile("translate\\(NaN[^)]*\\)");
+    private static final Pattern P_MAX_WIDTH = Pattern.compile("max-width:\\s*[^;\"]+;?\\s*");
+    private static final Pattern P_ROOT_VARS = Pattern.compile("#mmd-\\d+\\s*:root\\s*\\{[^}]*\\}");
+    private static final Pattern P_ALIGN_BASELINE_ATTR_DQ = Pattern.compile("\\s+alignment-baseline\\s*=\\s*\"[^\"]*\"");
+    private static final Pattern P_ALIGN_BASELINE_ATTR_SQ = Pattern.compile("\\s+alignment-baseline\\s*=\\s*'[^']*'");
+    private static final Pattern P_ALIGN_BASELINE_CSS = Pattern.compile("alignment-baseline\\s*:\\s*[^;\"'}<]+[;]?");
+    private static final Pattern P_DOM_BASELINE_ATTR_DQ = Pattern.compile("\\s+dominant-baseline\\s*=\\s*\"[^\"]*\"");
+    private static final Pattern P_DOM_BASELINE_ATTR_SQ = Pattern.compile("\\s+dominant-baseline\\s*=\\s*'[^']*'");
+    private static final Pattern P_DOM_BASELINE_CSS = Pattern.compile("dominant-baseline\\s*:\\s*[^;\"'}<]+[;]?");
+    private static final Pattern P_CSS_VAR_FALLBACK = Pattern.compile("var\\(\\s*--[\\w-]+\\s*,\\s*([^)]+)\\)");
+    private static final Pattern P_EMPTY_STYLE = Pattern.compile("\\s+style\\s*=\\s*\"[;\\s]*\"");
+    private static final Pattern P_EMPTY_FONT_WEIGHT = Pattern.compile("\\s+font-weight\\s*=\\s*\"\"");
+    private static final Pattern P_EMPTY_FONT_STYLE = Pattern.compile("\\s+font-style\\s*=\\s*\"\"");
+    private static final Pattern P_HSL_NAN = Pattern.compile("hsl\\([^)]*NaN[^)]*\\)");
+    private static final Pattern P_STYLE_FUNCTION = Pattern.compile(" style=\"function\\([^\"]*\"");
+    private static final Pattern P_NEG_HEIGHT = Pattern.compile("height\\s*=\\s*\"(-[\\d.]+)\"");
+    private static final Pattern P_NEG_WIDTH = Pattern.compile("<rect([^>]*)\\bwidth\\s*=\\s*\"(-[\\d.]+)\"([^>]*)>");
+    private static final Pattern P_X_ATTR = Pattern.compile("\\bx\\s*=\\s*\"(-?[\\d.]+)\"");
+    private static final Pattern P_BG_RECT = Pattern.compile("<rect[^>]*class=\"background\"[^>]*style=\"stroke:\\s*none\"[^>]*/?>");
+    private static final Pattern P_RECT_NO_WIDTH = Pattern.compile("<rect(?![^>]*width=)([^>]*?)(/?)>");
+    private static final Pattern P_FOREIGN_PAIRED = Pattern.compile("<foreignObject[^>]*>.*?</foreignObject>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    private static final Pattern P_FOREIGN_SELF_CLOSE = Pattern.compile("<foreignObject[^>]*/\\s*>", Pattern.CASE_INSENSITIVE);
+    private static final Pattern P_FOREIGN_OPEN = Pattern.compile("(?i)<foreignobject[^>]*>");
+    private static final Pattern P_FOREIGN_CLOSE = Pattern.compile("(?i)</foreignobject>");
+
     private static final MermaidRenderer INSTANCE = new MermaidRenderer();
 
     private final GraalJsExecutor executor = new GraalJsExecutor();
@@ -70,6 +109,18 @@ public final class MermaidRenderer {
 
     /** Lazily loaded and cached shim + mermaid bundle. */
     private volatile String cachedPreamble;
+
+    /**
+     * LRU cache: diagram source code → rendered SVG (post-processed).
+     * Avoids re-running the expensive JS engine for identical input.
+     */
+    private final Map<String, String> svgCache = Collections.synchronizedMap(
+            new LinkedHashMap<String, String>(SVG_CACHE_SIZE + 1, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+                    return size() > SVG_CACHE_SIZE;
+                }
+            });
 
     private MermaidRenderer() {
     }
@@ -80,6 +131,10 @@ public final class MermaidRenderer {
 
     /**
      * Render a Mermaid diagram definition to SVG markup.
+     * <p>
+     * Uses a warm GraalJS context if available (preamble already evaluated).
+     * Falls back to cold execution (full context creation) on first call or
+     * after a warm-context error.
      *
      * @param diagramCode Mermaid definition, e.g. {@code "graph TD; A-->B;"}
      * @return SVG string, or {@code null} if rendering failed
@@ -89,29 +144,83 @@ public final class MermaidRenderer {
             return null;
         }
 
+        // ── Check SVG cache ──
+        String cached = svgCache.get(diagramCode);
+        if (cached != null) {
+            System.err.println("[MermaidRenderer] SVG cache hit — skipping JS render");
+            return cached;
+        }
+
         String preamble = getPreamble();
         if (preamble == null) {
             return null;
         }
 
-        String diagramId = "mmd-" + diagramCounter.incrementAndGet();
-        String escapedDiagram = diagramCode
-                .replace("\\", "\\\\")
-                .replace("'", "\\'")
-                .replace("\n", "\\n")
-                .replace("\r", "");
+        // ── Try warm-context rendering first ──
+        String svgResult = renderWarm(diagramCode, preamble);
 
-        // Mermaid 11 API: render() returns a Promise that resolves to { svg: string }.
-        // GraalJS resolves microtasks synchronously within a single context.eval(),
-        // so the .then() callback fires before the script finishes.
-        // Fallback: try the legacy v9 callback API first (for old bundles).
+        // ── Fallback: cold rendering ──
+        if (svgResult == null) {
+            System.err.println("[MermaidRenderer] Warm render failed — falling back to cold execution");
+            svgResult = renderCold(diagramCode, preamble);
+        }
+
+        if (svgResult != null) {
+            svgCache.put(diagramCode, svgResult);
+        }
+        return svgResult;
+    }
+
+    /**
+     * Render using the warm (persistent) GraalJS context.
+     * Only the short render script is evaluated — preamble is already loaded.
+     */
+    private String renderWarm(String diagramCode, String preamble) {
+        // Ensure the warm context is available
+        if (!executor.isWarm() || executor.needsRecycle()) {
+            String warmPreamble = buildWarmPreamble(preamble);
+            System.err.println("[MermaidRenderer] " +
+                    (executor.isWarm() ? "Recycling" : "Warming up") + " GraalJS context...");
+            if (!executor.warmUp(warmPreamble)) {
+                return null; // warm-up failed — caller should fall back to cold
+            }
+        }
+
+        String diagramId = "mmd-" + diagramCounter.incrementAndGet();
+        String renderScript = buildRenderScript(diagramCode, diagramId);
+        String resultExpr = "__svgResult || (__renderError ? 'ERROR:' + __renderError : '')";
+
+        JsExecutionResult result = executor.executeWarm(renderScript, resultExpr);
+
+        if (result.isSuccessful() && result.getOutput() != null && !result.getOutput().isEmpty()) {
+            String output = result.getOutput();
+            if (output.startsWith("ERROR:")) {
+                System.err.println("[MermaidRenderer] Warm render failed: " + output);
+                // Dispose the warm context — it may be in a bad state
+                executor.disposeWarmContext();
+                return null;
+            }
+            return postProcessSvg(output);
+        }
+
+        System.err.println("[MermaidRenderer] Warm render failed: " +
+                (result.isSuccessful() ? "(empty output)" : result.getErrorMessage()));
+        executor.disposeWarmContext();
+        return null;
+    }
+
+    /**
+     * Render using a fresh GraalJS context (cold path — preamble re-evaluated).
+     */
+    private String renderCold(String diagramCode, String preamble) {
+        String diagramId = "mmd-" + diagramCounter.incrementAndGet();
+        String escapedDiagram = escapeForJs(diagramCode);
+
         String script = preamble + "\n"
                 + "var __mermaid = window.mermaid;\n"
                 + "var __svgResult = '';\n"
                 + "var __renderError = '';\n"
                 + "__mermaid.initialize(" + MERMAID_INIT_CONFIG + ");\n"
-                + "// Pre-create a container element in the DOM so diagram renderers\n"
-                + "// (especially Gantt) can find it and measure offsetWidth/Height.\n"
                 + "var __container = document.createElement('div');\n"
                 + "__container.id = 'd' + '" + diagramId + "';\n"
                 + "__container.setAttribute('id', 'd' + '" + diagramId + "');\n"
@@ -120,41 +229,95 @@ public final class MermaidRenderer {
                 + "try {\n"
                 + "  var __result = __mermaid.render('" + diagramId + "', '" + escapedDiagram + "');\n"
                 + "  if (__result && typeof __result.then === 'function') {\n"
-                + "    // Mermaid 11+: Promise<{svg: string}>\n"
                 + "    __result.then(function(res) {\n"
                 + "      __svgResult = (res && res.svg) ? res.svg : (typeof res === 'string' ? res : '');\n"
                 + "    })['catch'](function(err) {\n"
                 + "      __renderError = '' + err + (err && err.stack ? '\\nSTACK: ' + err.stack : '');\n"
                 + "    });\n"
                 + "  } else if (__result && __result.svg) {\n"
-                + "    // Direct result object\n"
                 + "    __svgResult = __result.svg;\n"
                 + "  } else if (typeof __result === 'string') {\n"
-                + "    // Legacy Mermaid 9.x sync return\n"
                 + "    __svgResult = __result;\n"
                 + "  }\n"
                 + "} catch(renderErr) {\n"
                 + "  __renderError = '' + renderErr + (renderErr && renderErr.stack ? '\\nSTACK: ' + renderErr.stack : '');\n"
                 + "}\n";
 
-        // Use executeAsync: the setup script chains .then() on the Promise,
-        // and the result expression is evaluated after microtask flush.
         String resultExpr = "__svgResult || (__renderError ? 'ERROR:' + __renderError : '')";
 
         JsExecutionResult result = executor.executeAsync(script, resultExpr);
         if (result.isSuccessful() && result.getOutput() != null && !result.getOutput().isEmpty()) {
             String output = result.getOutput();
-            // Detect error sentinel from async fallback path
             if (output.startsWith("ERROR:")) {
-                System.err.println("[MermaidRenderer] Render failed: " + output);
+                System.err.println("[MermaidRenderer] Cold render failed: " + output);
                 return null;
             }
             return postProcessSvg(output);
         }
-        System.err.println("[MermaidRenderer] Render failed for: "
+        System.err.println("[MermaidRenderer] Cold render failed for: "
                 + diagramCode.substring(0, Math.min(80, diagramCode.length()))
                 + (result.isSuccessful() ? " (empty output)" : " ERROR: " + result.getErrorMessage()));
         return null;
+    }
+
+    /**
+     * Build the preamble for warm-context initialization.
+     * Includes shim + bundle + mermaid.initialize() so subsequent calls
+     * only need the render script.
+     */
+    private String buildWarmPreamble(String preamble) {
+        return preamble + "\n"
+                + "var __mermaid = window.mermaid;\n"
+                + "__mermaid.initialize(" + MERMAID_INIT_CONFIG + ");\n"
+                + "var __svgResult = '';\n"
+                + "var __renderError = '';\n";
+    }
+
+    /**
+     * Build only the render script (no preamble) for warm-context execution.
+     * Resets state, creates a container, and calls mermaid.render().
+     */
+    private String buildRenderScript(String diagramCode, String diagramId) {
+        String escapedDiagram = escapeForJs(diagramCode);
+
+        return "// Reset state from previous render\n"
+                + "__svgResult = '';\n"
+                + "__renderError = '';\n"
+                + "javaBridge.clearBBoxCache();\n"
+                + "// Clean up previous container elements\n"
+                + "var __oldContainers = document.querySelectorAll('div[id^=\"dmmd-\"]');\n"
+                + "for (var i = 0; i < __oldContainers.length; i++) {\n"
+                + "  __oldContainers[i].parentNode.removeChild(__oldContainers[i]);\n"
+                + "}\n"
+                + "var __container = document.createElement('div');\n"
+                + "__container.id = 'd' + '" + diagramId + "';\n"
+                + "__container.setAttribute('id', 'd' + '" + diagramId + "');\n"
+                + "document.body.appendChild(__container);\n"
+                + "try {\n"
+                + "  var __result = __mermaid.render('" + diagramId + "', '" + escapedDiagram + "');\n"
+                + "  if (__result && typeof __result.then === 'function') {\n"
+                + "    __result.then(function(res) {\n"
+                + "      __svgResult = (res && res.svg) ? res.svg : (typeof res === 'string' ? res : '');\n"
+                + "    })['catch'](function(err) {\n"
+                + "      __renderError = '' + err + (err && err.stack ? '\\nSTACK: ' + err.stack : '');\n"
+                + "    });\n"
+                + "  } else if (__result && __result.svg) {\n"
+                + "    __svgResult = __result.svg;\n"
+                + "  } else if (typeof __result === 'string') {\n"
+                + "    __svgResult = __result;\n"
+                + "  }\n"
+                + "} catch(renderErr) {\n"
+                + "  __renderError = '' + renderErr + (renderErr && renderErr.stack ? '\\nSTACK: ' + renderErr.stack : '');\n"
+                + "}\n";
+    }
+
+    /** Escape diagram code for embedding in a JS string literal. */
+    private static String escapeForJs(String diagramCode) {
+        return diagramCode
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\n", "\\n")
+                .replace("\r", "");
     }
 
     /**
@@ -189,13 +352,9 @@ public final class MermaidRenderer {
         }
 
         String diagramId = "mmd-" + diagramCounter.incrementAndGet();
-        String escapedDiagram = diagramCode
-                .replace("\\", "\\\\")
-                .replace("'", "\\'")
-                .replace("\n", "\\n")
-                .replace("\r", "");
+        String escapedDiagram = escapeForJs(diagramCode);
 
-        // Same async-capable script as renderToSvg (Mermaid 11 API)
+        // Cold path for detailed results (error inspection needs fresh context)
         String script = preamble + "\n"
                 + "var __mermaid = window.mermaid;\n"
                 + "var __svgResult = '';\n"
@@ -266,8 +425,8 @@ public final class MermaidRenderer {
         svg = removeStrayHtmlElements(svg);
 
         // 4) Fix invalid "translate(undefined, undefined)" transforms
-        svg = svg.replaceAll("translate\\(undefined[^)]*\\)", "translate(0, 0)");
-        svg = svg.replaceAll("translate\\(NaN[^)]*\\)", "translate(0, 0)");
+        svg = P_TRANSLATE_UNDEF.matcher(svg).replaceAll("translate(0, 0)");
+        svg = P_TRANSLATE_NAN.matcher(svg).replaceAll("translate(0, 0)");
 
         // 5) viewBox recalculation — handled by MermaidSvgFixup.fixViewBoxFromAttributes()
         //    which uses DOM-based scanning and is much more precise than regex scanning.
@@ -279,50 +438,50 @@ public final class MermaidRenderer {
         svg = svg.replaceFirst("width=\"100%\"", "width=\"1600\"");
 
         // 7) Remove max-width from inline style (confuses Batik)
-        svg = svg.replaceAll("max-width:\\s*[^;\"]+;?\\s*", "");
+        svg = P_MAX_WIDTH.matcher(svg).replaceAll("");
 
         // 8) Replace fill="currentColor" with a concrete color (Batik doesn't support it)
         svg = svg.replace("fill=\"currentColor\"", "fill=\"#333333\"");
 
         // 9) Strip CSS :root rules with custom properties (Batik doesn't support CSS variables)
-        svg = svg.replaceAll("#mmd-\\d+\\s*:root\\s*\\{[^}]*\\}", "");
+        svg = P_ROOT_VARS.matcher(svg).replaceAll("");
 
         // 10) Remove alignment-baseline attributes (Batik chokes on value "central")
         //     Handle both double and single quoted attribute values
-        svg = svg.replaceAll("\\s+alignment-baseline\\s*=\\s*\"[^\"]*\"", "");
-        svg = svg.replaceAll("\\s+alignment-baseline\\s*=\\s*'[^']*'", "");
+        svg = P_ALIGN_BASELINE_ATTR_DQ.matcher(svg).replaceAll("");
+        svg = P_ALIGN_BASELINE_ATTR_SQ.matcher(svg).replaceAll("");
 
         // 10a) Remove alignment-baseline from CSS in <style> blocks AND inline styles
-        svg = svg.replaceAll("alignment-baseline\\s*:\\s*[^;\"'}<]+[;]?", "");
+        svg = P_ALIGN_BASELINE_CSS.matcher(svg).replaceAll("");
 
         // 10aa) Remove dominant-baseline attributes (Batik chokes on "central", "middle")
-        svg = svg.replaceAll("\\s+dominant-baseline\\s*=\\s*\"[^\"]*\"", "");
-        svg = svg.replaceAll("\\s+dominant-baseline\\s*=\\s*'[^']*'", "");
-        svg = svg.replaceAll("dominant-baseline\\s*:\\s*[^;\"'}<]+[;]?", "");
+        svg = P_DOM_BASELINE_ATTR_DQ.matcher(svg).replaceAll("");
+        svg = P_DOM_BASELINE_ATTR_SQ.matcher(svg).replaceAll("");
+        svg = P_DOM_BASELINE_CSS.matcher(svg).replaceAll("");
 
         // 10ab) Replace CSS var() references (Batik has no CSS variable support)
         svg = svg.replace("var(--mermaid-font-family)",
                 "'trebuchet ms', verdana, arial, sans-serif");
-        svg = svg.replaceAll("var\\(\\s*--[\\w-]+\\s*,\\s*([^)]+)\\)", "$1");
+        svg = P_CSS_VAR_FALLBACK.matcher(svg).replaceAll("$1");
 
         // 10ac) Fix fractional rgb() values: e.g. rgb(48.833, 0, 146.5) → hex
         svg = fixFractionalRgbValues(svg);
 
         // 10ad) Clean up empty/broken style attributes: style=";;;" → remove
-        svg = svg.replaceAll("\\s+style\\s*=\\s*\"[;\\s]*\"", "");
+        svg = P_EMPTY_STYLE.matcher(svg).replaceAll("");
 
         // 10ae) Remove empty presentation attributes: font-weight="" / font-style=""
         //       Mermaid class diagrams emit <tspan font-weight=""> which crashes
         //       Batik's CSS parser (empty string is not a valid font-weight value).
-        svg = svg.replaceAll("\\s+font-weight\\s*=\\s*\"\"", "");
-        svg = svg.replaceAll("\\s+font-style\\s*=\\s*\"\"", "");
+        svg = P_EMPTY_FONT_WEIGHT.matcher(svg).replaceAll("");
+        svg = P_EMPTY_FONT_STYLE.matcher(svg).replaceAll("");
 
         // 10af) Replace hsl() with NaN values (browser shim artefact)
-        svg = svg.replaceAll("hsl\\([^)]*NaN[^)]*\\)", "#888888");
+        svg = P_HSL_NAN.matcher(svg).replaceAll("#888888");
 
         // 10b) Clean up style attributes containing serialized JavaScript functions
         //      (polyfill methods like Array.prototype.at may leak into attr values)
-        svg = svg.replaceAll(" style=\"function\\([^\"]*\"", " style=\"\"");
+        svg = P_STYLE_FUNCTION.matcher(svg).replaceAll(" style=\"\"");
 
         // 10c) Sanitise CSS for Batik: strip @keyframes, animation, hsl(), rgba(),
         //      stroke-linecap — these must be removed BEFORE CDATA wrapping
@@ -338,9 +497,7 @@ public final class MermaidRenderer {
         //      when D3's time scale inverts coordinates).
         //      Convert negative width to absolute value and shift x accordingly.
         {
-            java.util.regex.Pattern negWP = java.util.regex.Pattern.compile(
-                    "<rect([^>]*)\\bwidth\\s*=\\s*\"(-[\\d.]+)\"([^>]*)>");
-            java.util.regex.Matcher negWM = negWP.matcher(svg);
+            Matcher negWM = P_NEG_WIDTH.matcher(svg);
             StringBuffer negWSb = new StringBuffer(svg.length());
             while (negWM.find()) {
                 String before = negWM.group(1);
@@ -357,8 +514,7 @@ public final class MermaidRenderer {
 
                 // Try to adjust x position: x = x + negW (shift left by absolute width)
                 String combined = before + after;
-                java.util.regex.Matcher xM = java.util.regex.Pattern.compile(
-                        "\\bx\\s*=\\s*\"(-?[\\d.]+)\"").matcher(combined);
+                Matcher xM = P_X_ATTR.matcher(combined);
                 if (xM.find()) {
                     double oldX = Double.parseDouble(xM.group(1));
                     double newX = oldX + negW; // negW is negative, so this shifts left
@@ -366,12 +522,12 @@ public final class MermaidRenderer {
                             "\\bx\\s*=\\s*\"-?[\\d.]+\"",
                             "x=\"" + String.format(java.util.Locale.US, "%.1f", newX) + "\"");
                     negWM.appendReplacement(negWSb,
-                            java.util.regex.Matcher.quoteReplacement(
+                            Matcher.quoteReplacement(
                                     "<rect" + fixedAttrs + " width=\""
                                     + String.format(java.util.Locale.US, "%.1f", posW) + "\"" + closeTag));
                 } else {
                     negWM.appendReplacement(negWSb,
-                            java.util.regex.Matcher.quoteReplacement(
+                            Matcher.quoteReplacement(
                                     "<rect" + before + "width=\""
                                     + String.format(java.util.Locale.US, "%.1f", posW) + "\"" + after + closeTag));
                 }
@@ -380,7 +536,7 @@ public final class MermaidRenderer {
             svg = negWSb.toString();
         }
         // Also clamp any remaining negative height to 0 (not applicable to Gantt but safety net)
-        svg = svg.replaceAll("height\\s*=\\s*\"(-[\\d.]+)\"", "height=\"0\"");
+        svg = P_NEG_HEIGHT.matcher(svg).replaceAll("height=\"0\"");
 
         // 10e) Fix SVG element case sensitivity: D3 creates lowercase element names
         //      (lineargradient) but SVG requires camelCase (linearGradient)
@@ -414,9 +570,9 @@ public final class MermaidRenderer {
         //      Mermaid with htmlLabels:false emits <rect class="background" style="stroke: none"/>
         //      which are decorative background rects with no dimensions.
         //      Remove them entirely (they're invisible anyway) or add default values.
-        svg = svg.replaceAll("<rect[^>]*class=\"background\"[^>]*style=\"stroke:\\s*none\"[^>]*/?>", "");
+        svg = P_BG_RECT.matcher(svg).replaceAll("");
         // For any remaining <rect> without width, add width="0" height="0" so Batik doesn't crash
-        svg = Pattern.compile("<rect(?![^>]*width=)([^>]*?)(/?)>").matcher(svg)
+        svg = P_RECT_NO_WIDTH.matcher(svg)
                 .replaceAll("<rect width=\"0\" height=\"0\"$1$2>");
 
         // 13) Final safety: re-extract <svg>...</svg> to ensure no trailing content,
@@ -447,14 +603,12 @@ public final class MermaidRenderer {
      */
     private static String removeRemainingForeignObjects(String svg) {
         // Remove paired foreignObject blocks (may miss nested ones)
-        svg = Pattern.compile("<foreignObject[^>]*>.*?</foreignObject>",
-                Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(svg).replaceAll("");
+        svg = P_FOREIGN_PAIRED.matcher(svg).replaceAll("");
         // Remove self-closing foreignObject elements
-        svg = Pattern.compile("<foreignObject[^>]*/\\s*>",
-                Pattern.CASE_INSENSITIVE).matcher(svg).replaceAll("");
+        svg = P_FOREIGN_SELF_CLOSE.matcher(svg).replaceAll("");
         // Remove ANY remaining foreignObject opening/closing tags (orphaned from nesting)
-        svg = svg.replaceAll("(?i)<foreignobject[^>]*>", "");
-        svg = svg.replaceAll("(?i)</foreignobject>", "");
+        svg = P_FOREIGN_OPEN.matcher(svg).replaceAll("");
+        svg = P_FOREIGN_CLOSE.matcher(svg).replaceAll("");
 
         // Clean up orphaned nested SVG structures:
         // After foreignObject removal, nested <svg>...</svg> blocks are exposed
