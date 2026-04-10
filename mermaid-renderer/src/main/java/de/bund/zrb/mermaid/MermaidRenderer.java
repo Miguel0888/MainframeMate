@@ -39,16 +39,29 @@ public final class MermaidRenderer {
             + " sequence: { htmlLabels: false } }";
 
     /**
-     * String fragment used to patch the Mermaid edge-limit check inside
-     * {@link #getPreamble()}.  The original check
-     * {@code this.edges.length < (this.config.maxEdges ?? 500)} treats 0 as
-     * "zero edges allowed" (always false).  We prepend
-     * {@code this.config.maxEdges===0 ||} so that 0 means "no limit".
+     * Patches the Mermaid edge-limit check inside {@link #getPreamble()}.
+     * <p>
+     * Mermaid's original minified code reads:
+     * {@code this.edges.length < (this.config.maxEdges ?? 500)}
+     * where {@code 500} is Mermaid's hard-coded internal default.
+     * When {@code maxEdges} is set to {@code 0} in our init config this
+     * evaluates to {@code edges.length < 0} which is always {@code false}
+     * and throws "Edge limit exceeded".
+     * <p>
+     * The patched version:
+     * <ul>
+     *   <li>{@code maxEdges === 0} &rarr; unlimited (no check)</li>
+     *   <li>{@code maxEdges > 0}   &rarr; normal limit check</li>
+     *   <li>{@code maxEdges} unset &rarr; fallback to {@code Infinity} (unlimited)</li>
+     * </ul>
+     * The {@code EDGE_CHECK_ORIGINAL} constant contains the <em>exact</em>
+     * Mermaid source fragment (including its {@code 500} default) that must
+     * be matched for the {@link String#replace} to succeed.
      */
     private static final String EDGE_CHECK_ORIGINAL =
             "this.edges.length<(this.config.maxEdges??500)";
     private static final String EDGE_CHECK_PATCHED =
-            "(this.config.maxEdges===0||this.edges.length<(this.config.maxEdges??500))";
+            "(this.config.maxEdges===0||this.edges.length<(this.config.maxEdges??Infinity))";
 
     private static final MermaidRenderer INSTANCE = new MermaidRenderer();
 
