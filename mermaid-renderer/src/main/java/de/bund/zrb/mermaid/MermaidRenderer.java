@@ -33,6 +33,7 @@ public final class MermaidRenderer {
      */
     private static final String MERMAID_INIT_CONFIG =
             "{ startOnLoad: false, securityLevel: 'loose',"
+            + " maxEdges: 10000,"
             + " htmlLabels: false,"
             + " flowchart: { htmlLabels: false },"
             + " sequence: { htmlLabels: false } }";
