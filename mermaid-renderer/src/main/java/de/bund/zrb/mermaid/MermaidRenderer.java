@@ -39,15 +39,16 @@ public final class MermaidRenderer {
             + " sequence: { htmlLabels: false } }";
 
     /**
-     * After mermaid.initialize(), patch maxEdges: treat 0 as "no limit"
-     * by replacing it with Infinity so the internal check
-     * {@code edges.length < maxEdges} is always true.
+     * String fragment used to patch the Mermaid edge-limit check inside
+     * {@link #getPreamble()}.  The original check
+     * {@code this.edges.length < (this.config.maxEdges ?? 500)} treats 0 as
+     * "zero edges allowed" (always false).  We prepend
+     * {@code this.config.maxEdges===0 ||} so that 0 means "no limit".
      */
-    private static final String PATCH_MAX_EDGES =
-            "(function() {\n"
-            + "  var cfg = __mermaid.mermaidAPI ? __mermaid.mermaidAPI.getConfig() : (__mermaid.getConfig ? __mermaid.getConfig() : null);\n"
-            + "  if (cfg && cfg.maxEdges === 0) { cfg.maxEdges = Infinity; }\n"
-            + "})();\n";
+    private static final String EDGE_CHECK_ORIGINAL =
+            "this.edges.length<(this.config.maxEdges??500)";
+    private static final String EDGE_CHECK_PATCHED =
+            "(this.config.maxEdges===0||this.edges.length<(this.config.maxEdges??500))";
 
     private static final MermaidRenderer INSTANCE = new MermaidRenderer();
 
@@ -96,8 +97,6 @@ public final class MermaidRenderer {
                 + "var __svgResult = '';\n"
                 + "var __renderError = '';\n"
                 + "__mermaid.initialize(" + MERMAID_INIT_CONFIG + ");\n"
-                + PATCH_MAX_EDGES
-                + "\n"
                 + "// Pre-create a container element in the DOM so diagram renderers\n"
                 + "// (especially Gantt) can find it and measure offsetWidth/Height.\n"
                 + "var __container = document.createElement('div');\n"
@@ -189,7 +188,6 @@ public final class MermaidRenderer {
                 + "var __svgResult = '';\n"
                 + "var __renderError = '';\n"
                 + "__mermaid.initialize(" + MERMAID_INIT_CONFIG + ");\n"
-                + PATCH_MAX_EDGES
                 + "var __container = document.createElement('div');\n"
                 + "__container.id = 'd' + '" + diagramId + "';\n"
                 + "__container.setAttribute('id', 'd' + '" + diagramId + "');\n"
@@ -1251,6 +1249,10 @@ public final class MermaidRenderer {
                         mermaidBundle = mermaidBundle.replace(
                                 "tl=nW()",
                                 "tl={sanitize:function(t){return typeof t==='string'?t:''},isSupported:true,removed:[],version:'3.3.3'}");
+                        // Patch the edge-limit check so that maxEdges === 0 means "no limit".
+                        mermaidBundle = mermaidBundle.replace(
+                                EDGE_CHECK_ORIGINAL,
+                                EDGE_CHECK_PATCHED);
                         cachedPreamble = shim + "\n" +
                                 "var module = undefined; var exports = undefined; var define = undefined;\n" +
                                 mermaidBundle;
