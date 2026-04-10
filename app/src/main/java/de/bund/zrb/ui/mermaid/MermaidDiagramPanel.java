@@ -436,14 +436,14 @@ public class MermaidDiagramPanel extends JPanel {
                         String dId = UUID.randomUUID().toString();
                         tiled = new TiledDiagramRenderer(renderedSvg, dId);
                         useTiled = true;
-                        // Render a low-LOD overview for immediate display
-                        // Only render the first few visible tiles at LOD 0 (thumbnail)
+                        // Pre-render a few tiles at LOD 1 (medium) for quick preview
+                        // LOD 0 uses simplified shapes and needs no tile images
                         List<DiagramTile> all = tiled.getAllTiles();
-                        int preRender = Math.min(all.size(), 4); // first 4 tiles for quick preview
+                        int preRender = Math.min(all.size(), 6);
                         for (int i = 0; i < preRender; i++) {
                             DiagramTile t = all.get(i);
-                            BufferedImage img = tiled.renderTile(t, 0, tileCache);
-                            t.setImage(img);
+                            BufferedImage img = tiled.renderTile(t, 1, tileCache);
+                            t.setImage(img, 1);
                         }
                     } else {
                         // Small diagram → render as single image (legacy path)
@@ -587,32 +587,66 @@ public class MermaidDiagramPanel extends JPanel {
 
     private void loadVisibleTiles() {
         if (!tiledMode || tiledRenderer == null) return;
+
+        final int lod = TiledDiagramRenderer.lodForZoom(zoom);
+
+        // LOD 0 = simplified overview, no tiles needed
+        if (lod == 0) {
+            currentLod = 0;
+            imagePanel.repaint();
+            return;
+        }
+
         double[] vp = getViewportInSvgSpace();
         if (vp == null) return;
 
-        final int lod = TiledDiagramRenderer.lodForZoom(zoom);
         currentLod = lod;
 
         final List<DiagramTile> visible = tiledRenderer.getVisibleTiles(vp[0], vp[1], vp[2], vp[3]);
 
-        // Find tiles that need rendering (no image or wrong LOD)
+        // Find tiles that need rendering:
+        //  - no image at all (never rendered or GC-evicted)
+        //  - image at wrong LOD (zoom changed)
         final List<DiagramTile> toRender = new ArrayList<DiagramTile>();
+        // Compute viewport center for priority sorting
+        final double vpCenterX = vp[0] + vp[2] / 2.0;
+        final double vpCenterY = vp[1] + vp[3] / 2.0;
+
         for (DiagramTile t : visible) {
-            if (t.getImage() == null && !t.isRendering()) {
+            if (t.isRendering()) continue;
+            BufferedImage img = t.getImage();
+            if (img == null || t.getImageLod() != lod) {
                 toRender.add(t);
             }
         }
 
         if (toRender.isEmpty()) return;
 
-        // Background worker to render missing tiles
+        // Sort by distance from viewport center (render closest first)
+        java.util.Collections.sort(toRender, new java.util.Comparator<DiagramTile>() {
+            @Override
+            public int compare(DiagramTile a, DiagramTile b) {
+                double da = distToCenter(a);
+                double db = distToCenter(b);
+                return Double.compare(da, db);
+            }
+            private double distToCenter(DiagramTile t) {
+                double cx = t.getSvgX() + t.getSvgW() / 2.0;
+                double cy = t.getSvgY() + t.getSvgH() / 2.0;
+                return Math.hypot(cx - vpCenterX, cy - vpCenterY);
+            }
+        });
+
+        // Background worker to render missing / stale tiles
         SwingWorker<Void, DiagramTile> worker = new SwingWorker<Void, DiagramTile>() {
             @Override
             protected Void doInBackground() {
                 for (DiagramTile t : toRender) {
+                    // Abort if LOD changed while we're rendering (user zoomed)
+                    if (TiledDiagramRenderer.lodForZoom(zoom) != lod) break;
                     t.setRendering(true);
                     BufferedImage img = tiledRenderer.renderTile(t, lod, tileCache);
-                    t.setImage(img);
+                    t.setImage(img, lod);
                     t.setRendering(false);
                     publish(t);
                 }
@@ -874,59 +908,177 @@ public class MermaidDiagramPanel extends JPanel {
     }
 
     /**
-     * Paint the diagram using tiles. Only renders tiles that overlap
-     * the current viewport. Missing tiles show a placeholder.
+     * Paint the diagram using tiles. Only renders tiles visible in the
+     * current viewport. At low LOD (zoomed out), paints simplified
+     * shapes instead of rasterised SVG tiles.
      */
     private void paintTiledDiagram(Graphics2D g2, int ox, int oy) {
         double vbX = tiledRenderer.getViewBoxX();
         double vbY = tiledRenderer.getViewBoxY();
-        double vbW = tiledRenderer.getViewBoxWidth();
-        double vbH = tiledRenderer.getViewBoxHeight();
 
-        for (int r = 0; r < tiledRenderer.getRows(); r++) {
-            for (int c = 0; c < tiledRenderer.getCols(); c++) {
-                DiagramTile tile = tiledRenderer.getTile(c, r);
+        int lod = TiledDiagramRenderer.lodForZoom(zoom);
 
-                // Convert tile SVG bounds to screen coordinates
-                double tileScreenX = ox + (tile.getSvgX() - vbX) * zoom;
-                double tileScreenY = oy + (tile.getSvgY() - vbY) * zoom;
-                double tileScreenW = tile.getSvgW() * zoom;
-                double tileScreenH = tile.getSvgH() * zoom;
+        // ── Determine visible tiles via viewport ──
+        double[] vp = getViewportInSvgSpace();
+        List<DiagramTile> visible;
+        if (vp != null) {
+            // Slightly expand viewport for smoother panning (10% margin)
+            visible = tiledRenderer.getVisibleTiles(
+                    vp[0] - vp[2] * 0.1, vp[1] - vp[3] * 0.1,
+                    vp[2] * 1.2, vp[3] * 1.2);
+        } else {
+            visible = tiledRenderer.getAllTiles();
+        }
 
-                // Frustum culling: skip tiles outside the panel
-                int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
-                if (tileScreenX + tileScreenW < -10 || tileScreenX > pw + 10 ||
-                    tileScreenY + tileScreenH < -10 || tileScreenY > ph + 10) {
-                    continue;
-                }
+        // ── LOD 0: simplified overview — draw diagram shapes directly ──
+        if (lod == 0 && diagram != null) {
+            paintSimplifiedOverview(g2, ox, oy, vbX, vbY);
+            return;
+        }
 
-                int sx = (int) Math.round(tileScreenX);
-                int sy = (int) Math.round(tileScreenY);
-                int sw = (int) Math.round(tileScreenW);
-                int sh = (int) Math.round(tileScreenH);
+        // ── LOD 1–3: draw tile images (only visible ones) ──
+        int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
+        for (DiagramTile tile : visible) {
+            double tileScreenX = ox + (tile.getSvgX() - vbX) * zoom;
+            double tileScreenY = oy + (tile.getSvgY() - vbY) * zoom;
+            double tileScreenW = tile.getSvgW() * zoom;
+            double tileScreenH = tile.getSvgH() * zoom;
 
-                BufferedImage tileImg = tile.getImage();
-                if (tileImg != null) {
+            int sx = (int) Math.round(tileScreenX);
+            int sy = (int) Math.round(tileScreenY);
+            int sw = Math.max((int) Math.round(tileScreenW), 1);
+            int sh = Math.max((int) Math.round(tileScreenH), 1);
+
+            BufferedImage tileImg = tile.getImage();
+            if (tileImg != null) {
+                // Dim slightly if the image is from a stale LOD
+                if (tile.getImageLod() != lod && tile.getImageLod() >= 0) {
+                    Composite old = g2.getComposite();
+                    g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.6f));
                     g2.drawImage(tileImg, sx, sy, sw, sh, null);
+                    g2.setComposite(old);
                 } else {
-                    // Placeholder: light grey with grid lines
-                    g2.setColor(new Color(245, 245, 245));
-                    g2.fillRect(sx, sy, sw, sh);
-                    g2.setColor(new Color(200, 200, 200));
-                    g2.drawRect(sx, sy, sw, sh);
+                    g2.drawImage(tileImg, sx, sy, sw, sh, null);
+                }
+            } else {
+                // Placeholder: light grey with grid lines
+                g2.setColor(new Color(245, 245, 245));
+                g2.fillRect(sx, sy, sw, sh);
+                g2.setColor(new Color(220, 220, 220));
+                g2.drawRect(sx, sy, sw, sh);
 
-                    if (tile.isRendering()) {
-                        // Show loading indicator
-                        g2.setColor(new Color(150, 150, 150));
-                        g2.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 11));
-                        String msg = "\u23F3";
-                        FontMetrics fm = g2.getFontMetrics();
-                        g2.drawString(msg, sx + (sw - fm.stringWidth(msg)) / 2,
-                                sy + (sh + fm.getAscent()) / 2);
-                    }
+                if (tile.isRendering()) {
+                    g2.setColor(new Color(150, 150, 150));
+                    g2.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 11));
+                    String msg = "\u23F3";
+                    FontMetrics fm = g2.getFontMetrics();
+                    g2.drawString(msg, sx + (sw - fm.stringWidth(msg)) / 2,
+                            sy + (sh + fm.getAscent()) / 2);
                 }
             }
         }
+    }
+
+    /** Color palette for simplified node shapes (LOD 0). */
+    private static final Color[] LOD0_NODE_COLORS = {
+        new Color(100, 149, 237),  // cornflower blue
+        new Color(60, 179, 113),   // medium sea green
+        new Color(255, 165, 0),    // orange
+        new Color(147, 112, 219),  // medium purple
+        new Color(220, 20, 60),    // crimson
+        new Color(0, 139, 139),    // dark cyan
+        new Color(255, 105, 180),  // hot pink
+        new Color(107, 142, 35),   // olive drab
+    };
+
+    /**
+     * Paint a simplified overview of the diagram without rasterising SVG.
+     * Draws simple coloured rectangles for nodes and straight lines for
+     * edges. At this zoom level the user only needs the overall structure.
+     */
+    private void paintSimplifiedOverview(Graphics2D g2, int ox, int oy,
+                                          double vbX, double vbY) {
+        // Background fill for diagram area
+        double vbW = tiledRenderer.getViewBoxWidth();
+        double vbH = tiledRenderer.getViewBoxHeight();
+        int bgX = (int) Math.round(ox);
+        int bgY = (int) Math.round(oy);
+        int bgW = (int) Math.round(vbW * zoom);
+        int bgH = (int) Math.round(vbH * zoom);
+        g2.setColor(new Color(252, 252, 252));
+        g2.fillRect(bgX, bgY, bgW, bgH);
+        g2.setColor(new Color(210, 210, 210));
+        g2.drawRect(bgX, bgY, bgW, bgH);
+
+        // Draw edges first (behind nodes)
+        g2.setStroke(new BasicStroke(Math.max(1f, (float) zoom * 2f)));
+        g2.setColor(new Color(160, 160, 160, 180));
+        for (DiagramEdge edge : diagram.getEdges()) {
+            DiagramNode src = findNodeById(edge.getSourceId());
+            DiagramNode tgt = findNodeById(edge.getTargetId());
+            if (src != null && tgt != null) {
+                int x1 = (int) Math.round(ox + (src.getX() + src.getWidth() / 2.0 - vbX) * zoom);
+                int y1 = (int) Math.round(oy + (src.getY() + src.getHeight() / 2.0 - vbY) * zoom);
+                int x2 = (int) Math.round(ox + (tgt.getX() + tgt.getWidth() / 2.0 - vbX) * zoom);
+                int y2 = (int) Math.round(oy + (tgt.getY() + tgt.getHeight() / 2.0 - vbY) * zoom);
+                g2.drawLine(x1, y1, x2, y2);
+            }
+        }
+
+        // Draw nodes as simple rounded rectangles
+        g2.setStroke(new BasicStroke(1f));
+        int colorIdx = 0;
+        int pw = imagePanel.getWidth(), ph = imagePanel.getHeight();
+        for (DiagramNode node : diagram.getNodes()) {
+            if (node instanceof SequenceFragment) continue;
+
+            int nx = (int) Math.round(ox + (node.getX() - vbX) * zoom);
+            int ny = (int) Math.round(oy + (node.getY() - vbY) * zoom);
+            int nw = Math.max((int) Math.round(node.getWidth() * zoom), 3);
+            int nh = Math.max((int) Math.round(node.getHeight() * zoom), 3);
+
+            // Skip nodes completely outside viewport
+            if (nx + nw < -5 || nx > pw + 5 || ny + nh < -5 || ny > ph + 5) {
+                colorIdx++;
+                continue;
+            }
+
+            Color nodeColor = LOD0_NODE_COLORS[colorIdx % LOD0_NODE_COLORS.length];
+            g2.setColor(new Color(nodeColor.getRed(), nodeColor.getGreen(),
+                    nodeColor.getBlue(), 180));
+            g2.fillRoundRect(nx, ny, nw, nh, 4, 4);
+            g2.setColor(nodeColor.darker());
+            g2.drawRoundRect(nx, ny, nw, nh, 4, 4);
+
+            // Show label only if the rectangle is wide enough
+            if (nw > 20 && nh > 8) {
+                String label = node.getLabel();
+                if (label != null && !label.isEmpty()) {
+                    // Truncate long labels
+                    if (label.length() > 12) label = label.substring(0, 10) + "\u2026";
+                    g2.setColor(Color.WHITE);
+                    Font smallFont = new Font(Font.SANS_SERIF, Font.BOLD,
+                            Math.max(7, Math.min(10, nh - 2)));
+                    g2.setFont(smallFont);
+                    FontMetrics fm = g2.getFontMetrics();
+                    int tw = fm.stringWidth(label);
+                    if (tw < nw - 2) {
+                        g2.drawString(label, nx + (nw - tw) / 2,
+                                ny + (nh + fm.getAscent()) / 2 - 1);
+                    }
+                }
+            }
+            colorIdx++;
+        }
+    }
+
+    /** Find a DiagramNode by id (utility for simplified overview). */
+    private DiagramNode findNodeById(String id) {
+        if (id == null || diagram == null) return null;
+        for (DiagramNode n : diagram.getNodes()) {
+            if (id.equals(n.getId())) return n;
+        }
+        return null;
     }
 
     /**

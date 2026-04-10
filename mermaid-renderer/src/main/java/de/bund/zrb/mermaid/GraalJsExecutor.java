@@ -28,7 +28,7 @@ import java.util.concurrent.TimeoutException;
 final class GraalJsExecutor {
 
     /** Maximum time in seconds to wait for a single JS evaluation. */
-    private static final int TIMEOUT_SECONDS = 120;
+    private static final int TIMEOUT_SECONDS = 600;
 
     /**
      * Evaluates the given JavaScript source and returns the result.

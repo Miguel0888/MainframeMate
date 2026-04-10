@@ -24,6 +24,9 @@ public final class DiagramTile {
     /** Soft reference — GC may reclaim; reload from cache on next access. */
     private volatile SoftReference<BufferedImage> imageRef;
 
+    /** LOD level at which the current image was rendered (-1 = none). */
+    private volatile int imageLod = -1;
+
     /** True while a background worker is rendering this tile. */
     private volatile boolean rendering;
 
@@ -55,9 +58,20 @@ public final class DiagramTile {
         return ref != null ? ref.get() : null;
     }
 
+    /** Set the image without LOD tracking (legacy compat). */
     public void setImage(BufferedImage img) {
         this.imageRef = img != null ? new SoftReference<BufferedImage>(img) : null;
+        if (img == null) this.imageLod = -1;
     }
+
+    /** Set the image and record the LOD at which it was rendered. */
+    public void setImage(BufferedImage img, int lod) {
+        this.imageRef = img != null ? new SoftReference<BufferedImage>(img) : null;
+        this.imageLod = img != null ? lod : -1;
+    }
+
+    /** @return the LOD level of the cached image, or -1 if no image. */
+    public int getImageLod() { return imageLod; }
 
     public boolean isRendering() { return rendering; }
     public void setRendering(boolean rendering) { this.rendering = rendering; }
@@ -70,7 +84,7 @@ public final class DiagramTile {
     @Override
     public String toString() {
         return "Tile[" + col + "," + row + " svgXY=(" + (int) svgX + "," + (int) svgY
-                + ") " + pixelWidth + "x" + pixelHeight + "px]";
+                + ") " + pixelWidth + "x" + pixelHeight + "px lod=" + imageLod + "]";
     }
 }
 
