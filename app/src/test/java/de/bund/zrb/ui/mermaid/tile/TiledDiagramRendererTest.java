@@ -31,6 +31,18 @@ class TiledDiagramRendererTest {
                     + "<circle cx=\"2400\" cy=\"1800\" r=\"100\" fill=\"green\"/>"
                     + "</svg>";
 
+    /**
+     * Large SVG with explicit width/height (as MermaidSvgFixup.setDimensions produces).
+     * The width/height have a DIFFERENT pixel size than the viewBox units.
+     */
+    private static final String LARGE_SVG_WITH_DIMS =
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"2000\" height=\"1500\""
+                    + " viewBox=\"0 0 3200 2400\">"
+                    + "<rect width=\"3200\" height=\"2400\" fill=\"white\"/>"
+                    + "<circle cx=\"800\" cy=\"600\" r=\"100\" fill=\"red\"/>"
+                    + "<circle cx=\"2400\" cy=\"1800\" r=\"100\" fill=\"green\"/>"
+                    + "</svg>";
+
     @Test
     @DisplayName("Small SVG → single tile")
     void smallSvgSingleTile() {
@@ -128,6 +140,51 @@ class TiledDiagramRendererTest {
         assertTrue(clipped.contains("100.00 200.00 800.00 600.00"),
                 "Clipped SVG should contain the new viewBox: " + clipped);
         assertTrue(clipped.contains("<circle"), "Original content should be preserved");
+    }
+
+    @Test
+    @DisplayName("clipSvgToViewBox updates width and height to match tile viewBox")
+    void clipSvgUpdatesWidthAndHeight() {
+        String clipped = TiledDiagramRenderer.clipSvgToViewBox(LARGE_SVG_WITH_DIMS, 0, 0, 800, 600);
+
+        // viewBox should be updated
+        assertTrue(clipped.contains("0.00 0.00 800.00 600.00"),
+                "viewBox should be updated: " + clipped);
+
+        // width/height must now match the tile dimensions (not the old 2000/1500)
+        assertTrue(clipped.contains("width=\"800\""),
+                "width should match tile viewBox width: " + clipped);
+        assertTrue(clipped.contains("height=\"600\""),
+                "height should match tile viewBox height: " + clipped);
+
+        // Old dimensions must be gone
+        assertFalse(clipped.contains("width=\"2000\""),
+                "Old width should be replaced: " + clipped);
+        assertFalse(clipped.contains("height=\"1500\""),
+                "Old height should be replaced: " + clipped);
+    }
+
+    @Test
+    @DisplayName("clipSvgToViewBox produces different SVG for different tiles")
+    void clipSvgDifferentTiles() {
+        String tile00 = TiledDiagramRenderer.clipSvgToViewBox(LARGE_SVG_WITH_DIMS, 0, 0, 800, 600);
+        String tile10 = TiledDiagramRenderer.clipSvgToViewBox(LARGE_SVG_WITH_DIMS, 800, 0, 800, 600);
+        String tile01 = TiledDiagramRenderer.clipSvgToViewBox(LARGE_SVG_WITH_DIMS, 0, 600, 800, 600);
+
+        // All should have width="800" and height="600" (same tile size)
+        assertTrue(tile00.contains("width=\"800\""));
+        assertTrue(tile10.contains("width=\"800\""));
+        assertTrue(tile01.contains("width=\"800\""));
+
+        // But different viewBox origins
+        assertTrue(tile00.contains("0.00 0.00 800.00 600.00"));
+        assertTrue(tile10.contains("800.00 0.00 800.00 600.00"));
+        assertTrue(tile01.contains("0.00 600.00 800.00 600.00"));
+
+        // Structural content should be preserved in all
+        assertTrue(tile00.contains("<circle"), "tile00 content preserved");
+        assertTrue(tile10.contains("<circle"), "tile10 content preserved");
+        assertTrue(tile01.contains("<circle"), "tile01 content preserved");
     }
 
     @Test

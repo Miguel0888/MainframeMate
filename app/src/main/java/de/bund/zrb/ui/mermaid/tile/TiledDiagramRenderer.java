@@ -138,12 +138,14 @@ public final class TiledDiagramRenderer {
         int maxPx = lod >= 0 && lod < LOD_MAX_PX.length ? LOD_MAX_PX[lod] : LOD_MAX_PX[2];
 
         try {
-            // Build a clipped SVG with a modified viewBox
+            // Build a clipped SVG with a modified viewBox AND matching
+            // width/height so Batik preserves the correct aspect ratio.
             String clippedSvg = clipSvgToViewBox(fullSvg,
                     tile.getSvgX(), tile.getSvgY(), tile.getSvgW(), tile.getSvgH());
 
-            float targetWidth = (float) Math.min(maxPx,
-                    tile.getSvgW() * 2.0); // 2px per SVG unit as upper bound
+            // Use the full LOD pixel budget.  The old formula capped at
+            // svgW*2 which produced far too few pixels for wide tiles.
+            float targetWidth = (float) maxPx;
             targetWidth = Math.max(targetWidth, 64);
 
             BufferedImage img = SvgRenderer.renderToBufferedImageForced(
@@ -203,19 +205,55 @@ public final class TiledDiagramRenderer {
     private static final Pattern VIEWBOX_PATTERN =
             Pattern.compile("(viewBox\\s*=\\s*\")([^\"]+)(\")");
 
+    /** Matches width="…" on the root &lt;svg&gt; element. */
+    private static final Pattern WIDTH_ATTR =
+            Pattern.compile("(<svg[^>]*?)\\s+width\\s*=\\s*\"[^\"]*\"");
+
+    /** Matches height="…" on the root &lt;svg&gt; element. */
+    private static final Pattern HEIGHT_ATTR =
+            Pattern.compile("(<svg[^>]*?)\\s+height\\s*=\\s*\"[^\"]*\"");
+
     /**
-     * Produce a copy of the SVG with a different viewBox, effectively
-     * "cropping" the rendering to the given region. Batik will then
-     * only rasterise the visible portion.
+     * Produce a copy of the SVG with a different viewBox <b>and matching
+     * {@code width}/{@code height} attributes</b>, effectively "cropping"
+     * the rendering to the given region.
+     * <p>
+     * <b>Why width/height must be updated:</b> Batik's transcoder computes
+     * the output image aspect ratio from the SVG's {@code width}/{@code height}
+     * attributes, not from the {@code viewBox}. If only the viewBox is changed,
+     * the tile region is mapped into a viewport with the wrong aspect ratio,
+     * causing {@code preserveAspectRatio="xMidYMid meet"} to centre the
+     * content with large empty margins — every tile then looks the same.
      */
     static String clipSvgToViewBox(String svg, double x, double y, double w, double h) {
         String newVB = String.format(java.util.Locale.US, "%.2f %.2f %.2f %.2f", x, y, w, h);
+
+        // 1) Replace viewBox
         Matcher m = VIEWBOX_PATTERN.matcher(svg);
         if (m.find()) {
-            return m.replaceFirst("$1" + Matcher.quoteReplacement(newVB) + "$3");
+            svg = m.replaceFirst("$1" + Matcher.quoteReplacement(newVB) + "$3");
+        } else {
+            svg = svg.replaceFirst("<svg", "<svg viewBox=\"" + newVB + "\"");
         }
-        // No viewBox found — inject one into the <svg> tag
-        return svg.replaceFirst("<svg", "<svg viewBox=\"" + newVB + "\"");
+
+        // 2) Replace width/height so viewport matches the new viewBox.
+        //    Use the viewBox dimensions directly — Batik's KEY_WIDTH will
+        //    scale the output to the desired pixel size anyway; what matters
+        //    here is the correct aspect ratio.
+        String wStr = String.format(java.util.Locale.US, "%.0f", w);
+        String hStr = String.format(java.util.Locale.US, "%.0f", h);
+
+        Matcher wm = WIDTH_ATTR.matcher(svg);
+        if (wm.find()) {
+            svg = wm.replaceFirst("$1 width=\"" + wStr + "\"");
+        }
+
+        Matcher hm = HEIGHT_ATTR.matcher(svg);
+        if (hm.find()) {
+            svg = hm.replaceFirst("$1 height=\"" + hStr + "\"");
+        }
+
+        return svg;
     }
 
     /** Parse viewBox="x y w h" from SVG markup. */
