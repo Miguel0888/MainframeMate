@@ -19,6 +19,10 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Reusable Swing panel that renders a Mermaid diagram as an interactive SVG image.
@@ -664,29 +668,55 @@ public class MermaidDiagramPanel extends JPanel {
             }
         });
 
-        // Background worker to render missing / stale tiles
+        // Background worker to render missing / stale tiles — parallel
         final int totalToRender = toRender.size();
         SwingWorker<Void, DiagramTile> worker = new SwingWorker<Void, DiagramTile>() {
-            private int rendered = 0;
+            private final AtomicInteger rendered = new AtomicInteger(0);
 
             @Override
             protected Void doInBackground() {
-                for (DiagramTile t : toRender) {
-                    // Abort if LOD changed while we're rendering (user zoomed)
-                    if (TiledDiagramRenderer.lodForZoom(zoom) != lod) break;
-                    t.setRendering(true);
-                    BufferedImage img = tiledRenderer.renderTile(t, lod, tileCache);
-                    t.setImage(img, lod);
-                    t.setRendering(false);
-                    rendered++;
-                    publish(t);
+                // Use a bounded thread pool — cap at 4 to limit memory pressure
+                // from concurrent Batik transcodings.
+                int threads = Math.min(4, Math.max(1,
+                        Runtime.getRuntime().availableProcessors() - 1));
+                ExecutorService pool = Executors.newFixedThreadPool(threads);
+                try {
+                    List<Future<?>> futures = new ArrayList<Future<?>>();
+                    for (final DiagramTile t : toRender) {
+                        t.setRendering(true);
+                        futures.add(pool.submit(new Runnable() {
+                            @Override
+                            public void run() {
+                                try {
+                                    // Abort if LOD changed while we're rendering (user zoomed)
+                                    if (TiledDiagramRenderer.lodForZoom(zoom) != lod) return;
+                                    BufferedImage img = tiledRenderer.renderTile(t, lod, tileCache);
+                                    t.setImage(img, lod);
+                                } finally {
+                                    t.setRendering(false);
+                                    rendered.incrementAndGet();
+                                    publish(t);
+                                }
+                            }
+                        }));
+                    }
+                    // Wait for all tiles to finish
+                    for (Future<?> f : futures) {
+                        try {
+                            f.get();
+                        } catch (Exception ignored) {
+                            // Individual tile failures are logged in renderTile
+                        }
+                    }
+                } finally {
+                    pool.shutdown();
                 }
                 return null;
             }
 
             @Override
             protected void process(List<DiagramTile> chunks) {
-                statusLabel.setText("\u23F3 Kachel " + rendered + "/" + totalToRender
+                statusLabel.setText("\u23F3 Kachel " + rendered.get() + "/" + totalToRender
                         + " gerendert (LOD " + lod + ")\u2026");
                 imagePanel.repaint();
             }
