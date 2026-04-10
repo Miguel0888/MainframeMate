@@ -45,6 +45,8 @@ public class MermaidDiagramPanel extends JPanel {
     private String svg;
     private boolean renderError;
     private boolean loading;
+    /** Detailed loading status message shown in the overlay and status bar. */
+    private volatile String loadingMessage = "";
 
     // ── Tile-based rendering ──
     private TiledDiagramRenderer tiledRenderer;
@@ -375,6 +377,7 @@ public class MermaidDiagramPanel extends JPanel {
         this.loading = true;
         this.image = null;
         this.renderError = false;
+        this.loadingMessage = "\u23F3 Initialisierung\u2026";
         imagePanel.repaint();
         statusLabel.setText("Wird geladen\u2026");
     }
@@ -405,10 +408,11 @@ public class MermaidDiagramPanel extends JPanel {
         this.image = null;
         this.tiledRenderer = null;
         this.tiledMode = false;
+        this.loadingMessage = "\u23F3 SVG wird erzeugt (Mermaid-Engine)\u2026";
         imagePanel.repaint();
         statusLabel.setText("Rendering\u2026");
 
-        SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
+        SwingWorker<Void, String> worker = new SwingWorker<Void, String>() {
             private BufferedImage renderedImage;
             private RenderedDiagram renderedDiagram;
             private String renderedSvg;
@@ -419,13 +423,16 @@ public class MermaidDiagramPanel extends JPanel {
             @Override
             protected Void doInBackground() {
                 try {
+                    publish("\u23F3 SVG wird erzeugt (Mermaid-Engine)\u2026");
                     MermaidRenderer renderer = MermaidRenderer.getInstance();
                     String svgResult = renderer.renderToSvg(source);
                     if (svgResult == null || !svgResult.contains("<svg")) {
                         error = true;
                         return null;
                     }
+                    publish("\u23F3 Diagramm-Layout wird extrahiert\u2026");
                     renderedDiagram = DiagramLayoutExtractor.extract(svgResult);
+                    publish("\u23F3 SVG wird f\u00FCr Darstellung aufbereitet\u2026");
                     renderedSvg = MermaidSvgFixup.fixForBatik(svgResult, source);
 
                     // ── Decide: tiled or single-image rendering ──
@@ -433,20 +440,22 @@ public class MermaidDiagramPanel extends JPanel {
                     double vbH = renderedDiagram.getViewBoxHeight();
                     if (vbW > TILED_THRESHOLD || vbH > TILED_THRESHOLD) {
                         // Large diagram → use tiled rendering
+                        publish("\u23F3 Kachel-Raster wird berechnet\u2026");
                         String dId = UUID.randomUUID().toString();
                         tiled = new TiledDiagramRenderer(renderedSvg, dId);
                         useTiled = true;
                         // Pre-render a few tiles at LOD 1 (medium) for quick preview
-                        // LOD 0 uses simplified shapes and needs no tile images
                         List<DiagramTile> all = tiled.getAllTiles();
                         int preRender = Math.min(all.size(), 6);
                         for (int i = 0; i < preRender; i++) {
                             DiagramTile t = all.get(i);
+                            publish("\u23F3 Vorschau-Kachel " + (i + 1) + "/" + preRender + " wird gerendert\u2026");
                             BufferedImage img = tiled.renderTile(t, 1, tileCache);
                             t.setImage(img, 1);
                         }
                     } else {
                         // Small diagram → render as single image (legacy path)
+                        publish("\u23F3 Bild wird gerastert\u2026");
                         renderedImage = SvgRenderer.renderToBufferedImage(
                                 renderedSvg.getBytes("UTF-8"));
                         if (renderedImage == null) error = true;
@@ -459,8 +468,18 @@ public class MermaidDiagramPanel extends JPanel {
             }
 
             @Override
+            protected void process(List<String> chunks) {
+                // Show the latest progress message
+                String msg = chunks.get(chunks.size() - 1);
+                loadingMessage = msg;
+                statusLabel.setText(msg);
+                imagePanel.repaint();
+            }
+
+            @Override
             protected void done() {
                 loading = false;
+                loadingMessage = "";
                 renderError = error;
                 svg = renderedSvg;
                 diagram = renderedDiagram;
@@ -638,7 +657,10 @@ public class MermaidDiagramPanel extends JPanel {
         });
 
         // Background worker to render missing / stale tiles
+        final int totalToRender = toRender.size();
         SwingWorker<Void, DiagramTile> worker = new SwingWorker<Void, DiagramTile>() {
+            private int rendered = 0;
+
             @Override
             protected Void doInBackground() {
                 for (DiagramTile t : toRender) {
@@ -648,6 +670,7 @@ public class MermaidDiagramPanel extends JPanel {
                     BufferedImage img = tiledRenderer.renderTile(t, lod, tileCache);
                     t.setImage(img, lod);
                     t.setRendering(false);
+                    rendered++;
                     publish(t);
                 }
                 return null;
@@ -655,11 +678,14 @@ public class MermaidDiagramPanel extends JPanel {
 
             @Override
             protected void process(List<DiagramTile> chunks) {
+                statusLabel.setText("\u23F3 Kachel " + rendered + "/" + totalToRender
+                        + " gerendert (LOD " + lod + ")\u2026");
                 imagePanel.repaint();
             }
 
             @Override
             protected void done() {
+                statusLabel.setText("\u2713 " + totalToRender + " Kacheln geladen (LOD " + lod + ")");
                 imagePanel.repaint();
             }
         };
@@ -763,6 +789,7 @@ public class MermaidDiagramPanel extends JPanel {
             return;
         }
         statusLabel.setText("Neu rendern\u2026");
+        loadingMessage = "\u23F3 Bild wird in h\u00F6herer Aufl\u00F6sung gerastert\u2026";
 
         final String currentSvg = this.svg;
         final double currentZoom = this.zoom;
@@ -822,7 +849,9 @@ public class MermaidDiagramPanel extends JPanel {
             if (renderError) {
                 msg = "\u26A0 Rendering fehlgeschlagen";
             } else if (loading) {
-                msg = "\u23F3 Diagramm wird geladen\u2026";
+                msg = (loadingMessage != null && !loadingMessage.isEmpty())
+                        ? loadingMessage
+                        : "\u23F3 Diagramm wird geladen\u2026";
             } else {
                 msg = "";
             }
@@ -840,7 +869,9 @@ public class MermaidDiagramPanel extends JPanel {
                 // Show loading for tiled mode too
                 g.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 14));
                 g.setColor(Color.GRAY);
-                String msg2 = "\u23F3 Diagramm wird geladen\u2026";
+                String msg2 = (loadingMessage != null && !loadingMessage.isEmpty())
+                        ? loadingMessage
+                        : "\u23F3 Diagramm wird geladen\u2026";
                 FontMetrics fm = g.getFontMetrics();
                 int x = Math.max(0, (imagePanel.getWidth() - fm.stringWidth(msg2)) / 2);
                 int y = (imagePanel.getHeight() + fm.getAscent()) / 2;
