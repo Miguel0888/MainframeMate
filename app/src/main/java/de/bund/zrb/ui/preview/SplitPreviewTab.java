@@ -263,6 +263,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /** Current mindmap call tree depth (1 = direct calls only, higher = recursive). Default 2. */
     protected int mindmapDepth = restoreMindmapDepth();
 
+    /**
+     * Whether the diagram is currently in collapsed mode (only top-level summary nodes).
+     * Auto-set to {@code true} when switching to visual view for large models.
+     */
+    protected boolean diagramCollapsed = false;
+
     /** Optional source resolver for resolving external call targets to source code. */
     protected de.bund.zrb.service.codeanalytics.SourceResolver sourceResolver;
 
@@ -1314,6 +1320,29 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         });
         headerRow.add(editToggle, BorderLayout.WEST);
 
+        // Collapse/Expand toggle (only for outline-based diagrams, not mermaid code)
+        if (!isMermaidCode) {
+            final JToggleButton collapseToggle = new JToggleButton(diagramCollapsed ? "\uD83D\uDD0D" : "\uD83D\uDD0E"); // 🔍/🔎
+            collapseToggle.setToolTipText(diagramCollapsed
+                    ? "Details einblenden (vollständiges Diagramm)"
+                    : "Übersicht (kompaktes Diagramm)");
+            collapseToggle.setFont(collapseToggle.getFont().deriveFont(Font.PLAIN, 14f));
+            collapseToggle.setMargin(new Insets(2, 6, 2, 6));
+            collapseToggle.setFocusable(false);
+            collapseToggle.setSelected(diagramCollapsed);
+            collapseToggle.addActionListener(e -> {
+                diagramCollapsed = collapseToggle.isSelected();
+                collapseToggle.setText(diagramCollapsed ? "\uD83D\uDD0D" : "\uD83D\uDD0E");
+                collapseToggle.setToolTipText(diagramCollapsed
+                        ? "Details einblenden (vollständiges Diagramm)"
+                        : "Übersicht (kompaktes Diagramm)");
+                if (diagramViewActive) {
+                    switchDiagramType(activeDiagramType);
+                }
+            });
+            headerRow.add(collapseToggle, BorderLayout.CENTER);
+        }
+
         // Diagram type buttons (only visible for outline-based diagrams, not mermaid code)
         if (!isMermaidCode) {
             JPanel typePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
@@ -1507,12 +1536,17 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         }
 
         // ── Generate diagram; if the selected type yields nothing, fall back to STRUCTURE ──
-        String result = OutlineToMermaidConverter.convert(model, type, callTree, ddmDefs);
+        // Auto-collapse for large models when entering visual view
+        boolean collapsed = diagramCollapsed || OutlineToMermaidConverter.shouldCollapse(model);
+        if (collapsed && !diagramCollapsed) {
+            diagramCollapsed = true; // remember for subsequent type switches
+        }
+        String result = OutlineToMermaidConverter.convert(model, type, callTree, ddmDefs, diagramCollapsed);
         if (result == null && type != DiagramType.STRUCTURE) {
             // The chosen diagram type couldn't produce output for this file
             // (e.g., ER_DIAGRAM on a program without VIEW statements).
             // Fall back to STRUCTURE which always produces output for parsed models.
-            result = OutlineToMermaidConverter.convert(model, DiagramType.STRUCTURE, null, null);
+            result = OutlineToMermaidConverter.convert(model, DiagramType.STRUCTURE, null, null, diagramCollapsed);
         }
         return result;
     }

@@ -112,10 +112,44 @@ public final class OutlineToMermaidConverter {
     public static String convert(JclOutlineModel model, DiagramType type,
                                  CallTreeNode callTree,
                                  List<de.bund.zrb.jcl.parser.DdmParser.DdmDefinition> ddmDefs) {
+        return convert(model, type, callTree, ddmDefs, false);
+    }
+
+    /**
+     * Convert an outline model to Mermaid code for the given diagram type.
+     * <p>
+     * When {@code collapsed} is {@code true}, only a high-level summary diagram
+     * is generated: top-level structural elements are shown as simple boxes;
+     * children (DD statements, data items, sub-statements) are omitted or
+     * summarised as counts.  This produces a tiny diagram that renders almost
+     * instantly, even for very large source files.
+     *
+     * @param model     the parsed outline
+     * @param type      desired diagram type
+     * @param callTree  recursive call tree (from CodeAnalyticsService), or null
+     * @param ddmDefs   list of DDM definitions for ER diagram, or null
+     * @param collapsed if {@code true}, generate a collapsed/summary diagram
+     * @return Mermaid source code, or {@code null} if the model is empty
+     */
+    public static String convert(JclOutlineModel model, DiagramType type,
+                                 CallTreeNode callTree,
+                                 List<de.bund.zrb.jcl.parser.DdmParser.DdmDefinition> ddmDefs,
+                                 boolean collapsed) {
         if (model == null || model.isEmpty()) return null;
         if (type == null) type = DiagramType.STRUCTURE;
 
         Set<String> sysFuncs = loadSystemFunctionNames();
+
+        if (collapsed) {
+            switch (type) {
+                case FLOWCHART:   return convertFlowchartCollapsed(model, sysFuncs);
+                case SEQUENCE:    return convertSequenceCollapsed(model, sysFuncs);
+                case MINDMAP:     return convertMindmapCollapsed(model, sysFuncs);
+                case ER_DIAGRAM:  return convertErDiagram(model, ddmDefs); // ER is already compact
+                case STRUCTURE:
+                default:          return convertStructureCollapsed(model, sysFuncs);
+            }
+        }
 
         switch (type) {
             case FLOWCHART:   return convertFlowchart(model, sysFuncs);
@@ -1425,4 +1459,284 @@ public final class OutlineToMermaidConverter {
         if (name == null) return "unknown";
         return name.replaceAll("[^a-zA-Z0-9_]", "_").replaceAll("_+", "_");
     }
+
+    // =========================================================
+    //  COLLAPSED CONVERTERS - summary-only diagrams for large files
+    // =========================================================
+
+    private static String convertStructureCollapsed(JclOutlineModel model, Set<String> sysFuncs) {
+        switch (model.getLanguage()) {
+            case JCL:     return convertJclCollapsed(model, sysFuncs);
+            case COBOL:   return convertCobolCollapsed(model, sysFuncs);
+            case NATURAL: return convertNaturalCollapsed(model, sysFuncs);
+            default:      return convertJclCollapsed(model, sysFuncs);
+        }
+    }
+
+    private static String convertJclCollapsed(JclOutlineModel model, Set<String> sysFuncs) {
+        StringBuilder sb = new StringBuilder("flowchart TD\n");
+        Set<String> usedIds = new HashSet<String>();
+        List<JclElement> jobs = model.getJobs();
+        List<JclElement> steps = model.getSteps();
+        if (jobs.isEmpty() && steps.isEmpty()) {
+            String rootId = safeId("ROOT", usedIds);
+            sb.append("    ").append(rootId).append("([\"JCL\\n")
+              .append(model.getElementCount()).append(" Elemente\"])\n");
+            return sb.toString();
+        }
+        String prevId = null;
+        for (JclElement job : jobs) {
+            String jobId = safeId("JOB_" + job.getName(), usedIds);
+            sb.append("    ").append(jobId).append("([\"").append(esc(job.getName())).append("\"])\n");
+            prevId = jobId;
+        }
+        for (JclElement step : steps) {
+            String pgm = step.getParameter("PGM");
+            String proc = step.getParameter("PROC");
+            String label = step.getName() != null ? step.getName() : "(Step)";
+            String detail = pgm != null ? "PGM=" + pgm : (proc != null ? "PROC=" + proc : "");
+            int ddCount = 0;
+            for (JclElement child : step.getChildren()) {
+                if (child.getType() == JclElementType.DD) ddCount++;
+            }
+            String stepId = safeId("STEP_" + label, usedIds);
+            sb.append("    ").append(stepId).append("[\"").append(esc(label));
+            if (!detail.isEmpty()) sb.append("\\n").append(esc(detail));
+            if (ddCount > 0) sb.append("\\n\uD83D\uDCC1 ").append(ddCount).append(" DD");
+            sb.append("\"]\n");
+            if (isSysFunc(pgm, sysFuncs)) styleSysFunc(sb, stepId);
+            if (prevId != null) sb.append("    ").append(prevId).append(" --> ").append(stepId).append("\n");
+            prevId = stepId;
+        }
+        return sb.toString();
+    }
+
+    private static String convertCobolCollapsed(JclOutlineModel model, Set<String> sysFuncs) {
+        StringBuilder sb = new StringBuilder("flowchart TD\n");
+        Set<String> usedIds = new HashSet<String>();
+        List<JclElement> all = model.getElements();
+        String programId = null;
+        for (JclElement e : all) {
+            if (e.getType() == JclElementType.PROGRAM_ID) { programId = e.getName(); break; }
+        }
+        String rootId = safeId("PROG", usedIds);
+        sb.append("    ").append(rootId).append("([\"")
+          .append(esc(programId != null ? programId : "PROGRAM")).append("\"])\n");
+        for (JclElement div : model.getDivisions()) {
+            String divId = safeId("DIV_" + div.getName(), usedIds);
+            sb.append("    ").append(divId).append("[\"").append(esc(div.getName())).append("\"]\n");
+            sb.append("    ").append(rootId).append(" --> ").append(divId).append("\n");
+        }
+        int paraCount = model.getParagraphs().size();
+        int dataCount = model.getDataItems().size();
+        int callCount = 0, performCount = 0;
+        for (JclElement e : all) {
+            if (e.getType() == JclElementType.CALL_STMT) callCount++;
+            if (e.getType() == JclElementType.PERFORM_STMT) performCount++;
+        }
+        if (paraCount > 0) {
+            String id = safeId("PARAS", usedIds);
+            sb.append("    ").append(id).append("[\"").append(paraCount).append(" Paragraphen\"]\n");
+            sb.append("    ").append(rootId).append(" --> ").append(id).append("\n");
+        }
+        if (dataCount > 0) {
+            String id = safeId("DATA", usedIds);
+            sb.append("    ").append(id).append("[\"").append(dataCount).append(" Datenfelder\"]\n");
+            sb.append("    ").append(rootId).append(" --> ").append(id).append("\n");
+        }
+        if (callCount > 0) {
+            String id = safeId("CALLS", usedIds);
+            sb.append("    ").append(id).append(">\"").append(callCount).append(" CALL\"]\n");
+            sb.append("    ").append(rootId).append(" -.-> ").append(id).append("\n");
+        }
+        if (performCount > 0) {
+            String id = safeId("PERFS", usedIds);
+            sb.append("    ").append(id).append(">\"").append(performCount).append(" PERFORM\"]\n");
+            sb.append("    ").append(rootId).append(" -.-> ").append(id).append("\n");
+        }
+        return sb.toString();
+    }
+
+    private static String convertNaturalCollapsed(JclOutlineModel model, Set<String> sysFuncs) {
+        StringBuilder sb = new StringBuilder("flowchart TD\n");
+        Set<String> usedIds = new HashSet<String>();
+        List<JclElement> all = model.getElements();
+        String progName = model.getSourceName() != null ? model.getSourceName() : "PROGRAM";
+        for (JclElement e : all) {
+            if (e.getType() == JclElementType.NAT_PROGRAM || e.getType() == JclElementType.NAT_SUBPROGRAM
+                    || e.getType() == JclElementType.NAT_FUNCTION) {
+                if (e.getName() != null) progName = e.getName();
+                break;
+            }
+        }
+        String rootId = safeId("PROG", usedIds);
+        sb.append("    ").append(rootId).append("([\"").append(esc(progName)).append("\"])\n");
+        boolean hasData = false;
+        List<String> dataBlocks = new ArrayList<String>();
+        for (JclElement e : all) {
+            if (e.getType() == JclElementType.NAT_DEFINE_DATA) hasData = true;
+            if (e.getType() == JclElementType.NAT_LOCAL) dataBlocks.add("LOCAL");
+            if (e.getType() == JclElementType.NAT_PARAMETER) dataBlocks.add("PARAMETER");
+            if (e.getType() == JclElementType.NAT_GLOBAL) dataBlocks.add("GLOBAL");
+            if (e.getType() == JclElementType.NAT_INDEPENDENT) dataBlocks.add("INDEPENDENT");
+        }
+        if (hasData) {
+            String dataId = safeId("DATA", usedIds);
+            String blockInfo = dataBlocks.isEmpty() ? "" : "\\n(" + join(dataBlocks, ", ") + ")";
+            sb.append("    ").append(dataId).append("[\"DEFINE DATA").append(blockInfo).append("\"]\n");
+            sb.append("    ").append(rootId).append(" --> ").append(dataId).append("\n");
+        }
+        List<JclElement> subs = model.getSubroutines();
+        if (!subs.isEmpty()) {
+            String subId = safeId("SUBS", usedIds);
+            sb.append("    ").append(subId).append("{{\"").append(subs.size()).append(" Unterprogramme\"}}\n");
+            sb.append("    ").append(rootId).append(" --> ").append(subId).append("\n");
+        }
+        List<JclElement> calls = model.getNaturalCalls();
+        if (!calls.isEmpty()) {
+            String callId = safeId("CALLS", usedIds);
+            sb.append("    ").append(callId).append(">\"").append(calls.size()).append(" externe Aufrufe\"]\n");
+            sb.append("    ").append(rootId).append(" -.-> ").append(callId).append("\n");
+        }
+        List<JclElement> dbOps = model.getNaturalDbOps();
+        if (!dbOps.isEmpty()) {
+            String dbId = safeId("DB", usedIds);
+            sb.append("    ").append(dbId).append("[(\"").append(dbOps.size()).append(" DB-Operationen\")]\n");
+            sb.append("    ").append(rootId).append(" ==> ").append(dbId).append("\n");
+        }
+        return sb.toString();
+    }
+
+    private static String convertFlowchartCollapsed(JclOutlineModel model, Set<String> sysFuncs) {
+        StringBuilder sb = new StringBuilder("flowchart TD\n");
+        Set<String> usedIds = new HashSet<String>();
+        String progName = model.getSourceName() != null ? model.getSourceName() : "PROGRAMM";
+        String startId = safeId("START", usedIds);
+        sb.append("    ").append(startId).append("([\"").append(esc(progName)).append("\"])\n");
+        String prevId = startId;
+        int branches = 0, loops = 0, extCalls = 0, dbOps = 0, subs = 0;
+        for (JclElement e : model.getElements()) {
+            JclElementType t = e.getType();
+            if (t == JclElementType.IF || t == JclElementType.NAT_IF_BLOCK || t == JclElementType.NAT_DECIDE) branches++;
+            if (t == JclElementType.NAT_FOR || t == JclElementType.NAT_REPEAT) loops++;
+            if (t == JclElementType.NAT_CALLNAT || t == JclElementType.NAT_CALL
+                    || t == JclElementType.NAT_FETCH || t == JclElementType.CALL_STMT) extCalls++;
+            if (t == JclElementType.NAT_READ || t == JclElementType.NAT_FIND
+                    || t == JclElementType.NAT_HISTOGRAM) dbOps++;
+            if (t == JclElementType.NAT_INLINE_SUBROUTINE || t == JclElementType.NAT_SUBROUTINE
+                    || t == JclElementType.PARAGRAPH) subs++;
+        }
+        if (branches > 0) {
+            String id = safeId("BRANCHES", usedIds);
+            sb.append("    ").append(id).append("{\"").append(branches).append(" Verzweigungen\"}\n");
+            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
+            prevId = id;
+        }
+        if (loops > 0) {
+            String id = safeId("LOOPS", usedIds);
+            sb.append("    ").append(id).append("{{\"").append(loops).append(" Schleifen\"}}\n");
+            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
+            prevId = id;
+        }
+        if (dbOps > 0) {
+            String id = safeId("DBOPS", usedIds);
+            sb.append("    ").append(id).append("[(\"").append(dbOps).append(" DB-Zugriffe\")]\n");
+            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
+            prevId = id;
+        }
+        if (extCalls > 0) {
+            String id = safeId("EXTCALLS", usedIds);
+            sb.append("    ").append(id).append(">\"").append(extCalls).append(" externe Aufrufe\"]\n");
+            sb.append("    ").append(prevId).append(" -.-> ").append(id).append("\n");
+        }
+        if (subs > 0) {
+            String id = safeId("SUBS", usedIds);
+            sb.append("    ").append(id).append("{{\"").append(subs).append(" Unterprogramme\"}}\n");
+            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
+            prevId = id;
+        }
+        String endId = safeId("END", usedIds);
+        sb.append("    ").append(endId).append("([\"END\"])\n");
+        sb.append("    ").append(prevId).append(" --> ").append(endId).append("\n");
+        return sb.toString();
+    }
+
+    private static String convertSequenceCollapsed(JclOutlineModel model, Set<String> sysFuncs) {
+        StringBuilder sb = new StringBuilder("sequenceDiagram\n");
+        String progName = model.getSourceName() != null ? model.getSourceName() : "PROGRAMM";
+        sb.append("    participant ").append(safeParticipant(progName)).append("\n");
+        Set<String> extTargets = new LinkedHashSet<String>();
+        Set<String> dbTargets = new LinkedHashSet<String>();
+        for (JclElement e : model.getElements()) {
+            JclElementType t = e.getType();
+            if (t == JclElementType.NAT_CALLNAT || t == JclElementType.NAT_CALL
+                    || t == JclElementType.NAT_FETCH || t == JclElementType.CALL_STMT) {
+                String target = e.getParameter("TARGET");
+                if (target == null) target = e.getName();
+                if (target != null) extTargets.add(target);
+            }
+            if (t == JclElementType.NAT_READ || t == JclElementType.NAT_FIND
+                    || t == JclElementType.NAT_HISTOGRAM || t == JclElementType.NAT_STORE
+                    || t == JclElementType.NAT_UPDATE || t == JclElementType.NAT_DELETE
+                    || t == JclElementType.NAT_GET) {
+                String file = e.getParameter("FILE");
+                if (file == null) file = e.getName();
+                if (file != null) dbTargets.add(file);
+            }
+        }
+        for (String target : extTargets) {
+            sb.append("    participant ").append(safeParticipant(target)).append("\n");
+        }
+        for (String db : dbTargets) {
+            sb.append("    participant ").append(safeParticipant("DB_" + db))
+              .append(" as ").append(db).append("\n");
+        }
+        for (String target : extTargets) {
+            sb.append("    ").append(safeParticipant(progName)).append("->>")
+              .append(safeParticipant(target)).append(": Aufruf\n");
+        }
+        for (String db : dbTargets) {
+            sb.append("    ").append(safeParticipant(progName)).append("->>")
+              .append(safeParticipant("DB_" + db)).append(": DB-Zugriff\n");
+        }
+        return sb.toString();
+    }
+
+    private static String convertMindmapCollapsed(JclOutlineModel model, Set<String> sysFuncs) {
+        StringBuilder sb = new StringBuilder("mindmap\n");
+        String progName = model.getSourceName() != null ? model.getSourceName() : "Programm";
+        for (JclElement e : model.getElements()) {
+            JclElementType t = e.getType();
+            if (t == JclElementType.NAT_PROGRAM || t == JclElementType.NAT_SUBPROGRAM
+                    || t == JclElementType.NAT_FUNCTION || t == JclElementType.PROGRAM_ID) {
+                if (e.getName() != null) { progName = e.getName(); break; }
+            }
+        }
+        sb.append("  root((").append(escMm(progName)).append("))\n");
+        List<JclElement> subs = model.getSubroutines();
+        List<JclElement> calls = model.getNaturalCalls();
+        List<JclElement> dbOps = model.getNaturalDbOps();
+        List<JclElement> paras = model.getParagraphs();
+        if (!subs.isEmpty()) sb.append("    ").append(subs.size()).append(" Unterprogramme\n");
+        if (!calls.isEmpty()) sb.append("    ").append(calls.size()).append(" externe Aufrufe\n");
+        if (!dbOps.isEmpty()) sb.append("    ").append(dbOps.size()).append(" DB-Operationen\n");
+        if (!paras.isEmpty()) sb.append("    ").append(paras.size()).append(" Paragraphen\n");
+        List<JclElement> steps = model.getSteps();
+        if (!steps.isEmpty()) sb.append("    ").append(steps.size()).append(" Steps\n");
+        return sb.toString();
+    }
+
+    /**
+     * Estimate the diagram complexity from an outline model.
+     * Returns {@code true} if the model is likely to produce a diagram
+     * large enough to trigger tiled rendering.
+     */
+    public static boolean shouldCollapse(JclOutlineModel model) {
+        if (model == null) return false;
+        return model.getElementCount() > COLLAPSE_THRESHOLD;
+    }
+
+    /** Element count threshold above which diagrams are generated in collapsed mode. */
+    static final int COLLAPSE_THRESHOLD = 30;
+
 }
