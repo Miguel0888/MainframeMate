@@ -1571,6 +1571,8 @@ public final class OutlineToMermaidConverter {
         }
         String rootId = safeId("PROG", usedIds);
         sb.append("    ").append(rootId).append("([\"").append(esc(progName)).append("\"])\n");
+
+        // DEFINE DATA block
         boolean hasData = false;
         List<String> dataBlocks = new ArrayList<String>();
         for (JclElement e : all) {
@@ -1586,78 +1588,521 @@ public final class OutlineToMermaidConverter {
             sb.append("    ").append(dataId).append("[\"DEFINE DATA").append(blockInfo).append("\"]\n");
             sb.append("    ").append(rootId).append(" --> ").append(dataId).append("\n");
         }
+
+        // Subroutines — show individual names (max 8), then count for rest
         List<JclElement> subs = model.getSubroutines();
         if (!subs.isEmpty()) {
-            String subId = safeId("SUBS", usedIds);
-            sb.append("    ").append(subId).append("{{\"").append(subs.size()).append(" Unterprogramme\"}}\n");
-            sb.append("    ").append(rootId).append(" --> ").append(subId).append("\n");
+            if (subs.size() <= 8) {
+                for (JclElement sub : subs) {
+                    String subId = safeId("SUB_" + sub.getName(), usedIds);
+                    sb.append("    ").append(subId).append("{{\"")
+                      .append(esc(sub.getName())).append("\"}}\n");
+                    sb.append("    ").append(rootId).append(" --> ").append(subId).append("\n");
+                }
+            } else {
+                // Show first 5 + count for rest
+                for (int i = 0; i < 5; i++) {
+                    String subId = safeId("SUB_" + subs.get(i).getName(), usedIds);
+                    sb.append("    ").append(subId).append("{{\"")
+                      .append(esc(subs.get(i).getName())).append("\"}}\n");
+                    sb.append("    ").append(rootId).append(" --> ").append(subId).append("\n");
+                }
+                String moreId = safeId("SUBS_MORE", usedIds);
+                sb.append("    ").append(moreId).append("{{\"...")
+                  .append(subs.size() - 5).append(" weitere\"}}\n");
+                sb.append("    ").append(rootId).append(" --> ").append(moreId).append("\n");
+            }
         }
+
+        // External calls — show unique targets with call type
         List<JclElement> calls = model.getNaturalCalls();
         if (!calls.isEmpty()) {
-            String callId = safeId("CALLS", usedIds);
-            sb.append("    ").append(callId).append(">\"").append(calls.size()).append(" externe Aufrufe\"]\n");
-            sb.append("    ").append(rootId).append(" -.-> ").append(callId).append("\n");
+            // Collect unique external targets (CALLNAT, CALL, FETCH — not PERFORMs)
+            Set<String> extTargets = new LinkedHashSet<String>();
+            for (JclElement c : calls) {
+                JclElementType ct = c.getType();
+                if (ct == JclElementType.NAT_CALLNAT || ct == JclElementType.NAT_CALL
+                        || ct == JclElementType.NAT_FETCH) {
+                    String target = c.getParameter("TARGET");
+                    if (target == null) target = c.getName();
+                    if (target != null) extTargets.add(target);
+                }
+            }
+            // Show external targets individually (max 6)
+            int shown = 0;
+            for (String target : extTargets) {
+                if (shown >= 6) {
+                    String moreId = safeId("EXT_MORE", usedIds);
+                    sb.append("    ").append(moreId).append(">\"...")
+                      .append(extTargets.size() - 6).append(" weitere\"]\n");
+                    sb.append("    ").append(rootId).append(" -.-> ").append(moreId).append("\n");
+                    break;
+                }
+                String callId = safeId("EXT_" + target, usedIds);
+                sb.append("    ").append(callId).append(">\"").append(esc(target)).append("\"]\n");
+                sb.append("    ").append(rootId).append(" -.-> ").append(callId).append("\n");
+                if (isSysFunc(target, sysFuncs)) styleSysFunc(sb, callId);
+                shown++;
+            }
+            // Show frequent PERFORM summary
+            Map<String, Integer> performFreq = analyzePerformFrequency(all);
+            Set<String> frequentTargets = findFrequentTargets(performFreq, FREQ_THRESHOLD);
+            if (!frequentTargets.isEmpty()) {
+                StringBuilder perfLabel = new StringBuilder("\uD83D\uDCE6 H\u00E4ufige PERFORMs\\n");
+                int i = 0;
+                for (String ft : frequentTargets) {
+                    if (i > 0) perfLabel.append("\\n");
+                    Integer cnt = performFreq.get(ft);
+                    perfLabel.append(ft).append(" \u00D7").append(cnt != null ? cnt : "?");
+                    if (++i >= 4) {
+                        if (frequentTargets.size() > 4) perfLabel.append("\\n...");
+                        break;
+                    }
+                }
+                String perfId = safeId("FREQ_PERF", usedIds);
+                sb.append("    ").append(perfId).append("[\"").append(perfLabel).append("\"]\n");
+                sb.append("    ").append(rootId).append(" --> ").append(perfId).append("\n");
+                sb.append("    style ").append(perfId)
+                  .append(" fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray: 5 5\n");
+            }
         }
+
+        // DB operations — show unique files
         List<JclElement> dbOps = model.getNaturalDbOps();
         if (!dbOps.isEmpty()) {
-            String dbId = safeId("DB", usedIds);
-            sb.append("    ").append(dbId).append("[(\"").append(dbOps.size()).append(" DB-Operationen\")]\n");
-            sb.append("    ").append(rootId).append(" ==> ").append(dbId).append("\n");
+            Set<String> dbFiles = new LinkedHashSet<String>();
+            for (JclElement db : dbOps) {
+                String file = db.getParameter("FILE");
+                if (file == null) file = db.getName();
+                if (file != null) dbFiles.add(file);
+            }
+            if (dbFiles.size() <= 4) {
+                for (String file : dbFiles) {
+                    String dbId = safeId("DB_" + file, usedIds);
+                    sb.append("    ").append(dbId).append("[(\"").append(esc(file)).append("\")]\n");
+                    sb.append("    ").append(rootId).append(" ==> ").append(dbId).append("\n");
+                }
+            } else {
+                String dbId = safeId("DB", usedIds);
+                sb.append("    ").append(dbId).append("[(\"").append(dbOps.size())
+                  .append(" DB-Operationen\\n(")
+                  .append(dbFiles.size()).append(" Dateien)\")]\n");
+                sb.append("    ").append(rootId).append(" ==> ").append(dbId).append("\n");
+            }
         }
         return sb.toString();
     }
 
+    // ─── Heuristic collapsing helpers ─────────────────────────────
+
+    /** Minimum number of calls for a PERFORM target to be considered "frequent". */
+    private static final int FREQ_THRESHOLD = 3;
+
+    /**
+     * Analyse PERFORM target frequencies across all elements.
+     * Returns a map of uppercase target name → call count.
+     */
+    private static Map<String, Integer> analyzePerformFrequency(List<JclElement> elements) {
+        Map<String, Integer> freq = new LinkedHashMap<String, Integer>();
+        for (JclElement e : elements) {
+            String target = getPerformTarget(e);
+            if (target != null) {
+                String key = target.toUpperCase();
+                Integer count = freq.get(key);
+                freq.put(key, count != null ? count + 1 : 1);
+            }
+        }
+        return freq;
+    }
+
+    /**
+     * Return the set of PERFORM targets that are called at least {@code threshold} times.
+     */
+    private static Set<String> findFrequentTargets(Map<String, Integer> freq, int threshold) {
+        Set<String> result = new HashSet<String>();
+        for (Map.Entry<String, Integer> entry : freq.entrySet()) {
+            if (entry.getValue() >= threshold) {
+                result.add(entry.getKey());
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Get the PERFORM target name from a PERFORM element, or {@code null}
+     * if the element is not a PERFORM.
+     */
+    private static String getPerformTarget(JclElement e) {
+        JclElementType t = e.getType();
+        if (t == JclElementType.NAT_PERFORM || t == JclElementType.PERFORM_STMT) {
+            String target = e.getParameter("TARGET");
+            if (target == null) target = e.getName();
+            return target;
+        }
+        return null;
+    }
+
+    /**
+     * Whether the element represents a control-flow structure that should
+     * always be shown as a separate node in the collapsed flowchart.
+     */
+    private static boolean isStructuralFlowElement(JclElement e) {
+        JclElementType t = e.getType();
+        return t == JclElementType.NAT_IF_BLOCK
+                || t == JclElementType.NAT_DECIDE
+                || t == JclElementType.NAT_FOR
+                || t == JclElementType.NAT_REPEAT
+                || t == JclElementType.NAT_ON_ERROR
+                || t == JclElementType.NAT_INLINE_SUBROUTINE
+                || t == JclElementType.NAT_SUBROUTINE
+                || t == JclElementType.NAT_READ
+                || t == JclElementType.NAT_FIND
+                || t == JclElementType.NAT_HISTOGRAM
+                || t == JclElementType.IF
+                || t == JclElementType.PARAGRAPH
+                || t == JclElementType.EXEC;
+    }
+
+    /**
+     * Whether the element is "important" and should be shown as a side-branch
+     * node even in collapsed mode (external calls, infrequent PERFORMs).
+     */
+    private static boolean isImportantFlowElement(JclElement e, Set<String> frequentTargets) {
+        JclElementType t = e.getType();
+        // External calls always important
+        if (t == JclElementType.NAT_CALLNAT || t == JclElementType.NAT_CALL
+                || t == JclElementType.NAT_FETCH || t == JclElementType.CALL_STMT) return true;
+        // Infrequent PERFORMs
+        String target = getPerformTarget(e);
+        if (target != null && !frequentTargets.contains(target.toUpperCase())) return true;
+        return false;
+    }
+
+    /**
+     * Whether the element should be completely skipped in the collapsed flowchart
+     * (data definitions, program headers, END markers, comments, etc.).
+     */
+    private static boolean isSkippedInCollapsedFlow(JclElement e) {
+        JclElementType t = e.getType();
+        // Natural headers & data
+        if (t == JclElementType.NAT_PROGRAM || t == JclElementType.NAT_SUBPROGRAM
+                || t == JclElementType.NAT_FUNCTION
+                || t == JclElementType.NAT_DEFINE_DATA || t == JclElementType.NAT_LOCAL
+                || t == JclElementType.NAT_PARAMETER || t == JclElementType.NAT_GLOBAL
+                || t == JclElementType.NAT_INDEPENDENT
+                || t == JclElementType.NAT_DATA_VIEW || t == JclElementType.NAT_DATA_VAR
+                || t == JclElementType.NAT_DATA_REDEFINE || t == JclElementType.NAT_DATA_CONST
+                || t == JclElementType.NAT_END
+                || t == JclElementType.NAT_MAP || t == JclElementType.NAT_HELPROUTINE) return true;
+        // COBOL headers & data
+        if (t == JclElementType.PROGRAM_ID || t == JclElementType.DIVISION
+                || t == JclElementType.SECTION
+                || t == JclElementType.WORKING_STORAGE || t == JclElementType.LINKAGE_SECTION
+                || t == JclElementType.FILE_SECTION || t == JclElementType.FILE_DESCRIPTOR
+                || t == JclElementType.SCREEN_SECTION || t == JclElementType.PROCEDURE_DIVISION
+                || t == JclElementType.DATA_ITEM || t == JclElementType.LEVEL_01
+                || t == JclElementType.LEVEL_77 || t == JclElementType.LEVEL_88
+                || t == JclElementType.COPY_STMT) return true;
+        // JCL structural markers handled elsewhere
+        if (t == JclElementType.JOB || t == JclElementType.ELSE || t == JclElementType.ENDIF
+                || t == JclElementType.PROC || t == JclElementType.PEND
+                || t == JclElementType.SET || t == JclElementType.JCLLIB
+                || t == JclElementType.OUTPUT) return true;
+        // Comments & DDM
+        if (t == JclElementType.COMMENT || t.isDdm()) return true;
+        return false;
+    }
+
+    /**
+     * Emit a single structural or important element as a Mermaid flowchart node.
+     *
+     * @return the new prevId for the main flow (unchanged for side-branch elements)
+     */
+    private static String emitCollapsedFlowElement(StringBuilder sb, JclElement e,
+                                                    Set<String> usedIds, String prevId,
+                                                    Set<String> sysFuncs) {
+        JclElementType t = e.getType();
+
+        // ── Branches: IF, DECIDE → diamond ──
+        if (t == JclElementType.NAT_IF_BLOCK || t == JclElementType.NAT_DECIDE
+                || t == JclElementType.IF) {
+            String label = e.getName() != null ? e.getName() : t.getDisplayName();
+            String id = safeId("COND_" + label, usedIds);
+            sb.append("    ").append(id).append("{\"").append(esc(truncate(label, 50))).append("\"}\n");
+            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
+            return id;
+        }
+
+        // ── Loops: FOR, REPEAT → hexagon with self-loop ──
+        if (t == JclElementType.NAT_FOR || t == JclElementType.NAT_REPEAT) {
+            String label = e.getName() != null ? e.getName() : t.getDisplayName();
+            String id = safeId("LOOP_" + label, usedIds);
+            sb.append("    ").append(id).append("{{\"").append(esc(truncate(label, 50))).append("\"}}\n");
+            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
+            sb.append("    ").append(id).append(" -.-> ").append(id).append("\n");
+            return id;
+        }
+
+        // ── DB loops: READ, FIND, HISTOGRAM → cylinder ──
+        if (t == JclElementType.NAT_READ || t == JclElementType.NAT_FIND
+                || t == JclElementType.NAT_HISTOGRAM) {
+            String file = e.getParameter("FILE");
+            String label = t.getDisplayName() + (file != null ? " " + file : "");
+            String id = safeId("DB_" + label, usedIds);
+            sb.append("    ").append(id).append("[(\"").append(esc(label)).append("\")]\n");
+            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
+            sb.append("    style ").append(id).append(" fill:#e3f2fd,stroke:#1565c0,stroke-width:2px\n");
+            return id;
+        }
+
+        // ── External calls → asymmetric shape (side branch, prevId unchanged) ──
+        if (t == JclElementType.NAT_CALLNAT || t == JclElementType.NAT_CALL
+                || t == JclElementType.NAT_FETCH || t == JclElementType.CALL_STMT) {
+            String target = e.getParameter("TARGET");
+            if (target == null) target = e.getName();
+            if (target == null) return prevId;
+            String id = safeId("EXT_" + target, usedIds);
+            sb.append("    ").append(id).append(">\"").append(esc(target))
+              .append("\\n(").append(esc(t.getDisplayName())).append(")\"]\n");
+            sb.append("    ").append(prevId).append(" ==>|").append(t.getDisplayName())
+              .append("| ").append(id).append("\n");
+            if (isSysFunc(target, sysFuncs)) {
+                styleSysFunc(sb, id);
+            } else {
+                sb.append("    style ").append(id).append(" fill:#ffe0b2,stroke:#e65100,stroke-width:2px\n");
+            }
+            return prevId; // external call returns, main flow continues
+        }
+
+        // ── Subroutine definitions → hexagon ──
+        if (t == JclElementType.NAT_INLINE_SUBROUTINE || t == JclElementType.NAT_SUBROUTINE) {
+            String id = safeId("SUB_" + e.getName(), usedIds);
+            sb.append("    ").append(id).append("{{\"").append(esc(e.getName())).append("\"}}\n");
+            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
+            return id;
+        }
+
+        // ── ON ERROR → styled diamond ──
+        if (t == JclElementType.NAT_ON_ERROR) {
+            String id = safeId("ONERR", usedIds);
+            sb.append("    ").append(id).append("{\"ON ERROR\"}\n");
+            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
+            sb.append("    style ").append(id).append(" fill:#ffcdd2,stroke:#c62828,stroke-width:2px\n");
+            return id;
+        }
+
+        // ── Infrequent PERFORM → dashed arrow (side branch, prevId unchanged) ──
+        if (t == JclElementType.NAT_PERFORM || t == JclElementType.PERFORM_STMT) {
+            String target = getPerformTarget(e);
+            if (target == null) return prevId;
+            String perfTarget = findIdForName("SUB_" + target, usedIds);
+            if (perfTarget == null) {
+                perfTarget = safeId("SUB_" + target, usedIds);
+                sb.append("    ").append(perfTarget).append("{{\"").append(esc(target)).append("\"}}\n");
+            }
+            sb.append("    ").append(prevId).append(" -.->|PERFORM| ").append(perfTarget).append("\n");
+            return prevId; // PERFORM returns, main flow continues
+        }
+
+        // ── COBOL paragraph → box ──
+        if (t == JclElementType.PARAGRAPH) {
+            String id = safeId("PARA_" + e.getName(), usedIds);
+            sb.append("    ").append(id).append("[\"").append(esc(e.getName())).append("\"]\n");
+            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
+            return id;
+        }
+
+        // ── JCL EXEC step → box with PGM/PROC detail ──
+        if (t == JclElementType.EXEC) {
+            String label = e.getName() != null ? e.getName() : "(Step)";
+            String pgm = e.getParameter("PGM");
+            String proc = e.getParameter("PROC");
+            String id = safeId("STEP_" + label, usedIds);
+            sb.append("    ").append(id).append("[\"").append(esc(label));
+            if (pgm != null) sb.append("\\nPGM=").append(esc(pgm));
+            else if (proc != null) sb.append("\\nPROC=").append(esc(proc));
+            sb.append("\"]\n");
+            if (isSysFunc(pgm, sysFuncs)) styleSysFunc(sb, id);
+            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
+            return id;
+        }
+
+        // ── Default: box ──
+        String label = e.getName() != null ? e.getName() : t.getDisplayName();
+        String id = safeId("N_" + label, usedIds);
+        sb.append("    ").append(id).append("[\"").append(esc(label)).append("\"]\n");
+        sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
+        return id;
+    }
+
+    /**
+     * Emit a collapsed "📦" summary node for a run of detail elements.
+     * <p>
+     * The node label lists which frequent subroutines are called within,
+     * how many times, and the total number of collapsed statements.
+     * A Mermaid comment is added with raw-text hints for future AI summarisation.
+     *
+     * @return the ID of the emitted node (becomes the new prevId)
+     */
+    private static String emitCollapsedDetailBlock(StringBuilder sb,
+                                                    List<JclElement> details,
+                                                    Set<String> frequentTargets,
+                                                    Set<String> usedIds,
+                                                    String prevId) {
+        if (details.isEmpty()) return prevId;
+
+        // Collect frequent subroutine calls in this block
+        Map<String, Integer> localFreqCalls = new LinkedHashMap<String, Integer>();
+        for (JclElement e : details) {
+            String target = getPerformTarget(e);
+            if (target != null) {
+                String key = target.toUpperCase();
+                if (frequentTargets.contains(key)) {
+                    Integer c = localFreqCalls.get(key);
+                    localFreqCalls.put(key, c != null ? c + 1 : 1);
+                }
+            }
+        }
+
+        // Build label
+        StringBuilder label = new StringBuilder();
+        label.append("\uD83D\uDCE6 "); // 📦
+        label.append(details.size());
+        label.append(details.size() == 1 ? " Anweisung" : " Anweisungen");
+
+        if (!localFreqCalls.isEmpty()) {
+            label.append("\\n");
+            List<String> parts = new ArrayList<String>();
+            for (Map.Entry<String, Integer> entry : localFreqCalls.entrySet()) {
+                if (entry.getValue() > 1) {
+                    parts.add(entry.getKey() + " \u00D7" + entry.getValue());
+                } else {
+                    parts.add(entry.getKey());
+                }
+            }
+            // Limit to first 3 frequent calls to keep label readable
+            int shown = Math.min(parts.size(), 3);
+            for (int i = 0; i < shown; i++) {
+                if (i > 0) label.append("\\n");
+                label.append(parts.get(i));
+            }
+            if (parts.size() > shown) {
+                label.append("\\n+").append(parts.size() - shown).append(" weitere");
+            }
+        }
+
+        String id = safeId("BLOCK", usedIds);
+        sb.append("    ").append(id).append("[\"").append(label).append("\"]\n");
+        sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
+        sb.append("    style ").append(id)
+          .append(" fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray: 5 5\n");
+
+        // AI summarisation hook: raw text of collapsed elements as Mermaid comment
+        sb.append("    %% AI-SUMMARY-HINT: ");
+        int hintLen = 0;
+        for (JclElement e : details) {
+            if (e.getRawText() != null && hintLen < 400) {
+                String raw = e.getRawText().replace("\n", " ").replace("\r", "").trim();
+                if (raw.length() > 80) raw = raw.substring(0, 80);
+                sb.append(raw).append("; ");
+                hintLen += raw.length();
+            }
+        }
+        sb.append("\n");
+
+        return id;
+    }
+
+    // ─── Collapsed flowchart (heuristic-based) ───────────────────
+
+    /**
+     * Generate a collapsed flowchart that preserves the structural flow
+     * of the program in document order.
+     * <p>
+     * Strategy:
+     * <ol>
+     *   <li>Analyse PERFORM target frequencies — targets called ≥{@value #FREQ_THRESHOLD}
+     *       times are considered "frequent" (detail noise).</li>
+     *   <li>Walk elements in order, classifying each as
+     *       <em>structural</em> (IF, FOR, REPEAT, DB-loops, subroutines),
+     *       <em>important</em> (external calls, infrequent PERFORMs),
+     *       or <em>detail</em> (frequent PERFORMs, I/O, INCLUDEs).</li>
+     *   <li>Consecutive detail elements between structural/important ones are
+     *       collapsed into a single "📦" summary node that lists
+     *       which frequent subroutines are called.</li>
+     *   <li>A Mermaid comment with raw text is added for future AI summarisation.</li>
+     * </ol>
+     */
     private static String convertFlowchartCollapsed(JclOutlineModel model, Set<String> sysFuncs) {
         StringBuilder sb = new StringBuilder("flowchart TD\n");
         Set<String> usedIds = new HashSet<String>();
+        List<JclElement> all = model.getElements();
+
+        // Determine program name
         String progName = model.getSourceName() != null ? model.getSourceName() : "PROGRAMM";
+        for (JclElement e : all) {
+            JclElementType t = e.getType();
+            if (t == JclElementType.NAT_PROGRAM || t == JclElementType.NAT_SUBPROGRAM
+                    || t == JclElementType.NAT_FUNCTION || t == JclElementType.PROGRAM_ID
+                    || t == JclElementType.JOB) {
+                if (e.getName() != null) { progName = e.getName(); break; }
+            }
+        }
+
+        // Phase 1 — Frequency analysis
+        Map<String, Integer> performFreq = analyzePerformFrequency(all);
+        Set<String> frequentTargets = findFrequentTargets(performFreq, FREQ_THRESHOLD);
+
+        // Start node
         String startId = safeId("START", usedIds);
         sb.append("    ").append(startId).append("([\"").append(esc(progName)).append("\"])\n");
+
+        // Frequency legend (if any frequent targets found)
+        if (!frequentTargets.isEmpty()) {
+            sb.append("    %% H\u00E4ufige Subroutines (");
+            boolean first = true;
+            for (String ft : frequentTargets) {
+                if (!first) sb.append(", ");
+                Integer cnt = performFreq.get(ft);
+                sb.append(ft).append(" \u00D7").append(cnt != null ? cnt : "?");
+                first = false;
+            }
+            sb.append(") — in \u201E\uD83D\uDCE6\u201C-Bl\u00F6cken zusammengefasst\n");
+        }
+
         String prevId = startId;
-        int branches = 0, loops = 0, extCalls = 0, dbOps = 0, subs = 0;
-        for (JclElement e : model.getElements()) {
-            JclElementType t = e.getType();
-            if (t == JclElementType.IF || t == JclElementType.NAT_IF_BLOCK || t == JclElementType.NAT_DECIDE) branches++;
-            if (t == JclElementType.NAT_FOR || t == JclElementType.NAT_REPEAT) loops++;
-            if (t == JclElementType.NAT_CALLNAT || t == JclElementType.NAT_CALL
-                    || t == JclElementType.NAT_FETCH || t == JclElementType.CALL_STMT) extCalls++;
-            if (t == JclElementType.NAT_READ || t == JclElementType.NAT_FIND
-                    || t == JclElementType.NAT_HISTOGRAM) dbOps++;
-            if (t == JclElementType.NAT_INLINE_SUBROUTINE || t == JclElementType.NAT_SUBROUTINE
-                    || t == JclElementType.PARAGRAPH) subs++;
+        List<JclElement> detailBuffer = new ArrayList<JclElement>();
+
+        // Phase 2 — Walk elements, classify, and build collapsed flow
+        for (JclElement e : all) {
+            if (isSkippedInCollapsedFlow(e)) continue;
+
+            if (isStructuralFlowElement(e) || isImportantFlowElement(e, frequentTargets)) {
+                // Flush buffered detail elements as collapsed block
+                if (!detailBuffer.isEmpty()) {
+                    prevId = emitCollapsedDetailBlock(sb, detailBuffer,
+                            frequentTargets, usedIds, prevId);
+                    detailBuffer.clear();
+                }
+                // Emit the structural / important element
+                prevId = emitCollapsedFlowElement(sb, e, usedIds, prevId, sysFuncs);
+            } else {
+                // Everything else goes into the detail buffer
+                detailBuffer.add(e);
+            }
         }
-        if (branches > 0) {
-            String id = safeId("BRANCHES", usedIds);
-            sb.append("    ").append(id).append("{\"").append(branches).append(" Verzweigungen\"}\n");
-            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
-            prevId = id;
+
+        // Flush remaining detail buffer
+        if (!detailBuffer.isEmpty()) {
+            prevId = emitCollapsedDetailBlock(sb, detailBuffer,
+                    frequentTargets, usedIds, prevId);
         }
-        if (loops > 0) {
-            String id = safeId("LOOPS", usedIds);
-            sb.append("    ").append(id).append("{{\"").append(loops).append(" Schleifen\"}}\n");
-            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
-            prevId = id;
-        }
-        if (dbOps > 0) {
-            String id = safeId("DBOPS", usedIds);
-            sb.append("    ").append(id).append("[(\"").append(dbOps).append(" DB-Zugriffe\")]\n");
-            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
-            prevId = id;
-        }
-        if (extCalls > 0) {
-            String id = safeId("EXTCALLS", usedIds);
-            sb.append("    ").append(id).append(">\"").append(extCalls).append(" externe Aufrufe\"]\n");
-            sb.append("    ").append(prevId).append(" -.-> ").append(id).append("\n");
-        }
-        if (subs > 0) {
-            String id = safeId("SUBS", usedIds);
-            sb.append("    ").append(id).append("{{\"").append(subs).append(" Unterprogramme\"}}\n");
-            sb.append("    ").append(prevId).append(" --> ").append(id).append("\n");
-            prevId = id;
-        }
+
+        // End node
         String endId = safeId("END", usedIds);
         sb.append("    ").append(endId).append("([\"END\"])\n");
         sb.append("    ").append(prevId).append(" --> ").append(endId).append("\n");
+
         return sb.toString();
     }
 
