@@ -117,7 +117,7 @@ public class ConnectionService {
             }
             ndv.add((IPalType) envRec);
 
-            PalTypeCP cpRec = new PalTypeCP(Charset.defaultCharset().displayName());
+            PalTypeCP cpRec = new PalTypeCP(resolveClientCodePage(params));
             ndv.add((IPalType) cpRec);
 
             if (monitorSessionId != null) {
@@ -344,6 +344,22 @@ public class ConnectionService {
             lib = "SYSTEM";
         }
         return lib;
+    }
+
+    /**
+     * Resolve the client codepage to report to the NDV server.
+     * Uses the explicit {@link ConnectKey#CLIENT_CP} parameter if present,
+     * otherwise falls back to {@code Charset.defaultCharset().name()}.
+     * <p>
+     * The NDV server requires a Single Byte Character Set (SBCS) name;
+     * multi-byte charsets like UTF-8 are rejected with NAT7734.
+     */
+    private static String resolveClientCodePage(Map<String, String> params) {
+        String explicit = params.get(ConnectKey.CLIENT_CP);
+        if (explicit != null && !explicit.isEmpty()) {
+            return explicit;
+        }
+        return Charset.defaultCharset().name();
     }
 }
 

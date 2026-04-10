@@ -13,6 +13,13 @@ public final class ConnectKey {
     public static final String NEW_PASSWORD = "new password";
     public static final String PARM = "session parameters";
 
+    /**
+     * Optional: explicit client codepage to report to the NDV server.
+     * Must be a Single Byte Character Set (SBCS) name, e.g. "ISO-8859-1".
+     * If not set, {@code Charset.defaultCharset().name()} is used as fallback.
+     */
+    public static final String CLIENT_CP = "client.codepage";
+
     private ConnectKey() {
     }
 }
