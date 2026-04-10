@@ -86,6 +86,7 @@ public final class TiledDiagramRenderer {
     // ── Public getters ─────────────────────────────────────────
 
     public String getDiagramId() { return diagramId; }
+    public String getFullSvg() { return fullSvg; }
     public int getCols() { return cols; }
     public int getRows() { return rows; }
     public double getViewBoxX() { return vbX; }
@@ -225,7 +226,7 @@ public final class TiledDiagramRenderer {
      * causing {@code preserveAspectRatio="xMidYMid meet"} to centre the
      * content with large empty margins — every tile then looks the same.
      */
-    static String clipSvgToViewBox(String svg, double x, double y, double w, double h) {
+    public static String clipSvgToViewBox(String svg, double x, double y, double w, double h) {
         String newVB = String.format(java.util.Locale.US, "%.2f %.2f %.2f %.2f", x, y, w, h);
 
         // 1) Replace viewBox

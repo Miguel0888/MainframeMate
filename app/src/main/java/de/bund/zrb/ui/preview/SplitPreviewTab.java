@@ -13,6 +13,7 @@ import de.bund.zrb.rag.service.RagService;
 import de.bund.zrb.ui.filetab.NaturalSubroutineHighlighter;
 import de.bund.zrb.ui.syntax.MainframeSyntaxSupport;
 import de.bund.zrb.ui.mermaid.MermaidDiagramPanel;
+import de.bund.zrb.ui.mermaid.MermaidExportDialog;
 import de.bund.zrb.ui.mermaid.OutlineToMermaidConverter;
 import de.bund.zrb.ui.mermaid.OutlineToMermaidConverter.DiagramType;
 import de.zrb.bund.newApi.ui.ConnectionTab;
@@ -2454,82 +2455,50 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     }
 
     /**
-     * Export the current Mermaid diagram as SVG or PNG via a file chooser dialog.
-     * Available when the diagram view is active and editing is not possible.
+     * Export the current Mermaid diagram via the export dialog.
+     * Offers format (SVG/PNG), scope (full/viewport), content (collapsed/full),
+     * SVG splitting, and progress tracking.
      */
     protected void exportMermaidDiagram() {
         if (mermaidDiagramPanel == null) return;
 
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Mermaid-Diagramm exportieren");
-
         // Build suggested file name from source name
-        String baseName = sourceName != null ? sourceName : "diagram";
-        int dot = baseName.lastIndexOf('.');
-        if (dot > 0) baseName = baseName.substring(0, dot);
+        String base = sourceName != null ? sourceName : "diagram";
+        int dot = base.lastIndexOf('.');
+        if (dot > 0) base = base.substring(0, dot);
 
-        javax.swing.filechooser.FileNameExtensionFilter svgFilter =
-                new javax.swing.filechooser.FileNameExtensionFilter("SVG-Datei (*.svg)", "svg");
-        javax.swing.filechooser.FileNameExtensionFilter pngFilter =
-                new javax.swing.filechooser.FileNameExtensionFilter("PNG-Bild (*.png)", "png");
-        chooser.addChoosableFileFilter(svgFilter);
-        chooser.addChoosableFileFilter(pngFilter);
-        chooser.setFileFilter(svgFilter); // SVG as default
-        chooser.setSelectedFile(new java.io.File(baseName + ".svg"));
-
-        // Update file name extension when filter changes
-        final String finalBaseName = baseName;
-        chooser.addPropertyChangeListener(JFileChooser.FILE_FILTER_CHANGED_PROPERTY, evt -> {
-            javax.swing.filechooser.FileFilter filter = chooser.getFileFilter();
-            String ext = (filter == pngFilter) ? ".png" : ".svg";
-            chooser.setSelectedFile(new java.io.File(finalBaseName + ext));
-        });
-
-        if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
-            java.io.File target = chooser.getSelectedFile();
-            if (target == null) return;
-
-            try {
-                String name = target.getName().toLowerCase();
-                if (name.endsWith(".png")) {
-                    // Export as PNG
-                    java.awt.image.BufferedImage img = mermaidDiagramPanel.getImage();
-                    if (img != null) {
-                        javax.imageio.ImageIO.write(img, "PNG", target);
-                    } else {
-                        JOptionPane.showMessageDialog(this,
-                                "Kein Bild verf\u00FCgbar \u2014 bitte warten, bis das Rendering abgeschlossen ist.",
-                                "Export", JOptionPane.WARNING_MESSAGE);
-                        return;
+        // Regenerator for full (non-collapsed) diagram — only for outline-based diagrams
+        final Runnable fullRegenerator;
+        if (!isMermaidCode) {
+            fullRegenerator = new Runnable() {
+                @Override
+                public void run() {
+                    // Temporarily disable collapse and re-render
+                    boolean wasColl = diagramCollapsed;
+                    diagramCollapsed = false;
+                    String fullMermaid = parseMermaidFromOutline(activeDiagramType);
+                    if (fullMermaid != null) {
+                        mermaidDiagramPanel.setMermaidSource(fullMermaid);
                     }
-                } else {
-                    // Export as SVG (default)
-                    if (!name.endsWith(".svg")) {
-                        target = new java.io.File(target.getAbsolutePath() + ".svg");
-                    }
-                    String svgContent = mermaidDiagramPanel.getSvg();
-                    if (svgContent != null && !svgContent.isEmpty()) {
-                        java.nio.file.Files.write(target.toPath(),
-                                svgContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                    } else {
-                        JOptionPane.showMessageDialog(this,
-                                "Kein SVG verf\u00FCgbar \u2014 bitte warten, bis das Rendering abgeschlossen ist.",
-                                "Export", JOptionPane.WARNING_MESSAGE);
-                        return;
-                    }
+                    diagramCollapsed = wasColl;
                 }
+            };
+        } else {
+            fullRegenerator = null;
+        }
 
-                // Brief confirmation
-                String original = saveButton.getText();
-                saveButton.setText("\u2713 Exportiert!");
-                Timer timer = new Timer(1500, evt -> saveButton.setText(original));
-                timer.setRepeats(false);
-                timer.start();
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this,
-                        "Fehler beim Exportieren:\n" + ex.getMessage(),
-                        "Fehler", JOptionPane.ERROR_MESSAGE);
-            }
+        Frame owner = (Frame) SwingUtilities.getWindowAncestor(this);
+        MermaidExportDialog dialog = new MermaidExportDialog(
+                owner, mermaidDiagramPanel, base, diagramCollapsed, fullRegenerator);
+        dialog.setVisible(true);
+
+        // Show brief confirmation if exported
+        if (dialog.getResult() == MermaidExportDialog.ExportResult.EXPORTED) {
+            String original = saveButton.getText();
+            saveButton.setText("\u2713 Exportiert!");
+            Timer timer = new Timer(1500, evt -> saveButton.setText(original));
+            timer.setRepeats(false);
+            timer.start();
         }
     }
 

@@ -562,6 +562,30 @@ public class MermaidDiagramPanel extends JPanel {
         return image;
     }
 
+    /** @return true when the diagram is using tiled rendering (large diagram). */
+    public boolean isTiledMode() {
+        return tiledMode;
+    }
+
+    /** @return the current zoom factor. */
+    public double getZoom() {
+        return zoom;
+    }
+
+    /**
+     * Get the current viewport in SVG-space coordinates.
+     * @return {svgX, svgY, svgW, svgH} or null if not available
+     */
+    public double[] getViewport() {
+        return getViewportInSvgSpace();
+    }
+
+    /** @return base width of the diagram (SVG units in tiled mode, pixels in legacy). */
+    public int getBaseW() { return baseW; }
+
+    /** @return base height of the diagram (SVG units in tiled mode, pixels in legacy). */
+    public int getBaseH() { return baseH; }
+
     // ═══════════════════════════════════════════════════════════
     //  Tile management
     // ═══════════════════════════════════════════════════════════
